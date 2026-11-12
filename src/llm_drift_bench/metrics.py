@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 _TOKEN_REGEX = re.compile(r"\w+|[^\w\s]", re.UNICODE)
+_MAX_EDIT_DISTANCE_CHARS = 16_384
 
 
 def tokenize_text(text: str) -> list[str]:
@@ -54,44 +55,58 @@ def ngram_overlap_similarity(text_a: str, text_b: str, n: int = 2) -> float:
 
 
 def normalized_levenshtein_similarity(text_a: str, text_b: str) -> float:
-    """Compute normalized Levenshtein similarity in [0.0, 1.0].
+    """Return exact character similarity: 1 - distance / max input length.
 
-    Uses character-level edit distance for strings up to 1024 characters, and
-    token-level edit distance for longer completions to maintain O(N) responsiveness.
+    Characters are Unicode code points, including whitespace and punctuation;
+    no case folding or Unicode normalization is performed. Both empty inputs
+    score 1.0; exactly one empty input scores 0.0.
+
+    Bit-vector dynamic programming uses Python integers to process many cells
+    per operation. Each input is limited to 16,384 characters to bound work and
+    character-mask memory. Larger inputs raise ValueError, never a truncated
+    score or a score computed in different units.
     """
+    if not isinstance(text_a, str) or not isinstance(text_b, str):
+        raise TypeError("Levenshtein inputs must be strings.")
+    max_len = max(len(text_a), len(text_b))
+    if max_len > _MAX_EDIT_DISTANCE_CHARS:
+        raise ValueError(
+            f"Levenshtein inputs must not exceed {_MAX_EDIT_DISTANCE_CHARS:,} characters."
+        )
     if text_a == text_b:
-        return 1.0
-    if not text_a and not text_b:
         return 1.0
     if not text_a or not text_b:
         return 0.0
 
-    seq_a: list[str] | str
-    seq_b: list[str] | str
-    if max(len(text_a), len(text_b)) <= 1024:
-        seq_a, seq_b = text_a, text_b
-    else:
-        seq_a, seq_b = tokenize_text(text_a), tokenize_text(text_b)
+    # The shorter input is the pattern, keeping each bit vector small.
+    if len(text_a) > len(text_b):
+        text_a, text_b = text_b, text_a
+    masks: dict[str, int] = {}
+    for index, char in enumerate(text_a):
+        masks[char] = masks.get(char, 0) | (1 << index)
 
-    if len(seq_a) < len(seq_b):
-        seq_a, seq_b = seq_b, seq_a
+    width = len(text_a)
+    mask = (1 << width) - 1
+    high_bit = 1 << (width - 1)
+    positive = mask
+    negative = 0
+    distance = width
+    for char in text_b:
+        equal = masks.get(char, 0)
+        vertical = equal | negative
+        horizontal = (((equal & positive) + positive) ^ positive) | equal
+        positive_horizontal = negative | ~(horizontal | positive)
+        negative_horizontal = positive & horizontal
+        if positive_horizontal & high_bit:
+            distance += 1
+        if negative_horizontal & high_bit:
+            distance -= 1
+        positive_horizontal = ((positive_horizontal << 1) | 1) & mask
+        negative_horizontal = (negative_horizontal << 1) & mask
+        positive = (negative_horizontal | ~(vertical | positive_horizontal)) & mask
+        negative = positive_horizontal & vertical
 
-    max_len = len(seq_a)
-    if max_len == 0:
-        return 1.0
-
-    previous_row = list(range(len(seq_b) + 1))
-    for i, item_a in enumerate(seq_a):
-        current_row = [i + 1]
-        for j, item_b in enumerate(seq_b):
-            insertions = previous_row[j + 1] + 1
-            deletions = current_row[j] + 1
-            substitutions = previous_row[j] + (0 if item_a == item_b else 1)
-            current_row.append(min(insertions, deletions, substitutions))
-        previous_row = current_row
-
-    distance = previous_row[-1]
-    return max(0.0, 1.0 - (distance / max_len))
+    return 1.0 - distance / max_len
 
 
 def _json_type_tag(value: Any) -> str:

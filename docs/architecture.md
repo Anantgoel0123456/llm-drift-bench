@@ -74,8 +74,14 @@ visited nodes.
 - A fixed-weight composite drift score.
 - Linear-interpolated percentiles.
 
-Levenshtein currently switches from characters to tokens above 1,024
-characters. This discontinuity must be removed before release.
+Levenshtein uses exact character-level edit distance at every supported
+length, implemented with bit-vector dynamic programming. Characters are
+Unicode code points; whitespace, case, and normalization differences count.
+Similarity is `1 - distance / max(len(a), len(b))`. Both empty inputs score
+1.0, while exactly one empty input scores 0.0. Each input is limited to
+16,384 characters to bound computation and memory. Larger inputs raise
+ValueError, even for identical strings. The CLI reports this as input error
+exit code 2. Inputs are never silently truncated or compared as tokens.
 
 The JSON path representation currently does not escape object keys.
 

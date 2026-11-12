@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import itertools
+import random
 import unittest
 
 from llm_drift_bench.metrics import (
@@ -48,14 +50,72 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(normalized_levenshtein_similarity("abc", ""), 0.0)
         self.assertAlmostEqual(normalized_levenshtein_similarity("kitten", "sitting"), 1.0 - 3 / 7)
 
-        # Long string (>1024 chars) exercises token-level Levenshtein branch
+        # Long strings use the same character-level metric as short strings.
         long_a = " ".join(["token"] * 300)
         long_b = " ".join(["token"] * 290 + ["changed"] * 10)
         sim_long = normalized_levenshtein_similarity(long_a, long_b)
         self.assertGreater(sim_long, 0.9)
 
-        # Long whitespace-only string (>1024 chars) exercises max_len == 0 after tokenization
-        self.assertEqual(normalized_levenshtein_similarity(" " * 1050, "\t" * 1050), 1.0)
+        self.assertEqual(normalized_levenshtein_similarity(" " * 1050, "\t" * 1050), 0.0)
+
+    def test_levenshtein_has_no_length_boundary_discontinuity(self) -> None:
+        for length in (1023, 1024, 1025, 4096, 16_384):
+            with self.subTest(length=length):
+                baseline = "a" * length
+                candidate = "a" * (length - 1) + "b"
+                self.assertAlmostEqual(
+                    normalized_levenshtein_similarity(baseline, candidate),
+                    1.0 - 1.0 / length,
+                )
+
+    def test_levenshtein_matches_reference_distance(self) -> None:
+        def reference(a: str, b: str) -> float:
+            if not a and not b:
+                return 1.0
+            rows = [[0] * (len(b) + 1) for _ in range(len(a) + 1)]
+            for i in range(len(a) + 1):
+                rows[i][0] = i
+            for j in range(len(b) + 1):
+                rows[0][j] = j
+            for i in range(1, len(a) + 1):
+                for j in range(1, len(b) + 1):
+                    rows[i][j] = min(
+                        rows[i - 1][j] + 1,
+                        rows[i][j - 1] + 1,
+                        rows[i - 1][j - 1] + (a[i - 1] != b[j - 1]),
+                    )
+            return 1.0 - rows[-1][-1] / max(len(a), len(b))
+
+        strings = [
+            "".join(chars)
+            for length in range(5)
+            for chars in itertools.product("ab", repeat=length)
+        ]
+        pairs = list(itertools.product(strings, repeat=2))
+        rng = random.Random(0)
+        alphabet = "ab A\n\t\u00e9\u0301\U0001f600"
+        pairs.extend(
+            (
+                "".join(rng.choices(alphabet, k=rng.randrange(60, 180))),
+                "".join(rng.choices(alphabet, k=rng.randrange(60, 180))),
+            )
+            for _ in range(30)
+        )
+        for a, b in pairs:
+            expected = reference(a, b)
+            self.assertAlmostEqual(normalized_levenshtein_similarity(a, b), expected)
+            self.assertAlmostEqual(normalized_levenshtein_similarity(b, a), expected)
+
+    def test_levenshtein_unicode_and_resource_limit(self) -> None:
+        self.assertEqual(normalized_levenshtein_similarity("\u00e9", "e\u0301"), 0.0)
+        self.assertEqual(normalized_levenshtein_similarity("A", "a"), 0.0)
+        self.assertEqual(normalized_levenshtein_similarity("\U0001f600a", "\U0001f600b"), 0.5)
+        oversized = "a" * 16_385
+        for a, b in ((oversized, "a"), ("a", oversized), (oversized, oversized)):
+            with self.assertRaisesRegex(ValueError, "16,384"):
+                normalized_levenshtein_similarity(a, b)
+        with self.assertRaisesRegex(TypeError, "strings"):
+            normalized_levenshtein_similarity(None, "a")  # type: ignore[arg-type]
 
     def test_flatten_json_paths_and_type_tags(self) -> None:
         self.assertEqual(_json_type_tag(None), "null")
