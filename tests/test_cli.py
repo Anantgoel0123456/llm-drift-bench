@@ -151,3 +151,90 @@ class TestCLI(unittest.TestCase):
                 )
             self.assertEqual(err_code, 2)
             self.assertIn("Error:", err_buf.getvalue())
+
+    def test_run_suite_with_model_names_and_report_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            main(["init-sample", "--dir", str(root)])
+            prompts_file = root / "prompts.json"
+            results_json = root / "results.json"
+            report_md = root / "report.md"
+
+            # 1. llm-drift-bench run --suite <prompts.json> --baseline model_a --candidate model_b
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                code = main(
+                    [
+                        "run",
+                        "--suite",
+                        str(prompts_file),
+                        "--baseline",
+                        "llama-3-fp16",
+                        "--candidate",
+                        "llama-3-int4",
+                        "-o",
+                        str(results_json),
+                    ]
+                )
+            self.assertEqual(code, 0)
+            self.assertTrue(results_json.exists())
+
+            # 2. llm-drift-bench report --input <results.json> --format markdown
+            md_buf = io.StringIO()
+            with contextlib.redirect_stdout(md_buf):
+                rep_code = main(
+                    [
+                        "report",
+                        "--input",
+                        str(results_json),
+                        "--format",
+                        "markdown",
+                        "-o",
+                        str(report_md),
+                    ]
+                )
+            self.assertEqual(rep_code, 0)
+            self.assertTrue(report_md.exists())
+            self.assertIn("# LLM Drift Benchmark Report:", md_buf.getvalue())
+
+            # 3. report --format json and --format console
+            json_rep_out = root / "rep_out.json"
+            console_rep_out = root / "rep_out.txt"
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(
+                    main(
+                        [
+                            "report",
+                            "--input",
+                            str(results_json),
+                            "--format",
+                            "json",
+                            "-o",
+                            str(json_rep_out),
+                        ]
+                    ),
+                    0,
+                )
+                self.assertEqual(
+                    main(
+                        [
+                            "report",
+                            "--input",
+                            str(results_json),
+                            "--format",
+                            "console",
+                            "-o",
+                            str(console_rep_out),
+                        ]
+                    ),
+                    0,
+                )
+            self.assertTrue(json_rep_out.exists())
+            self.assertTrue(console_rep_out.exists())
+
+            # 4. Missing --suite when --baseline is a model identifier returns exit code 2
+            err_buf = io.StringIO()
+            with contextlib.redirect_stderr(err_buf):
+                err_code = main(["run", "--baseline", "model_a", "--candidate", "model_b"])
+            self.assertEqual(err_code, 2)
+
