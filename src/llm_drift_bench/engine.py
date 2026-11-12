@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import json
+from pathlib import Path
+from typing import Any
 
 from llm_drift_bench.metrics import (
     compute_composite_drift_score,
@@ -228,4 +231,60 @@ class DriftBenchmarkEngine:
             failure_reasons=tuple(failure_reasons),
             results=tuple(pair_results),
         )
+
+
+def _load_records(path: str | Path, container_keys: tuple[str, ...]) -> tuple[list[dict[str, Any]], str | None]:
+    """Read a JSON or JSONL file into a list of dictionaries and optional top-level model_name."""
+    file_path = Path(path)
+    raw = file_path.read_text(encoding="utf-8").strip()
+    if not raw:
+        return [], None
+
+    if file_path.suffix.lower() == ".jsonl":
+        records: list[dict[str, Any]] = []
+        for idx, line in enumerate(raw.splitlines(), start=1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            item = json.loads(stripped)
+            if not isinstance(item, dict):
+                raise ValueError(f"Line {idx} in {file_path} must be a JSON object.")
+            records.append(item)
+        return records, None
+
+    parsed = json.loads(raw)
+    if isinstance(parsed, list):
+        for item in parsed:
+            if not isinstance(item, dict):
+                raise ValueError(f"All items in {file_path} must be JSON objects.")
+        return parsed, None
+
+    if isinstance(parsed, dict):
+        top_model = parsed.get("model_name") or parsed.get("model")
+        model_str = str(top_model) if top_model is not None else None
+        for key in container_keys:
+            if key in parsed and isinstance(parsed[key], list):
+                return list(parsed[key]), model_str
+
+    raise ValueError(f"Unsupported dataset format in {file_path}.")
+
+
+def load_model_samples(
+    path: str | Path,
+    default_model_name: str = "unknown",
+) -> list[ModelSample]:
+    """Load a list of ModelSample objects from a JSON or JSONL file."""
+    file_path = Path(path)
+    records, top_model = _load_records(file_path, ("samples", "outputs", "results"))
+    fallback_model = top_model or (
+        default_model_name if default_model_name != "unknown" else file_path.stem
+    )
+    return [ModelSample.from_dict(rec, default_model_name=fallback_model) for rec in records]
+
+
+def load_prompt_cases(path: str | Path) -> list[PromptCase]:
+    """Load a list of PromptCase objects from a JSON or JSONL file."""
+    records, _ = _load_records(path, ("prompts", "cases", "items"))
+    return [PromptCase.from_dict(rec) for rec in records]
+
 
