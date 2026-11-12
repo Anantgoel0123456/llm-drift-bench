@@ -38,7 +38,10 @@ classifiers = [
     "Topic :: Software Development :: Testing",
     "Typing :: Typed",
 ]
-dependencies = []
+dependencies = [
+    "pydantic>=2.0.0",
+    "rich>=13.0.0",
+]
 
 [project.optional-dependencies]
 dev = [
