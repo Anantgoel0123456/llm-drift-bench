@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from difflib import SequenceMatcher
-import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -165,83 +164,24 @@ def load_test_prompts(path: str | Path) -> list[TestPrompt]:
     return [TestPrompt.model_validate(item) for item in items]
 
 
-def _synthesize_sample_for_model(
-    prompt: TestPrompt,
-    model_name: str,
-    is_candidate: bool,
-) -> ModelSample:
-    """Synthesize a deterministic response when a model identifier is supplied instead of a file."""
-    if not is_candidate and prompt.baseline_output is not None:
-        return ModelSample(
-            prompt_id=prompt.id,
-            output=prompt.baseline_output,
-            model_name=model_name,
-            latency_ms=prompt.baseline_latency_ms or 120.0,
-        )
-    if is_candidate and prompt.candidate_output is not None:
-        return ModelSample(
-            prompt_id=prompt.id,
-            output=prompt.candidate_output,
-            model_name=model_name,
-            latency_ms=prompt.candidate_latency_ms or 95.0,
-        )
-
-    digest = hashlib.sha256(f"{prompt.id}:{model_name}".encode()).hexdigest()
-    latency = 90.0 + (int(digest[:4], 16) % 60)
-    payload: dict[str, Any] = {"prompt_id": prompt.id, "status": "ok"}
-    if prompt.expected_schema and isinstance(prompt.expected_schema.get("properties"), dict):
-        props = prompt.expected_schema["properties"]
-        payload = {}
-        for key, prop_spec in props.items():
-            ptype = prop_spec.get("type", "string") if isinstance(prop_spec, dict) else "string"
-            if isinstance(prop_spec, dict) and "enum" in prop_spec and prop_spec["enum"]:
-                payload[key] = prop_spec["enum"][0]
-            elif isinstance(prop_spec, dict) and "const" in prop_spec:
-                payload[key] = prop_spec["const"]
-            elif ptype == "number":
-                base_val = 100.0
-                jitter = (int(digest[4:6], 16) % 5) * 0.5
-                payload[key] = base_val if not is_candidate else round(base_val + jitter, 2)
-            elif ptype == "integer":
-                payload[key] = 1
-            elif ptype == "boolean":
-                payload[key] = True
-            elif ptype == "array":
-                payload[key] = ["sample_item"]
-            else:
-                payload[key] = f"INV-{digest[:4].upper()}"
-
-    return ModelSample(
-        prompt_id=prompt.id,
-        output=json.dumps(payload),
-        model_name=model_name,
-        latency_ms=round(latency, 2),
-    )
-
-
 def _resolve_target_samples(
     target: str | Path | Sequence[ModelSample],
-    prompts: Sequence[TestPrompt],
-    is_candidate: bool,
 ) -> tuple[str, dict[str, ModelSample]]:
-    """Resolve a target argument (ModelSample list, file path, or model name) into a sample map."""
+    """Resolve captured samples or an existing output file, never a model name."""
     if not isinstance(target, (str, Path)):
         sample_list = list(target)
         model_label = sample_list[0].model_name if sample_list else "unknown"
         return model_label, {s.prompt_id: s for s in sample_list}
 
     target_path = Path(target)
-    if target_path.exists() and target_path.is_file():
-        loaded = load_model_samples(target_path)
-        model_label = loaded[0].model_name if loaded else target_path.stem
-        return model_label, {s.prompt_id: s for s in loaded}
-
-    model_label = str(target)
-    synth_map = {
-        p.id: _synthesize_sample_for_model(p, model_label, is_candidate=is_candidate)
-        for p in prompts
-    }
-    return model_label, synth_map
+    if not target_path.is_file():
+        raise ValueError(
+            f"Benchmark target {str(target_path)!r} must be an existing outputs file. "
+            "Model identifiers are not supported; supply captured JSON/JSONL outputs."
+        )
+    loaded = load_model_samples(target_path)
+    model_label = loaded[0].model_name if loaded else target_path.stem
+    return model_label, {s.prompt_id: s for s in loaded}
 
 
 def evaluate_suite(
@@ -250,9 +190,9 @@ def evaluate_suite(
     candidate: str | Path | Sequence[ModelSample],
     suite_name: str = "default",
 ) -> BenchmarkResult:
-    """Evaluate a suite of TestPrompts across baseline and candidate runs or models."""
-    base_model, base_map = _resolve_target_samples(baseline, prompts, is_candidate=False)
-    cand_model, cand_map = _resolve_target_samples(candidate, prompts, is_candidate=True)
+    """Evaluate TestPrompts against captured baseline and candidate outputs."""
+    base_model, base_map = _resolve_target_samples(baseline)
+    cand_model, cand_map = _resolve_target_samples(candidate)
 
     active_prompts = list(prompts)
     if not active_prompts:

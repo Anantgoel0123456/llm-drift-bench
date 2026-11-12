@@ -152,7 +152,7 @@ class TestCLI(unittest.TestCase):
             self.assertEqual(err_code, 2)
             self.assertIn("Error:", err_buf.getvalue())
 
-    def test_run_suite_with_model_names_and_report_command(self) -> None:
+    def test_run_suite_with_captured_files_and_report_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             main(["init-sample", "--dir", str(root)])
@@ -160,7 +160,7 @@ class TestCLI(unittest.TestCase):
             results_json = root / "results.json"
             report_md = root / "report.md"
 
-            # 1. llm-drift-bench run --suite <prompts.json> --baseline model_a --candidate model_b
+            # Compare captured files, then render the saved report.
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
                 code = main(
@@ -169,9 +169,9 @@ class TestCLI(unittest.TestCase):
                         "--suite",
                         str(prompts_file),
                         "--baseline",
-                        "llama-3-fp16",
+                        str(root / "baseline_fp16.jsonl"),
                         "--candidate",
-                        "llama-3-int4",
+                        str(root / "candidate_int4.jsonl"),
                         "-o",
                         str(results_json),
                     ]
@@ -232,9 +232,40 @@ class TestCLI(unittest.TestCase):
             self.assertTrue(json_rep_out.exists())
             self.assertTrue(console_rep_out.exists())
 
-            # 4. Missing --suite when --baseline is a model identifier returns exit code 2
+            # Model identifiers are rejected as input errors.
             err_buf = io.StringIO()
             with contextlib.redirect_stderr(err_buf):
                 err_code = main(["run", "--baseline", "model_a", "--candidate", "model_b"])
             self.assertEqual(err_code, 2)
+
+    def test_missing_targets_never_create_benchmark_results(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            with contextlib.redirect_stdout(io.StringIO()):
+                main(["init-sample", "--dir", str(root)])
+            baseline = str(root / "baseline_fp16.jsonl")
+            candidate = str(root / "candidate_int4.jsonl")
+            missing = str(root / "missing outputs.json")
+            targets = [
+                (missing, candidate),
+                (baseline, missing),
+                (missing, missing),
+                (str(root), candidate),
+                ("model-a", "model-b"),
+            ]
+            for base, cand in targets:
+                for output_format in ("table", "json", "rich", "markdown"):
+                    with self.subTest(base=base, cand=cand, format=output_format):
+                        result_path = root / "must-not-exist.json"
+                        stdout, stderr = io.StringIO(), io.StringIO()
+                        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                            code = main([
+                                "run", "-b", base, "-c", cand,
+                                "--suite", str(root / "prompts.json"),
+                                "--format", output_format, "--output", str(result_path),
+                            ])
+                        self.assertEqual(code, 2)
+                        self.assertEqual(stdout.getvalue(), "")
+                        self.assertIn("existing outputs file", stderr.getvalue())
+                        self.assertFalse(result_path.exists())
 

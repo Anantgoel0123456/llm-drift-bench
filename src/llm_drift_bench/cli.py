@@ -30,7 +30,7 @@ def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     """Register the 'run' subcommand and its CLI flags."""
     run_parser = subparsers.add_parser(
         "run",
-        help="Run a drift benchmark comparing baseline and candidate LLM outputs or models.",
+        help="Compare captured baseline and candidate LLM outputs.",
     )
     run_parser.add_argument(
         "-s",
@@ -45,13 +45,13 @@ def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         "-b",
         "--baseline",
         required=True,
-        help="Baseline model identifier or path to baseline outputs (.json/.jsonl).",
+        help="Path to captured baseline outputs (.json/.jsonl).",
     )
     run_parser.add_argument(
         "-c",
         "--candidate",
         required=True,
-        help="Candidate model identifier or path to candidate outputs (.json/.jsonl).",
+        help="Path to captured candidate outputs (.json/.jsonl).",
     )
     run_parser.add_argument(
         "--max-drift",
@@ -98,38 +98,12 @@ def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
 
 def _handle_run(args: argparse.Namespace) -> int:
     """Execute the 'run' subcommand."""
-    base_is_file = Path(args.baseline).is_file()
-    cand_is_file = Path(args.candidate).is_file()
-
-    # If either baseline or candidate is a model name (not a file), or format is rich/markdown:
-    if not (base_is_file and cand_is_file):
-        if not args.suite:
+    for label, target in (("baseline", args.baseline), ("candidate", args.candidate)):
+        if not Path(target).is_file():
             raise ValueError(
-                "--suite <path_to_prompts.json> is required when --baseline or --candidate "
-                "is a model identifier rather than an outputs file."
+                f"--{label} must name an existing outputs file: {target!r}. "
+                "Model identifiers are not supported; supply captured JSON/JSONL outputs."
             )
-        suite_prompts = load_test_prompts(args.suite)
-        bench_res = evaluate_suite(
-            prompts=suite_prompts,
-            baseline=args.baseline,
-            candidate=args.candidate,
-            suite_name=Path(args.suite).stem,
-        )
-        if args.output:
-            out_path = Path(args.output)
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_text(bench_res.model_dump_json(indent=2), encoding="utf-8")
-
-        if args.format == "json":
-            print(bench_res.model_dump_json(indent=2))
-        elif args.format == "markdown":
-            print(export_markdown_report(bench_res), end="")
-        else:
-            render_console_report(bench_res)
-
-        if args.fail_on_drift and bench_res.mean_drift_score > args.max_drift:
-            return 1
-        return 0
 
     baseline_samples = load_model_samples(args.baseline)
     candidate_samples = load_model_samples(args.candidate)

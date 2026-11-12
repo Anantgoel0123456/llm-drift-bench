@@ -86,7 +86,7 @@ class TestEvaluator(unittest.TestCase):
         self.assertTrue(m_txt.format_adherence)
         self.assertFalse(m_txt.exact_match)
 
-    def test_evaluate_suite_with_models_and_files(self) -> None:
+    def test_evaluate_suite_with_captured_samples(self) -> None:
         prompts = [
             TestPrompt(
                 id="p1",
@@ -112,10 +112,9 @@ class TestEvaluator(unittest.TestCase):
             ),
         ]
 
-        # 1. Model identifier synthesis
-        res_models = evaluate_suite(prompts, "llama-3-fp16", "llama-3-int4", suite_name="synth")
-        self.assertEqual(res_models.total_prompts, 2)
-        self.assertEqual(res_models.baseline_model, "llama-3-fp16")
+        # Model identifiers must not produce fabricated outputs, even with inline data.
+        with self.assertRaisesRegex(ValueError, "existing outputs file"):
+            evaluate_suite(prompts, "llama-3-fp16", "llama-3-int4")
 
         # 2. Sequence of ModelSamples with empty prompts list (auto-discovers shared IDs)
         samples_a = [ModelSample(prompt_id="p1", model_name="mA", output='{"x": 1}')]
@@ -127,6 +126,26 @@ class TestEvaluator(unittest.TestCase):
             evaluate_suite([], [], [])
         with self.assertRaises(ValueError):
             evaluate_suite(prompts, samples_a, samples_b)
+
+    def test_evaluate_suite_files_and_missing_targets(self) -> None:
+        prompts = [TestPrompt(prompt_id="p1", prompt="Return JSON")]
+        samples = [ModelSample(prompt_id="p1", output='{"x": 1}')]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            outputs = root / "captured outputs.json"
+            outputs.write_text(json.dumps([
+                {"prompt_id": "p1", "output": '{"x": 1}', "model_name": "captured"}
+            ]), encoding="utf-8")
+            result = evaluate_suite(prompts, str(outputs), outputs)
+            self.assertEqual(result.baseline_model, "captured")
+            self.assertEqual(result.total_prompts, 1)
+            self.assertEqual(result.exact_match_rate, 1.0)
+            for target in (root / "missing.json", str(root / "missing.jsonl"), root):
+                with self.subTest(target=target):
+                    with self.assertRaisesRegex(ValueError, "existing outputs file"):
+                        evaluate_suite(prompts, target, samples)
+                    with self.assertRaisesRegex(ValueError, "existing outputs file"):
+                        evaluate_suite(prompts, samples, target)
 
     def test_load_test_prompts_and_benchmark_result_formats(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

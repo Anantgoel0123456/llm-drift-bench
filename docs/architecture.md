@@ -105,12 +105,15 @@ extra records, or incomplete suite coverage.
 
 `evaluate_suite` produces BenchmarkResult using a different scoring formula.
 
-A string target that is not an existing file currently activates synthetic
-sample generation. No model endpoint is called. Missing latency may also
-be replaced by synthetic values.
+Targets must be existing captured-output files or explicit ModelSample
+sequences. Missing files, directories, and model identifiers raise input
+errors; evaluation never generates responses or calls model endpoints.
+Inline outputs in TestPrompt do not bypass this requirement. Use explicit
+ModelSample sequences for in-memory comparisons.
 
-This fallback is unsuitable for measured benchmarks and must be removed
-from normal comparison paths before release.
+Missing latency is still replaced with synthetic defaults in this alternate
+evaluator and in legacy report conversion. Those separate measurement
+issues must be corrected before release.
 
 ## CLI and reporting
 

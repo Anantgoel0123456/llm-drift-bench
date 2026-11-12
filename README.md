@@ -157,9 +157,10 @@ Commands are `run`, `report`, `validate`, and `init-sample`.
 `--suite` and `--prompts` are aliases for the suite path.
 
 Use existing captured-output files for both comparison targets.
-The current model-name fallback generates synthetic data and does not
-contact a model endpoint. A missing file can accidentally activate that
-fallback.
+Missing files, directory paths, and model identifiers are input errors
+(CLI exit code `2`). The tool does not call model endpoints or generate
+responses. The library also accepts explicit sequences of `ModelSample`.
+`init-sample` creates illustrative fixtures, not measured model outputs.
 
 Table and JSON output use the benchmark engine. Rich and Markdown output
 currently recompute scores through a second evaluator with different
