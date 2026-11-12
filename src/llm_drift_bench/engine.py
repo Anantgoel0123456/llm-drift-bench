@@ -153,8 +153,29 @@ class DriftBenchmarkEngine:
 
         total = len(pair_results)
         drifted_count = sum(1 for r in pair_results if r.drifted)
-        base_conformant = sum(1 for r in pair_results if r.baseline_validation.passed) / total
-        cand_conformant = sum(1 for r in pair_results if r.candidate_validation.passed) / total
+
+        json_expected_results = [
+            r
+            for r in pair_results
+            if (
+                (r.prompt_id in prompt_map and prompt_map[r.prompt_id].schema is not None)
+                or r.baseline_validation.is_valid_json
+                or r.candidate_validation.is_valid_json
+            )
+        ]
+        if json_expected_results:
+            json_total = len(json_expected_results)
+            base_conformant = (
+                sum(1 for r in json_expected_results if r.baseline_validation.passed)
+                / json_total
+            )
+            cand_conformant = (
+                sum(1 for r in json_expected_results if r.candidate_validation.passed)
+                / json_total
+            )
+        else:
+            base_conformant = 1.0
+            cand_conformant = 1.0
 
         mean_drift = sum(r.composite_drift_score for r in pair_results) / total
         max_drift = max(r.composite_drift_score for r in pair_results)
