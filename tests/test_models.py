@@ -6,12 +6,15 @@ import json
 import unittest
 
 from llm_drift_bench.models import (
+    BenchmarkResult,
     DriftBenchmarkReport,
+    DriftMetrics,
     DriftThresholds,
     ModelSample,
     PromptCase,
     SampleDriftResult,
     SchemaValidationResult,
+    TestPrompt,
     ValidationIssue,
 )
 
@@ -143,3 +146,55 @@ class TestModels(unittest.TestCase):
         self.assertEqual(empty_report.drift_rate, 0.0)
         thresholds = DriftThresholds()
         self.assertEqual(thresholds.max_composite_drift, 0.25)
+
+    def test_pydantic_models_validation_and_serialization(self) -> None:
+        prompt = TestPrompt.model_validate(
+            {
+                "prompt_id": "tp_01",
+                "prompt": "Generate user profile JSON",
+                "schema": {"type": "object"},
+                "category": "structured",
+            }
+        )
+        self.assertEqual(prompt.id, "tp_01")
+        self.assertEqual(prompt.prompt_id, "tp_01")
+        self.assertEqual(prompt.expected_schema, {"type": "object"})
+
+        metrics = DriftMetrics(
+            prompt_id="tp_01",
+            category="structured",
+            exact_match=True,
+            baseline_valid_json=True,
+            candidate_valid_json=True,
+            format_adherence=True,
+            semantic_similarity=1.0,
+            token_diff_ratio=0.0,
+            drift_score=0.0,
+            baseline_latency_ms=100.0,
+            candidate_latency_ms=80.0,
+            latency_delta_ms=-20.0,
+            baseline_tokens_per_sec=120.0,
+            candidate_tokens_per_sec=150.0,
+            tokens_per_sec_delta=30.0,
+        )
+        bench = BenchmarkResult(
+            suite_name="test_suite",
+            baseline_model="gpt-4o-base",
+            candidate_model="gpt-4o-cand",
+            total_prompts=1,
+            exact_match_rate=1.0,
+            baseline_json_adherence_rate=1.0,
+            candidate_json_adherence_rate=1.0,
+            mean_semantic_similarity=1.0,
+            mean_token_diff_ratio=0.0,
+            mean_drift_score=0.0,
+            mean_baseline_latency_ms=100.0,
+            mean_candidate_latency_ms=80.0,
+            mean_baseline_tokens_per_sec=120.0,
+            mean_candidate_tokens_per_sec=150.0,
+            metrics=[metrics],
+        )
+        dumped = json.loads(bench.model_dump_json())
+        self.assertEqual(dumped["suite_name"], "test_suite")
+        self.assertEqual(dumped["metrics"][0]["prompt_id"], "tp_01")
+
