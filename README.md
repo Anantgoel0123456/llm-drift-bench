@@ -21,7 +21,7 @@ When upgrading model checkpoints or quantizing weights for production inference,
 
 The runtime uses Pydantic and Rich, together with their transitive dependencies.
 
-Similarity measures agreement with a baseline, not factual correctness or semantic equivalence. The current validator implements a JSON Schema subset; unsupported constraints are not reliably rejected in this unreleased revision.
+Similarity measures agreement with a baseline, not factual correctness or semantic equivalence. The validator implements a JSON Schema subset and rejects unsupported keywords before checking the response. It is not a complete JSON Schema implementation.
 
 ---
 

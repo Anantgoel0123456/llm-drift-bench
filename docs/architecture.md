@@ -54,8 +54,11 @@ The handwritten schema subset implements:
 - required and dictionary-valued properties
 - boolean or dictionary-valued additionalProperties
 
-This is not a complete JSON Schema implementation. Unsupported keywords
-currently may be ignored. This behavior must be corrected before release.
+This is not a complete JSON Schema implementation. A schema support check
+rejects unsupported keywords before instance validation, including rules
+for absent properties and empty arrays. Unsupported schema forms are
+reported explicitly. Schema traversal is limited to depth 64 and 10,000
+visited nodes.
 
 ## Metrics
 
@@ -138,8 +141,7 @@ __init__.py. Release preparation should establish one source of truth.
 
 ## Testing limitations
 
-The current test suite has 36 tests. Coverage is not evidence that all
-benchmark semantics are correct.
+Coverage is not evidence that all benchmark semantics are correct.
 
 Release checks must include unsupported schemas, malformed inputs,
 duplicate and mismatched IDs, missing measurements, format consistency,

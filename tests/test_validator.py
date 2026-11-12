@@ -146,3 +146,95 @@ class TestValidator(unittest.TestCase):
             },
         )
         self.assertTrue(res_with_schema.passed)
+
+    def test_unsupported_schema_constraints_fail_explicitly(self) -> None:
+        schemas = [
+            {"type": "object", "anyOf": [{"required": ["b"]}]},
+            {"oneOf": [{"type": "string"}]},
+            {"allOf": [{"type": "string"}]},
+            {"not": {"type": "object"}},
+            {"$ref": "#/$defs/s", "$defs": {"s": {"type": "string"}}},
+            {"if": {"type": "object"}, "then": {"required": ["b"]}, "else": {}},
+            {"patternProperties": {"^x": {"type": "string"}}},
+            {"uniqueItems": True},
+            {"multipleOf": 2},
+            {"exclusiveMinimum": 0},
+            {"exclusiveMaximum": 10},
+            {"format": "email"},
+        ]
+        for schema in schemas:
+            with self.subTest(schema=schema):
+                issues = validate_against_schema({"a": 1}, schema)
+                self.assertTrue(issues)
+                self.assertTrue(
+                    all(issue.rule == "unsupported_keyword" for issue in issues)
+                )
+
+    def test_checks_nested_rules_without_matching_instance_fields(self) -> None:
+        schemas = [
+            {"properties": {"absent": {"format": "email"}}},
+            {"items": {"oneOf": [{"type": "string"}]}},
+            {"additionalProperties": {"multipleOf": 2}},
+        ]
+        for schema in schemas:
+            with self.subTest(schema=schema):
+                issues = validate_against_schema({}, schema)
+                self.assertTrue(issues)
+                self.assertEqual(issues[0].rule, "unsupported_keyword")
+
+    def test_schema_annotations_and_property_names_are_not_constraints(self) -> None:
+        schema = {
+            "title": "Example",
+            "default": {"anyOf": 1},
+            "examples": [{"$ref": "ordinary data"}],
+            "properties": {"anyOf": {"type": "integer"}},
+        }
+        self.assertEqual(validate_against_schema({"anyOf": 1}, schema), [])
+
+    def test_unsupported_nested_schema_shapes_fail_explicitly(self) -> None:
+        schemas = [
+            {"properties": {"absent": False}},
+            {"items": False},
+            {"items": [{"type": "string"}]},
+        ]
+        for schema in schemas:
+            with self.subTest(schema=schema):
+                issues = validate_against_schema({}, schema)
+                self.assertTrue(issues)
+                self.assertEqual(issues[0].rule, "unsupported_schema")
+
+        issues = validate_against_schema({}, {"properties": []})
+        self.assertEqual(issues[0].rule, "invalid_schema")
+
+    def test_additional_properties_support_is_preserved(self) -> None:
+        self.assertEqual(
+            validate_against_schema(
+                {"x": "value"}, {"additionalProperties": {"type": "string"}}
+            ),
+            [],
+        )
+        self.assertEqual(
+            validate_against_schema({}, {"additionalProperties": False}),
+            [],
+        )
+        issues = validate_against_schema(
+            {"x": 1}, {"additionalProperties": False}
+        )
+        self.assertEqual(issues[0].rule, "additionalProperties")
+
+    def test_schema_depth_limit(self) -> None:
+        schema = {}
+        for _ in range(66):
+            schema = {"items": schema}
+        issues = validate_against_schema([], schema)
+        self.assertEqual(issues[0].rule, "schema_limit")
+
+    def test_validate_output_propagates_unsupported_schema_issue(self) -> None:
+        result = validate_output(
+            '{"a": 1}',
+            {"type": "object", "anyOf": [{"required": ["b"]}]},
+        )
+        self.assertTrue(result.is_valid_json)
+        self.assertFalse(result.is_schema_conformant)
+        self.assertFalse(result.passed)
+        self.assertEqual(result.issues[0].rule, "unsupported_keyword")

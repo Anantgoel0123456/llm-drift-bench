@@ -79,7 +79,73 @@ def _check_json_type(instance: Any, expected_type: str) -> bool:
     return True
 
 
+_SUPPORTED_SCHEMA_KEYWORDS = frozenset({
+    "type", "enum", "const", "minLength", "maxLength", "pattern",
+    "minimum", "maximum", "minItems", "maxItems", "items",
+    "required", "properties", "additionalProperties",
+})
+_SCHEMA_ANNOTATIONS = frozenset({
+    "title", "description", "default", "examples", "$comment",
+    "readOnly", "writeOnly", "deprecated",
+})
+
+
+def _schema_support_issues(schema: dict[str, Any], path: str) -> list[ValidationIssue]:
+    """Check every schema node, including rules for absent instance fields."""
+    issues: list[ValidationIssue] = []
+    pending: list[tuple[Any, str, int]] = [(schema, path, 0)]
+    visited = 0
+    while pending:
+        node, location, depth = pending.pop()
+        visited += 1
+        if depth > 64 or visited > 10_000:
+            issues.append(ValidationIssue(
+                location, "Schema exceeds the depth or node limit.", "schema_limit"
+            ))
+            break
+        if not isinstance(node, dict):
+            issues.append(ValidationIssue(
+                location, "Only object-valued schemas are supported.", "unsupported_schema"
+            ))
+            continue
+        for keyword in node:
+            if keyword not in _SUPPORTED_SCHEMA_KEYWORDS | _SCHEMA_ANNOTATIONS:
+                issues.append(ValidationIssue(
+                    location, f"Unsupported JSON Schema keyword: {keyword!r}.",
+                    "unsupported_keyword",
+                ))
+        if "properties" in node:
+            properties = node["properties"]
+            if not isinstance(properties, dict):
+                issues.append(ValidationIssue(
+                    location, "properties must be an object.", "invalid_schema"
+                ))
+            else:
+                for key, child in reversed(list(properties.items())):
+                    child_path = f"{location}.properties[{json.dumps(key)}]"
+                    pending.append((child, child_path, depth + 1))
+        if "items" in node:
+            pending.append((node["items"], f"{location}.items", depth + 1))
+        if "additionalProperties" in node:
+            additional = node["additionalProperties"]
+            if not isinstance(additional, bool):
+                pending.append((additional, f"{location}.additionalProperties", depth + 1))
+    return issues
+
+
 def validate_against_schema(
+    instance: Any,
+    schema: dict[str, Any],
+    path: str = "$",
+) -> list[ValidationIssue]:
+    """Reject unsupported schemas before validating the instance against the subset."""
+    support_issues = _schema_support_issues(schema, path)
+    if support_issues:
+        return support_issues
+    return _validate_instance(instance, schema, path)
+
+
+def _validate_instance(
     instance: Any,
     schema: dict[str, Any],
     path: str = "$",
@@ -204,7 +270,7 @@ def validate_against_schema(
         items_schema = schema.get("items")
         if isinstance(items_schema, dict):
             for idx, elem in enumerate(instance):
-                issues.extend(validate_against_schema(elem, items_schema, f"{path}[{idx}]"))
+                issues.extend(_validate_instance(elem, items_schema, f"{path}[{idx}]"))
 
     # 6. Object constraints
     if isinstance(instance, dict):
@@ -224,7 +290,7 @@ def validate_against_schema(
             for prop_key, prop_schema in properties.items():
                 if prop_key in instance and isinstance(prop_schema, dict):
                     issues.extend(
-                        validate_against_schema(
+                        _validate_instance(
                             instance[prop_key],
                             prop_schema,
                             f"{path}.{prop_key}",
@@ -248,7 +314,7 @@ def validate_against_schema(
             for actual_key, actual_val in instance.items():
                 if actual_key not in allowed_keys:
                     issues.extend(
-                        validate_against_schema(
+                        _validate_instance(
                             actual_val,
                             additional,
                             f"{path}.{actual_key}",
