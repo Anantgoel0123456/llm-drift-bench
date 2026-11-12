@@ -51,3 +51,45 @@ def ngram_overlap_similarity(text_a: str, text_b: str, n: int = 2) -> float:
     total = sum(ngrams_a.values()) + sum(ngrams_b.values())
     return (2.0 * overlap) / total if total > 0 else 1.0
 
+
+def normalized_levenshtein_similarity(text_a: str, text_b: str) -> float:
+    """Compute normalized Levenshtein similarity in [0.0, 1.0].
+
+    Uses character-level edit distance for strings up to 1024 characters, and
+    token-level edit distance for longer completions to maintain O(N) responsiveness.
+    """
+    if text_a == text_b:
+        return 1.0
+    if not text_a and not text_b:
+        return 1.0
+    if not text_a or not text_b:
+        return 0.0
+
+    seq_a: list[str] | str
+    seq_b: list[str] | str
+    if max(len(text_a), len(text_b)) <= 1024:
+        seq_a, seq_b = text_a, text_b
+    else:
+        seq_a, seq_b = tokenize_text(text_a), tokenize_text(text_b)
+
+    if len(seq_a) < len(seq_b):
+        seq_a, seq_b = seq_b, seq_a
+
+    max_len = len(seq_a)
+    if max_len == 0:
+        return 1.0
+
+    previous_row = list(range(len(seq_b) + 1))
+    for i, item_a in enumerate(seq_a):
+        current_row = [i + 1]
+        for j, item_b in enumerate(seq_b):
+            insertions = previous_row[j + 1] + 1
+            deletions = current_row[j] + 1
+            substitutions = previous_row[j] + (0 if item_a == item_b else 1)
+            current_row.append(min(insertions, deletions, substitutions))
+        previous_row = current_row
+
+    distance = previous_row[-1]
+    return max(0.0, 1.0 - (distance / max_len))
+
+
