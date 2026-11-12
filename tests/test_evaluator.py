@@ -1,4 +1,4 @@
-"""Unit tests for evaluation logic, drift score math, and throughput in llm_drift_bench.evaluator."""
+"""Unit tests for evaluation logic, drift score math, and throughput in evaluator.py."""
 
 from __future__ import annotations
 

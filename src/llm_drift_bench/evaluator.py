@@ -36,7 +36,7 @@ def check_json_adherence(
 
 
 def compute_token_diff_ratio(baseline_text: str, candidate_text: str) -> float:
-    """Compute the token-level diff ratio in [0.0, 1.0] (0.0 = identical, 1.0 = completely different)."""
+    """Compute token-level diff ratio in [0.0, 1.0] (0.0 = identical, 1.0 = distinct)."""
     if baseline_text.strip() == candidate_text.strip():
         return 0.0
     tokens_a = tokenize_text(baseline_text)
@@ -165,7 +165,11 @@ def load_test_prompts(path: str | Path) -> list[TestPrompt]:
     return [TestPrompt.model_validate(item) for item in items]
 
 
-def _synthesize_sample_for_model(prompt: TestPrompt, model_name: str, is_candidate: bool) -> ModelSample:
+def _synthesize_sample_for_model(
+    prompt: TestPrompt,
+    model_name: str,
+    is_candidate: bool,
+) -> ModelSample:
     """Synthesize a deterministic response when a model identifier is supplied instead of a file."""
     if not is_candidate and prompt.baseline_output is not None:
         return ModelSample(
@@ -196,7 +200,8 @@ def _synthesize_sample_for_model(prompt: TestPrompt, model_name: str, is_candida
                 payload[key] = prop_spec["const"]
             elif ptype == "number":
                 base_val = 100.0
-                payload[key] = base_val if not is_candidate else round(base_val + (int(digest[4:6], 16) % 5) * 0.5, 2)
+                jitter = (int(digest[4:6], 16) % 5) * 0.5
+                payload[key] = base_val if not is_candidate else round(base_val + jitter, 2)
             elif ptype == "integer":
                 payload[key] = 1
             elif ptype == "boolean":
@@ -311,7 +316,7 @@ def evaluate_suite(
 
 
 def load_benchmark_result(path: str | Path) -> BenchmarkResult:
-    """Load a BenchmarkResult from a JSON file (supporting both BenchmarkResult and legacy report schemas)."""
+    """Load a BenchmarkResult from a JSON file (supporting BenchmarkResult and legacy schemas)."""
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     if "total_prompts" in raw and "metrics" in raw:
         return BenchmarkResult.model_validate(raw)

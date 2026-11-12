@@ -16,7 +16,7 @@ def render_console_report(
     result: BenchmarkResult,
     console: Console | None = None,
 ) -> str:
-    """Render a BenchmarkResult as a Rich tabular report to the console and return the captured text."""
+    """Render a BenchmarkResult as a Rich tabular report to the console and return text."""
     buffer = io.StringIO()
     capture_console = Console(file=buffer, width=100, force_terminal=False, color_system=None)
     active_console = console or Console()
@@ -106,7 +106,7 @@ def export_markdown_report(
     result: BenchmarkResult,
     output_path: str | Path | None = None,
 ) -> str:
-    """Format a BenchmarkResult as a clean GitHub-Flavored Markdown report and optionally save it."""
+    """Format a BenchmarkResult as a GitHub-Flavored Markdown report and optionally save it."""
     lines = [
         f"# LLM Drift Benchmark Report: `{result.suite_name}`",
         "",
