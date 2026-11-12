@@ -147,4 +147,55 @@ def json_structural_similarity(json_a: Any, json_b: Any) -> float:
     return intersection / union if union > 0 else 1.0
 
 
+def _values_equal(val_a: Any, val_b: Any) -> bool:
+    """Compare two JSON leaf values with strict boolean-vs-number distinction."""
+    if isinstance(val_a, bool) or isinstance(val_b, bool):
+        return isinstance(val_a, bool) and isinstance(val_b, bool) and val_a == val_b
+    return bool(val_a == val_b)
+
+
+def json_exact_field_match(json_a: Any, json_b: Any) -> float:
+    """Compute the fraction of union JSON leaf paths with identical values in [0.0, 1.0]."""
+    flat_a = flatten_json_paths(json_a)
+    flat_b = flatten_json_paths(json_b)
+    all_paths = set(flat_a.keys()) | set(flat_b.keys())
+    if not all_paths:
+        return 1.0
+    matched = sum(
+        1
+        for path in all_paths
+        if path in flat_a and path in flat_b and _values_equal(flat_a[path], flat_b[path])
+    )
+    return matched / len(all_paths)
+
+
+def json_numeric_drift(json_a: Any, json_b: Any) -> float | None:
+    """Compute mean bounded relative drift in [0.0, 1.0] across shared numeric JSON fields.
+
+    Returns None if the two JSON payloads share no numeric leaf fields.
+    """
+    flat_a = flatten_json_paths(json_a)
+    flat_b = flatten_json_paths(json_b)
+    shared_paths = sorted(set(flat_a.keys()) & set(flat_b.keys()))
+
+    drifts: list[float] = []
+    for path in shared_paths:
+        val_a = flat_a[path]
+        val_b = flat_b[path]
+        if (
+            isinstance(val_a, (int, float))
+            and not isinstance(val_a, bool)
+            and isinstance(val_b, (int, float))
+            and not isinstance(val_b, bool)
+        ):
+            denom = max(abs(float(val_a)), abs(float(val_b)), 1e-9)
+            rel_diff = abs(float(val_a) - float(val_b)) / denom
+            drifts.append(min(1.0, rel_diff))
+
+    if not drifts:
+        return None
+    return sum(drifts) / len(drifts)
+
+
+
 
