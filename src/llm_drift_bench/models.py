@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 from typing import Any
 
 
@@ -178,5 +179,91 @@ class SampleDriftResult:
             ),
             "drifted": self.drifted,
         }
+
+
+@dataclass(frozen=True)
+class DriftBenchmarkReport:
+    """Aggregate report summarizing a full baseline-vs-candidate benchmark run."""
+
+    baseline_model: str
+    candidate_model: str
+    total_samples: int
+    drifted_samples: int
+    baseline_json_conformity_rate: float
+    candidate_json_conformity_rate: float
+    mean_composite_drift: float
+    max_composite_drift: float
+    mean_token_jaccard: float
+    mean_levenshtein_similarity: float
+    mean_json_structural_similarity: float | None
+    mean_json_numeric_drift: float | None
+    baseline_p50_latency_ms: float | None
+    candidate_p50_latency_ms: float | None
+    baseline_p95_latency_ms: float | None
+    candidate_p95_latency_ms: float | None
+    passed: bool
+    failure_reasons: tuple[str, ...] = ()
+    results: tuple[SampleDriftResult, ...] = ()
+
+    @property
+    def drift_rate(self) -> float:
+        """Fraction of total samples that exceeded the drift threshold."""
+        if self.total_samples == 0:
+            return 0.0
+        return self.drifted_samples / self.total_samples
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the full benchmark report to a dictionary."""
+        return {
+            "baseline_model": self.baseline_model,
+            "candidate_model": self.candidate_model,
+            "total_samples": self.total_samples,
+            "drifted_samples": self.drifted_samples,
+            "drift_rate": round(self.drift_rate, 4),
+            "baseline_json_conformity_rate": round(self.baseline_json_conformity_rate, 4),
+            "candidate_json_conformity_rate": round(self.candidate_json_conformity_rate, 4),
+            "mean_composite_drift": round(self.mean_composite_drift, 4),
+            "max_composite_drift": round(self.max_composite_drift, 4),
+            "mean_token_jaccard": round(self.mean_token_jaccard, 4),
+            "mean_levenshtein_similarity": round(self.mean_levenshtein_similarity, 4),
+            "mean_json_structural_similarity": (
+                round(self.mean_json_structural_similarity, 4)
+                if self.mean_json_structural_similarity is not None
+                else None
+            ),
+            "mean_json_numeric_drift": (
+                round(self.mean_json_numeric_drift, 4)
+                if self.mean_json_numeric_drift is not None
+                else None
+            ),
+            "baseline_p50_latency_ms": (
+                round(self.baseline_p50_latency_ms, 2)
+                if self.baseline_p50_latency_ms is not None
+                else None
+            ),
+            "candidate_p50_latency_ms": (
+                round(self.candidate_p50_latency_ms, 2)
+                if self.candidate_p50_latency_ms is not None
+                else None
+            ),
+            "baseline_p95_latency_ms": (
+                round(self.baseline_p95_latency_ms, 2)
+                if self.baseline_p95_latency_ms is not None
+                else None
+            ),
+            "candidate_p95_latency_ms": (
+                round(self.candidate_p95_latency_ms, 2)
+                if self.candidate_p95_latency_ms is not None
+                else None
+            ),
+            "passed": self.passed,
+            "failure_reasons": list(self.failure_reasons),
+            "results": [r.to_dict() for r in self.results],
+        }
+
+    def to_json(self, indent: int = 2) -> str:
+        """Serialize the full benchmark report to a formatted JSON string."""
+        return json.dumps(self.to_dict(), indent=indent)
+
 
 
