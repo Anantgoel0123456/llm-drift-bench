@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+import json
 from pathlib import Path
 import sys
+from typing import Any
 
 from llm_drift_bench import __version__
 from llm_drift_bench.engine import (
@@ -15,6 +17,7 @@ from llm_drift_bench.engine import (
     load_prompt_cases,
 )
 from llm_drift_bench.models import DriftThresholds
+from llm_drift_bench.validator import validate_output
 
 
 def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -118,6 +121,108 @@ def _handle_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_validate_subparser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Register the 'validate' subcommand and its CLI flags."""
+    val_parser = subparsers.add_parser(
+        "validate",
+        help="Validate LLM outputs for JSON syntax and JSON Schema conformity.",
+    )
+    val_parser.add_argument(
+        "-i",
+        "--input",
+        required=True,
+        help="Path to model outputs file (.json or .jsonl).",
+    )
+    val_parser.add_argument(
+        "-s",
+        "--schema",
+        default=None,
+        help="Optional path to a global JSON Schema file (.json).",
+    )
+    val_parser.add_argument(
+        "-p",
+        "--prompts",
+        default=None,
+        help="Optional path to prompt cases file containing per-prompt schemas.",
+    )
+    val_parser.add_argument(
+        "--format",
+        choices=("table", "json"),
+        default="table",
+        help="Stdout display format: 'table' (default) or 'json'.",
+    )
+    val_parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Return exit code 1 if any sample fails JSON or schema validation.",
+    )
+
+
+def _handle_validate(args: argparse.Namespace) -> int:
+    """Execute the 'validate' subcommand."""
+    samples = load_model_samples(args.input)
+    global_schema: dict[str, Any] | None = None
+    if args.schema:
+        loaded = json.loads(Path(args.schema).read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            raise ValueError("Global schema file must contain a JSON object.")
+        global_schema = loaded
+
+    prompt_map = (
+        {case.prompt_id: case.schema for case in load_prompt_cases(args.prompts)}
+        if args.prompts
+        else {}
+    )
+
+    records: list[dict[str, Any]] = []
+    passed_count = 0
+    for sample in samples:
+        active_schema = prompt_map.get(sample.prompt_id) or global_schema
+        res = validate_output(sample.output, schema=active_schema)
+        if res.passed:
+            passed_count += 1
+        records.append(
+            {
+                "prompt_id": sample.prompt_id,
+                "model_name": sample.model_name,
+                **res.to_dict(),
+            }
+        )
+
+    total = len(samples)
+    rate = (passed_count / total) if total > 0 else 1.0
+    summary = {
+        "total_samples": total,
+        "passed_samples": passed_count,
+        "conformity_rate": round(rate, 4),
+        "results": records,
+    }
+
+    if args.format == "json":
+        print(json.dumps(summary, indent=2))
+    else:
+        print("=" * 72)
+        print(
+            f" JSON CONFORMITY VALIDATION  [{passed_count}/{total} passed ({rate:.1%})]"
+        )
+        print("=" * 72)
+        for item in records:
+            state = "PASS" if item["passed"] else "FAIL"
+            issue_str = (
+                "; ".join(f"{iss['path']}: {iss['message']}" for iss in item["issues"])
+                if item["issues"]
+                else "Conformant"
+            )
+            print(f" [{state}] {item['prompt_id']:<18} | {issue_str}")
+        print("=" * 72)
+
+    if args.strict and passed_count < total:
+        return 1
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build and return the top-level CLI ArgumentParser."""
     parser = argparse.ArgumentParser(
@@ -135,6 +240,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
     _add_run_subparser(subparsers)
+    _add_validate_subparser(subparsers)
     return parser
 
 
@@ -148,6 +254,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "run":
             return _handle_run(args)
+        if args.command == "validate":
+            return _handle_validate(args)
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
