@@ -116,3 +116,67 @@ class SchemaValidationResult:
             "issues": [issue.to_dict() for issue in self.issues],
         }
 
+
+@dataclass(frozen=True)
+class DriftThresholds:
+    """Configurable thresholds for deciding if drift exceeds acceptable limits."""
+
+    max_composite_drift: float = 0.25
+    min_json_conformity_rate: float = 0.95
+    max_numeric_relative_drift: float = 0.15
+    max_latency_regression_pct: float = 50.0
+
+
+@dataclass(frozen=True)
+class SampleDriftResult:
+    """Pairwise comparison and drift metrics for a single prompt_id."""
+
+    prompt_id: str
+    category: str
+    baseline_validation: SchemaValidationResult
+    candidate_validation: SchemaValidationResult
+    token_jaccard_similarity: float
+    ngram_similarity: float
+    levenshtein_similarity: float
+    json_structural_similarity: float | None
+    json_exact_field_match: float | None
+    json_numeric_drift: float | None
+    composite_drift_score: float
+    latency_delta_ms: float | None = None
+    drifted: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize pairwise drift result to a dictionary."""
+        return {
+            "prompt_id": self.prompt_id,
+            "category": self.category,
+            "baseline_validation": self.baseline_validation.to_dict(),
+            "candidate_validation": self.candidate_validation.to_dict(),
+            "token_jaccard_similarity": round(self.token_jaccard_similarity, 4),
+            "ngram_similarity": round(self.ngram_similarity, 4),
+            "levenshtein_similarity": round(self.levenshtein_similarity, 4),
+            "json_structural_similarity": (
+                round(self.json_structural_similarity, 4)
+                if self.json_structural_similarity is not None
+                else None
+            ),
+            "json_exact_field_match": (
+                round(self.json_exact_field_match, 4)
+                if self.json_exact_field_match is not None
+                else None
+            ),
+            "json_numeric_drift": (
+                round(self.json_numeric_drift, 4)
+                if self.json_numeric_drift is not None
+                else None
+            ),
+            "composite_drift_score": round(self.composite_drift_score, 4),
+            "latency_delta_ms": (
+                round(self.latency_delta_ms, 2)
+                if self.latency_delta_ms is not None
+                else None
+            ),
+            "drifted": self.drifted,
+        }
+
+
