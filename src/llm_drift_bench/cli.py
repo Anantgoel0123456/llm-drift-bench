@@ -223,6 +223,108 @@ def _handle_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_init_sample_subparser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Register the 'init-sample' subcommand to scaffold starter benchmark files."""
+    init_parser = subparsers.add_parser(
+        "init-sample",
+        help="Generate sample prompts, baseline, and candidate datasets in a directory.",
+    )
+    init_parser.add_argument(
+        "-d",
+        "--dir",
+        default=".",
+        help="Target directory for generated sample files (default: current directory).",
+    )
+
+
+def _handle_init_sample(args: argparse.Namespace) -> int:
+    """Execute the 'init-sample' subcommand."""
+    target_dir = Path(args.dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    prompts_data = [
+        {
+            "prompt_id": "extract_invoice_01",
+            "category": "extraction",
+            "prompt": "Extract invoice fields as JSON.",
+            "schema": {
+                "type": "object",
+                "required": ["invoice_id", "total_usd", "status"],
+                "properties": {
+                    "invoice_id": {"type": "string", "minLength": 3},
+                    "total_usd": {"type": "number", "minimum": 0},
+                    "status": {"type": "string", "enum": ["paid", "pending", "overdue"]},
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "prompt_id": "classify_ticket_02",
+            "category": "classification",
+            "prompt": "Classify customer support ticket priority and tags.",
+            "schema": {
+                "type": "object",
+                "required": ["priority", "confidence", "tags"],
+                "properties": {
+                    "priority": {"type": "string", "enum": ["low", "medium", "high"]},
+                    "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                    "tags": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+                },
+            },
+        },
+    ]
+
+    baseline_rows = [
+        {
+            "prompt_id": "extract_invoice_01",
+            "model_name": "llama-3-8b-fp16",
+            "latency_ms": 142.5,
+            "output": '{"invoice_id": "INV-2026-09", "total_usd": 1250.00, "status": "paid"}',
+        },
+        {
+            "prompt_id": "classify_ticket_02",
+            "model_name": "llama-3-8b-fp16",
+            "latency_ms": 118.0,
+            "output": '{"priority": "high", "confidence": 0.94, "tags": ["billing", "urgent"]}',
+        },
+    ]
+
+    candidate_rows = [
+        {
+            "prompt_id": "extract_invoice_01",
+            "model_name": "llama-3-8b-q4_k_m",
+            "latency_ms": 89.2,
+            "output": '{"invoice_id": "INV-2026-09", "total_usd": 1250.00, "status": "paid"}',
+        },
+        {
+            "prompt_id": "classify_ticket_02",
+            "model_name": "llama-3-8b-q4_k_m",
+            "latency_ms": 76.4,
+            "output": '{"priority": "high", "confidence": 0.91, "tags": ["billing", "urgent"]}',
+        },
+    ]
+
+    prompts_path = target_dir / "prompts.json"
+    baseline_path = target_dir / "baseline_fp16.jsonl"
+    candidate_path = target_dir / "candidate_int4.jsonl"
+
+    prompts_path.write_text(json.dumps(prompts_data, indent=2), encoding="utf-8")
+    baseline_path.write_text(
+        "\n".join(json.dumps(r) for r in baseline_rows) + "\n", encoding="utf-8"
+    )
+    candidate_path.write_text(
+        "\n".join(json.dumps(r) for r in candidate_rows) + "\n", encoding="utf-8"
+    )
+
+    print(f"Created sample benchmark suite in {target_dir.resolve()}:")
+    print(f"  - {prompts_path.name}")
+    print(f"  - {baseline_path.name}")
+    print(f"  - {candidate_path.name}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build and return the top-level CLI ArgumentParser."""
     parser = argparse.ArgumentParser(
@@ -241,6 +343,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
     _add_run_subparser(subparsers)
     _add_validate_subparser(subparsers)
+    _add_init_sample_subparser(subparsers)
     return parser
 
 
@@ -256,6 +359,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _handle_run(args)
         if args.command == "validate":
             return _handle_validate(args)
+        if args.command == "init-sample":
+            return _handle_init_sample(args)
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
