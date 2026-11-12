@@ -15,55 +15,58 @@ from llm_drift_bench.engine import (
     load_prompt_cases,
 )
 from llm_drift_bench.models import DriftThresholds, ModelSample, PromptCase
-from tests.conftest import (
-    baseline_samples,
-    candidate_major_drift_samples,
-    candidate_minor_drift_samples,
-    invoice_schema,
-    sample_prompt_cases,
-)
+
+
+def test_evaluate_passing_suite_with_fixtures(
+    sample_prompt_cases: list[PromptCase],
+    baseline_samples: list[ModelSample],
+    candidate_minor_drift_samples: list[ModelSample],
+) -> None:
+    """Verify DriftBenchmarkEngine passes a low-drift candidate run using pytest fixtures."""
+    engine = DriftBenchmarkEngine()
+    report = engine.evaluate(
+        baseline_samples,
+        candidate_minor_drift_samples,
+        sample_prompt_cases,
+    )
+    assert report.passed
+    assert report.drifted_samples == 0
+    assert report.candidate_json_conformity_rate == 1.0
+    table = format_report_table(report)
+    assert "PASSED" in table
+    assert "model-fp16" in table
+    assert "model-q4_k_m" in table
+
+
+def test_evaluate_failing_suite_with_fixtures(
+    sample_prompt_cases: list[PromptCase],
+    baseline_samples: list[ModelSample],
+    candidate_major_drift_samples: list[ModelSample],
+) -> None:
+    """Verify DriftBenchmarkEngine flags threshold violations on a high-drift candidate run."""
+    engine = DriftBenchmarkEngine(
+        thresholds=DriftThresholds(
+            max_composite_drift=0.15,
+            min_json_conformity_rate=0.95,
+            max_numeric_relative_drift=0.10,
+            max_latency_regression_pct=25.0,
+        )
+    )
+    report = engine.evaluate(
+        baseline_samples,
+        candidate_major_drift_samples,
+        sample_prompt_cases,
+    )
+    assert not report.passed
+    assert report.drifted_samples == 2
+    assert len(report.failure_reasons) >= 3
+    table = format_report_table(report)
+    assert "FAILED" in table
+    assert "Threshold Violations:" in table
 
 
 class TestEngine(unittest.TestCase):
-    """Test suite for DriftBenchmarkEngine, evaluate_sample_pair, loaders, and table formatting."""
-
-    def test_evaluate_passing_suite_with_fixtures(self) -> None:
-        schema = invoice_schema()
-        prompts = sample_prompt_cases(schema)
-        base = baseline_samples()
-        cand = candidate_minor_drift_samples()
-
-        engine = DriftBenchmarkEngine()
-        report = engine.evaluate(base, cand, prompts)
-        self.assertTrue(report.passed)
-        self.assertEqual(report.drifted_samples, 0)
-        self.assertEqual(report.candidate_json_conformity_rate, 1.0)
-        table = format_report_table(report)
-        self.assertIn("PASSED", table)
-        self.assertIn("model-fp16", table)
-        self.assertIn("model-q4_k_m", table)
-
-    def test_evaluate_failing_suite_with_fixtures(self) -> None:
-        schema = invoice_schema()
-        prompts = sample_prompt_cases(schema)
-        base = baseline_samples()
-        cand = candidate_major_drift_samples()
-
-        engine = DriftBenchmarkEngine(
-            thresholds=DriftThresholds(
-                max_composite_drift=0.15,
-                min_json_conformity_rate=0.95,
-                max_numeric_relative_drift=0.10,
-                max_latency_regression_pct=25.0,
-            )
-        )
-        report = engine.evaluate(base, cand, prompts)
-        self.assertFalse(report.passed)
-        self.assertEqual(report.drifted_samples, 2)
-        self.assertGreaterEqual(len(report.failure_reasons), 3)
-        table = format_report_table(report)
-        self.assertIn("FAILED", table)
-        self.assertIn("Threshold Violations:", table)
+    """Test suite for DriftBenchmarkEngine input validation, evaluate_sample_pair, and loaders."""
 
     def test_engine_input_validation_errors(self) -> None:
         engine = DriftBenchmarkEngine()
