@@ -74,3 +74,45 @@ class ModelSample:
             tokens_generated=tokens_generated,
             metadata=metadata,
         )
+
+
+@dataclass(frozen=True)
+class ValidationIssue:
+    """Represents a single JSON syntax or schema validation violation."""
+
+    path: str
+    message: str
+    rule: str
+
+    def to_dict(self) -> dict[str, str]:
+        """Serialize the validation issue to a dictionary."""
+        return {
+            "path": self.path,
+            "message": self.message,
+            "rule": self.rule,
+        }
+
+
+@dataclass(frozen=True)
+class SchemaValidationResult:
+    """Result of parsing and validating an LLM output against a JSON schema."""
+
+    is_valid_json: bool
+    is_schema_conformant: bool
+    parsed_json: Any = None
+    issues: tuple[ValidationIssue, ...] = ()
+
+    @property
+    def passed(self) -> bool:
+        """Return True if output is both valid JSON and conforms to the schema."""
+        return self.is_valid_json and self.is_schema_conformant
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize validation result to a JSON-compatible dictionary."""
+        return {
+            "is_valid_json": self.is_valid_json,
+            "is_schema_conformant": self.is_schema_conformant,
+            "passed": self.passed,
+            "issues": [issue.to_dict() for issue in self.issues],
+        }
+
