@@ -3,11 +3,11 @@
 [![CI](https://github.com/anant-goel/llm-drift-bench/actions/workflows/ci.yml/badge.svg)](https://github.com/anant-goel/llm-drift-bench/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Zero Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen.svg)](pyproject.toml)
+[![Runtime dependencies](https://img.shields.io/badge/runtime-Pydantic%20%2B%20Rich-blue.svg)](pyproject.toml)
 [![Code style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![Typed: Mypy Strict](https://img.shields.io/badge/typing-mypy%20strict-blue.svg)](http://mypy-lang.org/)
 
-**`llm-drift-bench`** is a lightweight, zero-bloat CLI and Python library to benchmark LLM outputs, validate JSON Schema conformity, and detect behavioral or structural output drift across model updates, prompt revisions, and quantizations (e.g., `FP16` vs. `Q4_K_M` / `INT4`).
+**`llm-drift-bench`** is a Python CLI and library for comparing captured LLM outputs across model updates, prompt revisions, and quantizations. It measures lexical differences, JSON structure and field agreement, numeric changes, and recorded latency.
 
 ---
 
@@ -19,11 +19,13 @@ When upgrading model checkpoints or quantizing weights for production inference,
 - **Numeric Field Drift**: Extracted financial or confidence numbers drifting beyond acceptable tolerances.
 - **Tail Latency Regressions**: P95 latency spikes across specific prompt categories.
 
-`llm-drift-bench` catches these regressions deterministically in CI/CD with **zero third-party runtime dependencies**.
+The runtime uses Pydantic and Rich, together with their transitive dependencies.
+
+Similarity measures agreement with a baseline, not factual correctness or semantic equivalence. The current validator implements a JSON Schema subset; unsupported constraints are not reliably rejected in this unreleased revision.
 
 ---
 
-## 3-Line Quickstart
+## Quickstart after publication
 
 ```bash
 pip install llm-drift-bench
@@ -48,10 +50,10 @@ llm-drift-bench run -b ./demo/baseline_fp16.jsonl -c ./demo/candidate_int4.jsonl
  Metric                               | Baseline         | Candidate / Value 
 ------------------------------------------------------------------------------
  JSON Conformity Rate                 |          100.0% |            100.0%
- Mean Composite Drift                 |     0.0000 (ref) |             0.0298
- Max Composite Drift                  |     0.0000 (ref) |             0.0596
- Mean Token Jaccard Similarity        |     1.0000 (ref) |             0.9615
- Mean Levenshtein Similarity          |     1.0000 (ref) |             0.9932
+ Mean Composite Drift                 |     0.0000 (ref) |             0.0426
+ Max Composite Drift                  |     0.0000 (ref) |             0.0852
+ Mean Token Jaccard Similarity        |     1.0000 (ref) |             0.9412
+ Mean Levenshtein Similarity          |     1.0000 (ref) |             0.9930
  Mean JSON Structural Similarity      |     1.0000 (ref) |             1.0000
  Mean JSON Numeric Relative Drift     |     0.0000 (ref) |             0.0160
  P50 Latency (ms)                     |            130.2 |               82.8
@@ -60,7 +62,7 @@ llm-drift-bench run -b ./demo/baseline_fp16.jsonl -c ./demo/candidate_int4.jsonl
  Prompt ID          | Category     | JSON OK   | Struct Sim | Drift    | State  
 ------------------------------------------------------------------------------
  extract_invoice_01 | extraction   | YES       |     1.0000 |   0.0000 | OK     
- classify_ticket_02 | classificati | YES       |     1.0000 |   0.0596 | OK     
+ classify_ticket_02 | classificati | YES       |     1.0000 |   0.0852 | OK
 ==============================================================================
 ```
 
@@ -140,8 +142,25 @@ llm-drift-bench run \
 | `--max-numeric-drift` | `0.15` | Maximum allowed relative numeric drift on shared JSON number fields. |
 | `--max-latency-regression` | `50.0` | Maximum allowed P95 latency regression percentage (`%`). |
 | `-o`, `--output` | `None` | File path to save the structured JSON benchmark report. |
-| `--format` | `table` | Output format on stdout (`table` or `json`). |
+| `--format` | `table` | Output format on stdout (`table`, `rich`, `json`, or `markdown`). |
 | `--fail-on-drift` | `False` | Exit with code `1` if any threshold is violated or sample drifts. |
+
+### Current behavior of the unreleased revision
+
+Commands are `run`, `report`, `validate`, and `init-sample`.
+`--suite` and `--prompts` are aliases for the suite path.
+
+Use existing captured-output files for both comparison targets.
+The current model-name fallback generates synthetic data and does not
+contact a model endpoint. A missing file can accidentally activate that
+fallback.
+
+Table and JSON output use the benchmark engine. Rich and Markdown output
+currently recompute scores through a second evaluator with different
+weights. Until these paths are unified, their scores are not interchangeable.
+
+Saved engine reports also lose information when converted by `report`.
+Do not treat converted throughput or mean-latency values as measurements.
 
 ---
 
