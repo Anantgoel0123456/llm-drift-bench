@@ -1,0 +1,14 @@
+[
+  {
+    "id": "test-001",
+    "prompt": "Write a python function to reverse a string.",
+    "expected_format": "code",
+    "tags": ["coding", "python"]
+  },
+  {
+    "id": "test-002",
+    "prompt": "Extract the names from this text: Alice and Bob went to the store.",
+    "expected_format": "json",
+    "tags": ["extraction", "ner"]
+  }
+]
