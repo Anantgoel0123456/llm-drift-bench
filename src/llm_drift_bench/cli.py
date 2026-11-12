@@ -16,7 +16,13 @@ from llm_drift_bench.engine import (
     load_model_samples,
     load_prompt_cases,
 )
+from llm_drift_bench.evaluator import (
+    evaluate_suite,
+    load_benchmark_result,
+    load_test_prompts,
+)
 from llm_drift_bench.models import DriftThresholds
+from llm_drift_bench.reporter import export_markdown_report, render_console_report
 from llm_drift_bench.validator import validate_output
 
 
@@ -24,25 +30,28 @@ def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     """Register the 'run' subcommand and its CLI flags."""
     run_parser = subparsers.add_parser(
         "run",
-        help="Run a drift benchmark comparing baseline and candidate LLM outputs.",
+        help="Run a drift benchmark comparing baseline and candidate LLM outputs or models.",
+    )
+    run_parser.add_argument(
+        "-s",
+        "--suite",
+        "-p",
+        "--prompts",
+        dest="suite",
+        default=None,
+        help="Path to prompt suite JSON/JSONL file (--suite or --prompts).",
     )
     run_parser.add_argument(
         "-b",
         "--baseline",
         required=True,
-        help="Path to baseline model outputs (.json or .jsonl).",
+        help="Baseline model identifier or path to baseline outputs (.json/.jsonl).",
     )
     run_parser.add_argument(
         "-c",
         "--candidate",
         required=True,
-        help="Path to candidate model outputs (.json or .jsonl).",
-    )
-    run_parser.add_argument(
-        "-p",
-        "--prompts",
-        default=None,
-        help="Optional path to prompt cases with expected JSON schemas (.json or .jsonl).",
+        help="Candidate model identifier or path to candidate outputs (.json/.jsonl).",
     )
     run_parser.add_argument(
         "--max-drift",
@@ -72,13 +81,13 @@ def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         "-o",
         "--output",
         default=None,
-        help="Optional file path to write the full JSON benchmark report.",
+        help="Optional file path to write the full JSON benchmark result.",
     )
     run_parser.add_argument(
         "--format",
-        choices=("table", "json"),
+        choices=("table", "rich", "json", "markdown"),
         default="table",
-        help="Stdout display format: 'table' (default) or 'json'.",
+        help="Stdout display format: 'table' (default), 'rich', 'json', or 'markdown'.",
     )
     run_parser.add_argument(
         "--fail-on-drift",
@@ -89,9 +98,42 @@ def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
 
 def _handle_run(args: argparse.Namespace) -> int:
     """Execute the 'run' subcommand."""
+    base_is_file = Path(args.baseline).is_file()
+    cand_is_file = Path(args.candidate).is_file()
+
+    # If either baseline or candidate is a model name (not a file), or format is rich/markdown:
+    if not (base_is_file and cand_is_file):
+        if not args.suite:
+            raise ValueError(
+                "--suite <path_to_prompts.json> is required when --baseline or --candidate "
+                "is a model identifier rather than an outputs file."
+            )
+        suite_prompts = load_test_prompts(args.suite)
+        bench_res = evaluate_suite(
+            prompts=suite_prompts,
+            baseline=args.baseline,
+            candidate=args.candidate,
+            suite_name=Path(args.suite).stem,
+        )
+        if args.output:
+            out_path = Path(args.output)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(bench_res.model_dump_json(indent=2), encoding="utf-8")
+
+        if args.format == "json":
+            print(bench_res.model_dump_json(indent=2))
+        elif args.format == "markdown":
+            print(export_markdown_report(bench_res), end="")
+        else:
+            render_console_report(bench_res)
+
+        if args.fail_on_drift and bench_res.mean_drift_score > args.max_drift:
+            return 1
+        return 0
+
     baseline_samples = load_model_samples(args.baseline)
     candidate_samples = load_model_samples(args.candidate)
-    prompt_cases = load_prompt_cases(args.prompts) if args.prompts else None
+    prompt_cases = load_prompt_cases(args.suite) if args.suite else None
 
     thresholds = DriftThresholds(
         max_composite_drift=args.max_drift,
@@ -113,11 +155,74 @@ def _handle_run(args: argparse.Namespace) -> int:
 
     if args.format == "json":
         print(report.to_json(indent=2))
+    elif args.format in ("rich", "markdown"):
+        suite_prompts = load_test_prompts(args.suite) if args.suite else []
+        bench_res = evaluate_suite(
+            prompts=suite_prompts,
+            baseline=baseline_samples,
+            candidate=candidate_samples,
+            suite_name=Path(args.suite).stem if args.suite else "default",
+        )
+        if args.format == "markdown":
+            print(export_markdown_report(bench_res), end="")
+        else:
+            render_console_report(bench_res)
     else:
         print(format_report_table(report))
 
     if args.fail_on_drift and (not report.passed or report.drifted_samples > 0):
         return 1
+    return 0
+
+
+def _add_report_subparser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Register the 'report' subcommand for formatting saved benchmark results."""
+    rep_parser = subparsers.add_parser(
+        "report",
+        help="Render a saved benchmark results JSON file as Markdown or Rich console tables.",
+    )
+    rep_parser.add_argument(
+        "-i",
+        "--input",
+        required=True,
+        help="Path to saved benchmark results JSON file.",
+    )
+    rep_parser.add_argument(
+        "-f",
+        "--format",
+        choices=("markdown", "console", "table", "json"),
+        default="markdown",
+        help="Output report format: 'markdown' (default), 'console'/'table', or 'json'.",
+    )
+    rep_parser.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Optional output file path to write the rendered report.",
+    )
+
+
+def _handle_report(args: argparse.Namespace) -> int:
+    """Execute the 'report' subcommand."""
+    result = load_benchmark_result(args.input)
+    if args.format == "markdown":
+        md = export_markdown_report(result, output_path=args.output)
+        print(md, end="")
+    elif args.format == "json":
+        payload = result.model_dump_json(indent=2)
+        if args.output:
+            out_file = Path(args.output)
+            out_file.parent.mkdir(parents=True, exist_ok=True)
+            out_file.write_text(payload, encoding="utf-8")
+        print(payload)
+    else:
+        rendered = render_console_report(result)
+        if args.output:
+            out_file = Path(args.output)
+            out_file.parent.mkdir(parents=True, exist_ok=True)
+            out_file.write_text(rendered, encoding="utf-8")
     return 0
 
 
@@ -342,6 +447,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
     _add_run_subparser(subparsers)
+    _add_report_subparser(subparsers)
     _add_validate_subparser(subparsers)
     _add_init_sample_subparser(subparsers)
     return parser
@@ -357,6 +463,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "run":
             return _handle_run(args)
+        if args.command == "report":
+            return _handle_report(args)
         if args.command == "validate":
             return _handle_validate(args)
         if args.command == "init-sample":
