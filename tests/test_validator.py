@@ -139,6 +139,10 @@ class TestValidator(unittest.TestCase):
 
         res_with_schema = validate_output(
             '```json\n{"count": 5}\n```',
-            schema={"type": "object", "required": ["count"], "properties": {"count": {"type": "integer"}}},
+            schema={
+                "type": "object",
+                "required": ["count"],
+                "properties": {"count": {"type": "integer"}},
+            },
         )
         self.assertTrue(res_with_schema.passed)

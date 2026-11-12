@@ -254,8 +254,11 @@ class DriftBenchmarkEngine:
         )
 
 
-def _load_records(path: str | Path, container_keys: tuple[str, ...]) -> tuple[list[dict[str, Any]], str | None]:
-    """Read a JSON or JSONL file into a list of dictionaries and optional top-level model_name."""
+def _load_records(
+    path: str | Path,
+    container_keys: tuple[str, ...],
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Read a JSON or JSONL file into a list of dicts and optional top-level model_name."""
     file_path = Path(path)
     raw = file_path.read_text(encoding="utf-8").strip()
     if not raw:
@@ -312,44 +315,68 @@ def load_prompt_cases(path: str | Path) -> list[PromptCase]:
 def format_report_table(report: DriftBenchmarkReport) -> str:
     """Format a DriftBenchmarkReport as a human-readable terminal summary table."""
     status_label = "PASSED" if report.passed else "FAILED"
+    base_conf = report.baseline_json_conformity_rate
+    cand_conf = report.candidate_json_conformity_rate
     lines: list[str] = [
         "=" * 78,
         f" LLM DRIFT BENCHMARK REPORT  [{status_label}]",
         "=" * 78,
         f" Baseline Model  : {report.baseline_model}",
         f" Candidate Model : {report.candidate_model}",
-        f" Total Samples   : {report.total_samples} (Drifted: {report.drifted_samples} / {report.drift_rate:.1%})",
+        (
+            f" Total Samples   : {report.total_samples} "
+            f"(Drifted: {report.drifted_samples} / {report.drift_rate:.1%})"
+        ),
         "-" * 78,
         f" {'Metric':<36} | {'Baseline':<16} | {'Candidate / Value':<18}",
         "-" * 78,
-        f" {'JSON Conformity Rate':<36} | {report.baseline_json_conformity_rate:>15.1%} | {report.candidate_json_conformity_rate:>17.1%}",
-        f" {'Mean Composite Drift':<36} | {'0.0000 (ref)':>16} | {report.mean_composite_drift:>18.4f}",
-        f" {'Max Composite Drift':<36} | {'0.0000 (ref)':>16} | {report.max_composite_drift:>18.4f}",
-        f" {'Mean Token Jaccard Similarity':<36} | {'1.0000 (ref)':>16} | {report.mean_token_jaccard:>18.4f}",
-        f" {'Mean Levenshtein Similarity':<36} | {'1.0000 (ref)':>16} | {report.mean_levenshtein_similarity:>18.4f}",
+        f" {'JSON Conformity Rate':<36} | {base_conf:>15.1%} | {cand_conf:>17.1%}",
+        (
+            f" {'Mean Composite Drift':<36} | {'0.0000 (ref)':>16} | "
+            f"{report.mean_composite_drift:>18.4f}"
+        ),
+        (
+            f" {'Max Composite Drift':<36} | {'0.0000 (ref)':>16} | "
+            f"{report.max_composite_drift:>18.4f}"
+        ),
+        (
+            f" {'Mean Token Jaccard Similarity':<36} | {'1.0000 (ref)':>16} | "
+            f"{report.mean_token_jaccard:>18.4f}"
+        ),
+        (
+            f" {'Mean Levenshtein Similarity':<36} | {'1.0000 (ref)':>16} | "
+            f"{report.mean_levenshtein_similarity:>18.4f}"
+        ),
     ]
 
     if report.mean_json_structural_similarity is not None:
         lines.append(
-            f" {'Mean JSON Structural Similarity':<36} | {'1.0000 (ref)':>16} | {report.mean_json_structural_similarity:>18.4f}"
+            f" {'Mean JSON Structural Similarity':<36} | {'1.0000 (ref)':>16} | "
+            f"{report.mean_json_structural_similarity:>18.4f}"
         )
     if report.mean_json_numeric_drift is not None:
         lines.append(
-            f" {'Mean JSON Numeric Relative Drift':<36} | {'0.0000 (ref)':>16} | {report.mean_json_numeric_drift:>18.4f}"
+            f" {'Mean JSON Numeric Relative Drift':<36} | {'0.0000 (ref)':>16} | "
+            f"{report.mean_json_numeric_drift:>18.4f}"
         )
     if report.baseline_p50_latency_ms is not None and report.candidate_p50_latency_ms is not None:
         lines.append(
-            f" {'P50 Latency (ms)':<36} | {report.baseline_p50_latency_ms:>16.1f} | {report.candidate_p50_latency_ms:>18.1f}"
+            f" {'P50 Latency (ms)':<36} | {report.baseline_p50_latency_ms:>16.1f} | "
+            f"{report.candidate_p50_latency_ms:>18.1f}"
         )
     if report.baseline_p95_latency_ms is not None and report.candidate_p95_latency_ms is not None:
         lines.append(
-            f" {'P95 Latency (ms)':<36} | {report.baseline_p95_latency_ms:>16.1f} | {report.candidate_p95_latency_ms:>18.1f}"
+            f" {'P95 Latency (ms)':<36} | {report.baseline_p95_latency_ms:>16.1f} | "
+            f"{report.candidate_p95_latency_ms:>18.1f}"
         )
 
     lines.extend(
         [
             "-" * 78,
-            f" {'Prompt ID':<18} | {'Category':<12} | {'JSON OK':<9} | {'Struct Sim':<10} | {'Drift':<8} | {'State':<7}",
+            (
+                f" {'Prompt ID':<18} | {'Category':<12} | {'JSON OK':<9} | "
+                f"{'Struct Sim':<10} | {'Drift':<8} | {'State':<7}"
+            ),
             "-" * 78,
         ]
     )

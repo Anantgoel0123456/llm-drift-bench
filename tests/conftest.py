@@ -26,7 +26,12 @@ def invoice_schema() -> dict[str, Any]:
         "type": "object",
         "required": ["invoice_id", "amount", "currency", "status", "items"],
         "properties": {
-            "invoice_id": {"type": "string", "minLength": 4, "maxLength": 20, "pattern": r"^INV-\d+$"},
+            "invoice_id": {
+                "type": "string",
+                "minLength": 4,
+                "maxLength": 20,
+                "pattern": r"^INV-\d+$",
+            },
             "amount": {"type": "number", "minimum": 0.0, "maximum": 100000.0},
             "currency": {"type": "string", "const": "USD"},
             "status": {"type": "string", "enum": ["paid", "pending", "void"]},
@@ -119,7 +124,10 @@ def candidate_major_drift_samples() -> list[ModelSample]:
             model_name="model-int2",
             latency_ms=260.0,
             tokens_generated=40,
-            output='{"invoice_id": "X", "amount": 950.0, "currency": "EUR", "status": "unknown", "items": []}',
+            output=(
+                '{"invoice_id": "X", "amount": 950.0, '
+                '"currency": "EUR", "status": "unknown", "items": []}'
+            ),
         ),
         ModelSample(
             prompt_id="p_summary_2",
