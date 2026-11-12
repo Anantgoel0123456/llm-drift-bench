@@ -257,7 +257,7 @@ def evaluate_suite(
     active_prompts = list(prompts)
     if not active_prompts:
         shared_ids = [pid for pid in base_map if pid in cand_map]
-        active_prompts = [TestPrompt(id=pid, prompt="") for pid in shared_ids]
+        active_prompts = [TestPrompt(prompt_id=pid, prompt="") for pid in shared_ids]
 
     if not active_prompts:
         raise ValueError("No prompts available to evaluate.")
