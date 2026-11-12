@@ -271,6 +271,7 @@ class DriftBenchmarkReport:
 class TestPrompt(BaseModel):
     """Pydantic model representing a benchmark prompt item in a test suite."""
 
+    __test__ = False
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     id: str = Field(..., alias="prompt_id", min_length=1)
