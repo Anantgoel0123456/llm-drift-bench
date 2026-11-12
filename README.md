@@ -166,8 +166,20 @@ Table and JSON output use the benchmark engine. Rich and Markdown output
 currently recompute scores through a second evaluator with different
 weights. Until these paths are unified, their scores are not interchangeable.
 
-Saved engine reports also lose information when converted by `report`.
-Do not treat converted throughput or mean-latency values as measurements.
+Missing measurements appear as `n/a` in reports and `null` in JSON.
+Throughput requires an explicit `tokens_generated` count and positive measured
+`latency_ms`; text token estimates are not substituted. Zero latency remains
+a recorded value, but cannot produce throughput or a baseline-relative
+percentage regression.
+
+Suite means and latency percentiles require complete measurements for that
+side of the comparison. If either side lacks timings, the latency regression
+check is skipped; a passing result does not certify latency performance.
+Other drift and conformity thresholds still apply.
+
+Saved engine reports lose some information when converted by `report`.
+Unavailable latency means and throughput remain `n/a`; percentiles are not
+substituted for means or individual observations.
 
 ---
 

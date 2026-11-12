@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+import math
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -52,6 +53,22 @@ class ModelSample:
     tokens_generated: int | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        """Reject invalid measurements instead of treating them as real observations."""
+        if self.latency_ms is not None and (
+            isinstance(self.latency_ms, bool)
+            or not isinstance(self.latency_ms, (int, float))
+            or not math.isfinite(self.latency_ms)
+            or self.latency_ms < 0
+        ):
+            raise ValueError("latency_ms must be a finite non-negative number or None.")
+        if self.tokens_generated is not None and (
+            isinstance(self.tokens_generated, bool)
+            or not isinstance(self.tokens_generated, int)
+            or self.tokens_generated < 0
+        ):
+            raise ValueError("tokens_generated must be a non-negative integer or None.")
+
     @classmethod
     def from_dict(cls, data: dict[str, Any], default_model_name: str = "unknown") -> ModelSample:
         """Construct a ModelSample from a dictionary payload."""
@@ -64,8 +81,14 @@ class ModelSample:
         output = raw_output if isinstance(raw_output, str) else str(raw_output)
         model_name = str(data.get("model_name") or data.get("model") or default_model_name)
         latency_raw = data.get("latency_ms")
+        if isinstance(latency_raw, bool):
+            raise ValueError("latency_ms must not be a boolean.")
         latency_ms = float(latency_raw) if latency_raw is not None else None
         tokens_raw = data.get("tokens_generated")
+        if tokens_raw is not None and (
+            isinstance(tokens_raw, bool) or not isinstance(tokens_raw, (int, str))
+        ):
+            raise ValueError("tokens_generated must be an integer or integer string.")
         tokens_generated = int(tokens_raw) if tokens_raw is not None else None
         metadata_raw = data.get("metadata")
         metadata = dict(metadata_raw) if isinstance(metadata_raw, dict) else {}
@@ -305,12 +328,12 @@ class DriftMetrics(BaseModel):
     semantic_similarity: float = Field(..., ge=0.0, le=1.0)
     token_diff_ratio: float = Field(..., ge=0.0, le=1.0)
     drift_score: float = Field(..., ge=0.0, le=1.0)
-    baseline_latency_ms: float = Field(default=0.0, ge=0.0)
-    candidate_latency_ms: float = Field(default=0.0, ge=0.0)
-    latency_delta_ms: float = 0.0
-    baseline_tokens_per_sec: float = Field(default=0.0, ge=0.0)
-    candidate_tokens_per_sec: float = Field(default=0.0, ge=0.0)
-    tokens_per_sec_delta: float = 0.0
+    baseline_latency_ms: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
+    candidate_latency_ms: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
+    latency_delta_ms: float | None = Field(default=None, allow_inf_nan=False)
+    baseline_tokens_per_sec: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
+    candidate_tokens_per_sec: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
+    tokens_per_sec_delta: float | None = Field(default=None, allow_inf_nan=False)
 
 
 class BenchmarkResult(BaseModel):
@@ -328,10 +351,10 @@ class BenchmarkResult(BaseModel):
     mean_semantic_similarity: float = Field(..., ge=0.0, le=1.0)
     mean_token_diff_ratio: float = Field(..., ge=0.0, le=1.0)
     mean_drift_score: float = Field(..., ge=0.0, le=1.0)
-    mean_baseline_latency_ms: float = Field(default=0.0, ge=0.0)
-    mean_candidate_latency_ms: float = Field(default=0.0, ge=0.0)
-    mean_baseline_tokens_per_sec: float = Field(default=0.0, ge=0.0)
-    mean_candidate_tokens_per_sec: float = Field(default=0.0, ge=0.0)
+    mean_baseline_latency_ms: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
+    mean_candidate_latency_ms: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
+    mean_baseline_tokens_per_sec: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
+    mean_candidate_tokens_per_sec: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
     metrics: list[DriftMetrics] = Field(default_factory=list)
 
 

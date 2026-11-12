@@ -88,3 +88,19 @@ class TestReporter(unittest.TestCase):
             self.assertIn("# LLM Drift Benchmark Report: `invoice_suite`", md_text)
             self.assertIn("| `p_ok` | extraction | PASS | YES |", md_text)
             self.assertIn("| `p_drift` | classification | FAIL | NO |", md_text)
+
+    def test_missing_measurements_render_as_na(self) -> None:
+        result = self.sample_result.model_copy(deep=True)
+        result.mean_baseline_latency_ms = None
+        result.mean_candidate_latency_ms = None
+        result.mean_baseline_tokens_per_sec = None
+        result.mean_candidate_tokens_per_sec = None
+        for metric in result.metrics:
+            metric.latency_delta_ms = None
+            metric.candidate_tokens_per_sec = None
+        markdown = export_markdown_report(result)
+        self.assertIn("| **Mean Latency (ms)** | n/a | n/a |", markdown)
+        self.assertIn("| **Mean Throughput (tokens/sec)** | n/a | n/a |", markdown)
+        self.assertIn("| n/a | n/a |", markdown)
+        console = Console(file=io.StringIO(), width=100, force_terminal=False)
+        self.assertIn("n/a", render_console_report(result, console=console))

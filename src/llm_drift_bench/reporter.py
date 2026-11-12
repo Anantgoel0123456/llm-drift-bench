@@ -12,6 +12,11 @@ from rich.table import Table
 from llm_drift_bench.models import BenchmarkResult
 
 
+def _measurement(value: float | None, spec: str = ".2f") -> str:
+    """Format a measurement without turning missing data into zero."""
+    return "n/a" if value is None else format(value, spec)
+
+
 def render_console_report(
     result: BenchmarkResult,
     console: Console | None = None,
@@ -54,13 +59,13 @@ def render_console_report(
     )
     summary_table.add_row(
         "Mean Latency (ms)",
-        f"{result.mean_baseline_latency_ms:.2f}",
-        f"{result.mean_candidate_latency_ms:.2f}",
+        f"{_measurement(result.mean_baseline_latency_ms)}",
+        f"{_measurement(result.mean_candidate_latency_ms)}",
     )
     summary_table.add_row(
         "Mean Throughput (tokens/s)",
-        f"{result.mean_baseline_tokens_per_sec:.2f}",
-        f"{result.mean_candidate_tokens_per_sec:.2f}",
+        f"{_measurement(result.mean_baseline_tokens_per_sec)}",
+        f"{_measurement(result.mean_candidate_tokens_per_sec)}",
     )
 
     detail_table = Table(
@@ -84,7 +89,7 @@ def render_console_report(
             f"{m.semantic_similarity:.4f}",
             f"{m.token_diff_ratio:.4f}",
             f"{m.drift_score:.4f}",
-            f"{m.candidate_tokens_per_sec:.1f}",
+            _measurement(m.candidate_tokens_per_sec, ".1f"),
         )
 
     header_panel = Panel(
@@ -133,12 +138,13 @@ def export_markdown_report(
         ),
         f"| **Mean Drift Score** | 0.0000 (ref) | {result.mean_drift_score:.4f} |",
         (
-            f"| **Mean Latency (ms)** | {result.mean_baseline_latency_ms:.2f} | "
-            f"{result.mean_candidate_latency_ms:.2f} |"
+            f"| **Mean Latency (ms)** | {_measurement(result.mean_baseline_latency_ms)} | "
+            f"{_measurement(result.mean_candidate_latency_ms)} |"
         ),
         (
-            f"| **Mean Throughput (tokens/sec)** | {result.mean_baseline_tokens_per_sec:.2f} | "
-            f"{result.mean_candidate_tokens_per_sec:.2f} |"
+            "| **Mean Throughput (tokens/sec)** | "
+            f"{_measurement(result.mean_baseline_tokens_per_sec)} | "
+            f"{_measurement(result.mean_candidate_tokens_per_sec)} |"
         ),
         "",
         "## Per-Prompt Breakdown",
@@ -156,8 +162,8 @@ def export_markdown_report(
         lines.append(
             f"| `{m.prompt_id}` | {m.category} | {fmt_ok} | {exact} | "
             f"{m.semantic_similarity:.4f} | {m.token_diff_ratio:.4f} | "
-            f"{m.drift_score:.4f} | {m.latency_delta_ms:+.2f} | "
-            f"{m.candidate_tokens_per_sec:.2f} |"
+            f"{m.drift_score:.4f} | {_measurement(m.latency_delta_ms, '+.2f')} | "
+            f"{_measurement(m.candidate_tokens_per_sec)} |"
         )
 
     markdown = "\n".join(lines) + "\n"

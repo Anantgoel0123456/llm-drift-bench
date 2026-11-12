@@ -147,3 +147,26 @@ class TestEngine(unittest.TestCase):
             bad_dict.write_text('{"unknown_key": 1}', encoding="utf-8")
             with self.assertRaises(ValueError):
                 load_model_samples(bad_dict)
+
+    def test_incomplete_latency_skips_regression_check(self) -> None:
+        baseline = [
+            ModelSample(prompt_id="p1", output="{}", latency_ms=100),
+            ModelSample(prompt_id="p2", output="{}"),
+        ]
+        candidate = [
+            ModelSample(prompt_id="p1", output="{}", latency_ms=1000),
+            ModelSample(prompt_id="p2", output="{}", latency_ms=1000),
+        ]
+        report = DriftBenchmarkEngine().evaluate(baseline, candidate)
+        self.assertIsNone(report.baseline_p95_latency_ms)
+        self.assertEqual(report.candidate_p95_latency_ms, 1000)
+        self.assertTrue(report.passed)
+        self.assertIn("incomplete measurements", format_report_table(report))
+        self.assertIn("n/a", format_report_table(report))
+
+    def test_zero_latency_is_not_missing(self) -> None:
+        baseline = [ModelSample(prompt_id="p", output="{}", latency_ms=0)]
+        candidate = [ModelSample(prompt_id="p", output="{}", latency_ms=10)]
+        report = DriftBenchmarkEngine().evaluate(baseline, candidate)
+        self.assertEqual(report.baseline_p95_latency_ms, 0)
+        self.assertIn("zero baseline P95", format_report_table(report))

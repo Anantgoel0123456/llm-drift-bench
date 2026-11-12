@@ -194,6 +194,11 @@ class DriftBenchmarkEngine:
         ]
         mean_num = (sum(num_vals) / len(num_vals)) if num_vals else None
 
+        # A partial timing population is not a suite-level measurement.
+        if len(base_latencies) != total:
+            base_latencies = []
+        if len(cand_latencies) != total:
+            cand_latencies = []
         base_p50 = compute_percentile(base_latencies, 50.0)
         cand_p50 = compute_percentile(cand_latencies, 50.0)
         base_p95 = compute_percentile(base_latencies, 95.0)
@@ -359,16 +364,17 @@ def format_report_table(report: DriftBenchmarkReport) -> str:
             f" {'Mean JSON Numeric Relative Drift':<36} | {'0.0000 (ref)':>16} | "
             f"{report.mean_json_numeric_drift:>18.4f}"
         )
-    if report.baseline_p50_latency_ms is not None and report.candidate_p50_latency_ms is not None:
-        lines.append(
-            f" {'P50 Latency (ms)':<36} | {report.baseline_p50_latency_ms:>16.1f} | "
-            f"{report.candidate_p50_latency_ms:>18.1f}"
-        )
-    if report.baseline_p95_latency_ms is not None and report.candidate_p95_latency_ms is not None:
-        lines.append(
-            f" {'P95 Latency (ms)':<36} | {report.baseline_p95_latency_ms:>16.1f} | "
-            f"{report.candidate_p95_latency_ms:>18.1f}"
-        )
+    for label, baseline_ms, candidate_ms in (
+        ("P50 Latency (ms)", report.baseline_p50_latency_ms, report.candidate_p50_latency_ms),
+        ("P95 Latency (ms)", report.baseline_p95_latency_ms, report.candidate_p95_latency_ms),
+    ):
+        baseline_text = "n/a" if baseline_ms is None else f"{baseline_ms:.1f}"
+        candidate_text = "n/a" if candidate_ms is None else f"{candidate_ms:.1f}"
+        lines.append(f" {label:<36} | {baseline_text:>16} | {candidate_text:>18}")
+    if report.baseline_p95_latency_ms is None or report.candidate_p95_latency_ms is None:
+        lines.append(" Latency regression check: n/a (incomplete measurements).")
+    elif report.baseline_p95_latency_ms == 0:
+        lines.append(" Latency regression check: n/a (zero baseline P95).")
 
     lines.extend(
         [

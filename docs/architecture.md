@@ -111,9 +111,16 @@ errors; evaluation never generates responses or calls model endpoints.
 Inline outputs in TestPrompt do not bypass this requirement. Use explicit
 ModelSample sequences for in-memory comparisons.
 
-Missing latency is still replaced with synthetic defaults in this alternate
-evaluator and in legacy report conversion. Those separate measurement
-issues must be corrected before release.
+Missing latency and throughput remain None and serialize as JSON null.
+Throughput requires an explicit model token count and positive measured
+latency. Zero latency is retained but yields no throughput. Negative or
+non-finite measurements and invalid token counts are rejected.
+
+Aggregate measurement means and percentiles require complete data for the
+respective side of the suite. Otherwise they are unavailable. Latency
+regression thresholds are skipped when either side is incomplete or baseline
+P95 is zero. The table explicitly identifies a skipped latency check; passing
+other thresholds does not certify latency performance.
 
 ## CLI and reporting
 
@@ -133,8 +140,10 @@ evaluate_suite and render BenchmarkResult. Therefore output format can
 change the displayed score.
 
 The report command converts saved engine reports into BenchmarkResult.
-That conversion currently invents unavailable metrics and mislabels some
-latency statistics. It is not lossless.
+Unavailable timing and throughput fields remain None and render as n/a.
+Aggregate percentiles cannot reconstruct means or per-prompt observations.
+Other converted similarity and exact-match fields are still approximations;
+the conversion is not lossless.
 
 The release implementation should calculate one canonical report and
 render it without recomputing scores or manufacturing measurements.

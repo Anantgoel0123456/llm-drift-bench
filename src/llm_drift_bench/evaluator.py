@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from difflib import SequenceMatcher
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -77,25 +78,47 @@ def compute_semantic_similarity(baseline_text: str, candidate_text: str) -> floa
 
 def compute_tokens_per_sec(
     output_text: str,
-    latency_ms: float,
+    latency_ms: float | None,
     explicit_tokens: int | None = None,
-) -> float:
-    """Compute token generation throughput in tokens/sec from output text and latency (ms)."""
-    if latency_ms <= 0.0:
-        return 0.0
-    token_count = (
-        explicit_tokens if explicit_tokens is not None else max(1, len(tokenize_text(output_text)))
+) -> float | None:
+    """Return measured tokens/sec, or None without a count and positive latency.
+
+    output_text is retained for API compatibility, but never used to guess
+    model tokens. Invalid measurements raise ValueError.
+    """
+    ModelSample(
+        prompt_id="measurement", output=output_text,
+        latency_ms=latency_ms, tokens_generated=explicit_tokens,
     )
-    seconds = latency_ms / 1000.0
-    return round(token_count / seconds, 2)
+    if latency_ms is None or latency_ms == 0 or explicit_tokens is None:
+        return None
+    throughput = (explicit_tokens / latency_ms) * 1000.0
+    if not math.isfinite(throughput):
+        raise ValueError("Computed throughput must be finite.")
+    return throughput
+
+
+def _optional_delta(candidate: float | None, baseline: float | None) -> float | None:
+    """Return a difference only when both observations exist."""
+    if candidate is None or baseline is None:
+        return None
+    return candidate - baseline
+
+
+def _complete_mean(values: Sequence[float | None]) -> float | None:
+    """Avoid presenting a partial sample mean as the complete suite mean."""
+    measured = [value for value in values if value is not None]
+    if not measured or len(measured) != len(values):
+        return None
+    return sum(value / len(measured) for value in measured)
 
 
 def evaluate_response_pair(
     prompt: TestPrompt,
     baseline_output: str,
     candidate_output: str,
-    baseline_latency_ms: float = 100.0,
-    candidate_latency_ms: float = 100.0,
+    baseline_latency_ms: float | None = None,
+    candidate_latency_ms: float | None = None,
     baseline_tokens: int | None = None,
     candidate_tokens: int | None = None,
 ) -> DriftMetrics:
@@ -134,12 +157,12 @@ def evaluate_response_pair(
         semantic_similarity=semantic_sim,
         token_diff_ratio=token_diff,
         drift_score=min(1.0, max(0.0, drift_score)),
-        baseline_latency_ms=round(baseline_latency_ms, 2),
-        candidate_latency_ms=round(candidate_latency_ms, 2),
-        latency_delta_ms=round(candidate_latency_ms - baseline_latency_ms, 2),
+        baseline_latency_ms=baseline_latency_ms,
+        candidate_latency_ms=candidate_latency_ms,
+        latency_delta_ms=_optional_delta(candidate_latency_ms, baseline_latency_ms),
         baseline_tokens_per_sec=base_tps,
         candidate_tokens_per_sec=cand_tps,
-        tokens_per_sec_delta=round(cand_tps - base_tps, 2),
+        tokens_per_sec_delta=_optional_delta(cand_tps, base_tps),
     )
 
 
@@ -212,8 +235,8 @@ def evaluate_suite(
             prompt=prompt,
             baseline_output=b_sample.output,
             candidate_output=c_sample.output,
-            baseline_latency_ms=b_sample.latency_ms if b_sample.latency_ms is not None else 100.0,
-            candidate_latency_ms=c_sample.latency_ms if c_sample.latency_ms is not None else 100.0,
+            baseline_latency_ms=b_sample.latency_ms,
+            candidate_latency_ms=c_sample.latency_ms,
             baseline_tokens=b_sample.tokens_generated,
             candidate_tokens=c_sample.tokens_generated,
         )
@@ -239,17 +262,13 @@ def evaluate_suite(
             sum(m.token_diff_ratio for m in metrics_list) / total, 4
         ),
         mean_drift_score=round(sum(m.drift_score for m in metrics_list) / total, 4),
-        mean_baseline_latency_ms=round(
-            sum(m.baseline_latency_ms for m in metrics_list) / total, 2
+        mean_baseline_latency_ms=_complete_mean([m.baseline_latency_ms for m in metrics_list]),
+        mean_candidate_latency_ms=_complete_mean([m.candidate_latency_ms for m in metrics_list]),
+        mean_baseline_tokens_per_sec=_complete_mean(
+            [m.baseline_tokens_per_sec for m in metrics_list]
         ),
-        mean_candidate_latency_ms=round(
-            sum(m.candidate_latency_ms for m in metrics_list) / total, 2
-        ),
-        mean_baseline_tokens_per_sec=round(
-            sum(m.baseline_tokens_per_sec for m in metrics_list) / total, 2
-        ),
-        mean_candidate_tokens_per_sec=round(
-            sum(m.candidate_tokens_per_sec for m in metrics_list) / total, 2
+        mean_candidate_tokens_per_sec=_complete_mean(
+            [m.candidate_tokens_per_sec for m in metrics_list]
         ),
         metrics=metrics_list,
     )
@@ -261,7 +280,7 @@ def load_benchmark_result(path: str | Path) -> BenchmarkResult:
     if "total_prompts" in raw and "metrics" in raw:
         return BenchmarkResult.model_validate(raw)
 
-    # Convert legacy DriftBenchmarkReport dict into BenchmarkResult seamlessly
+    # Preserve missing measurements; percentiles cannot reconstruct means or samples.
     results_raw = raw.get("results", [])
     converted_metrics: list[DriftMetrics] = []
     for item in results_raw:
@@ -280,12 +299,7 @@ def load_benchmark_result(path: str | Path) -> BenchmarkResult:
                 semantic_similarity=sim_val,
                 token_diff_ratio=round(1.0 - float(item.get("levenshtein_similarity", sim_val)), 4),
                 drift_score=drift_val,
-                baseline_latency_ms=float(raw.get("baseline_p50_latency_ms") or 100.0),
-                candidate_latency_ms=float(raw.get("candidate_p50_latency_ms") or 100.0),
-                latency_delta_ms=float(item.get("latency_delta_ms") or 0.0),
-                baseline_tokens_per_sec=100.0,
-                candidate_tokens_per_sec=100.0,
-                tokens_per_sec_delta=0.0,
+                latency_delta_ms=item.get("latency_delta_ms"),
             )
         )
     total = max(1, len(converted_metrics))
@@ -304,10 +318,6 @@ def load_benchmark_result(path: str | Path) -> BenchmarkResult:
             sum(m.token_diff_ratio for m in converted_metrics) / total, 4
         ),
         mean_drift_score=float(raw.get("mean_composite_drift", 0.0)),
-        mean_baseline_latency_ms=float(raw.get("baseline_p50_latency_ms") or 0.0),
-        mean_candidate_latency_ms=float(raw.get("candidate_p50_latency_ms") or 0.0),
-        mean_baseline_tokens_per_sec=100.0,
-        mean_candidate_tokens_per_sec=100.0,
         metrics=converted_metrics,
     )
 

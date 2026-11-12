@@ -198,3 +198,19 @@ class TestModels(unittest.TestCase):
         self.assertEqual(dumped["suite_name"], "test_suite")
         self.assertEqual(dumped["metrics"][0]["prompt_id"], "tp_01")
 
+
+    def test_model_sample_rejects_invalid_measurements(self) -> None:
+        for latency in (-1, float("nan"), float("inf"), True):
+            with self.subTest(latency=latency):
+                with self.assertRaises(ValueError):
+                    ModelSample(prompt_id="p", output="{}", latency_ms=latency)
+                with self.assertRaises(ValueError):
+                    ModelSample.from_dict({"prompt_id": "p", "output": "{}", "latency_ms": latency})
+        for tokens in (-1, True, 1.5):
+            with self.subTest(tokens=tokens):
+                with self.assertRaises(ValueError):
+                    ModelSample(prompt_id="p", output="{}", tokens_generated=tokens)
+                with self.assertRaises(ValueError):
+                    ModelSample.from_dict({
+                        "prompt_id": "p", "output": "{}", "tokens_generated": tokens,
+                    })

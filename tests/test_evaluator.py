@@ -48,9 +48,9 @@ class TestEvaluator(unittest.TestCase):
         text_sim = compute_semantic_similarity("fast inference engine", "slow inference engine")
         self.assertGreater(text_sim, 0.4)
 
-        self.assertEqual(compute_tokens_per_sec("hello world", 0.0), 0.0)
+        self.assertIsNone(compute_tokens_per_sec("hello world", 0.0))
         self.assertEqual(compute_tokens_per_sec("hello world", 500.0, explicit_tokens=50), 100.0)
-        self.assertGreater(compute_tokens_per_sec("one two three four", 250.0), 0.0)
+        self.assertIsNone(compute_tokens_per_sec("one two three four", 250.0))
 
     def test_evaluate_response_pair_json_and_text_formats(self) -> None:
         json_prompt = TestPrompt(
@@ -205,3 +205,60 @@ class TestEvaluator(unittest.TestCase):
             converted = load_benchmark_result(legacy_file)
             self.assertEqual(converted.baseline_model, "base-m")
             self.assertEqual(converted.total_prompts, 1)
+
+    def test_missing_measurements_remain_none(self) -> None:
+        prompt = TestPrompt(prompt_id="p", prompt="Return JSON")
+        metric = evaluate_response_pair(prompt, "{}", "{}")
+        for field in (
+            "baseline_latency_ms", "candidate_latency_ms", "latency_delta_ms",
+            "baseline_tokens_per_sec", "candidate_tokens_per_sec", "tokens_per_sec_delta",
+        ):
+            self.assertIsNone(getattr(metric, field))
+            self.assertIsNone(json.loads(metric.model_dump_json())[field])
+        self.assertIsNone(compute_tokens_per_sec("{}", None, 10))
+        self.assertIsNone(compute_tokens_per_sec("{}", 0, 10))
+        self.assertEqual(compute_tokens_per_sec("", 500, 0), 0.0)
+
+    def test_partial_suite_does_not_invent_means(self) -> None:
+        baseline = [
+            ModelSample(prompt_id="p1", output="{}", latency_ms=100, tokens_generated=10),
+            ModelSample(prompt_id="p2", output="{}"),
+        ]
+        candidate = [
+            ModelSample(prompt_id="p1", output="{}", latency_ms=200, tokens_generated=10),
+            ModelSample(prompt_id="p2", output="{}", latency_ms=400, tokens_generated=20),
+        ]
+        result = evaluate_suite([], baseline, candidate)
+        self.assertIsNone(result.mean_baseline_latency_ms)
+        self.assertIsNone(result.mean_baseline_tokens_per_sec)
+        self.assertEqual(result.mean_candidate_latency_ms, 300)
+        self.assertEqual(result.mean_candidate_tokens_per_sec, 50)
+        self.assertEqual(result.metrics[0].latency_delta_ms, 100)
+        self.assertIsNone(result.metrics[1].latency_delta_ms)
+        self.assertIsNone(result.metrics[1].tokens_per_sec_delta)
+
+    def test_invalid_measurements_are_rejected(self) -> None:
+        for latency in (-1.0, float("nan"), float("inf"), True):
+            with self.subTest(latency=latency), self.assertRaises(ValueError):
+                compute_tokens_per_sec("{}", latency, 10)
+        for tokens in (-1, True, 1.5):
+            with self.subTest(tokens=tokens), self.assertRaises(ValueError):
+                compute_tokens_per_sec("{}", 100, tokens)
+
+    def test_legacy_report_does_not_invent_measurements(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            report_path = Path(tmp_dir) / "report.json"
+            report_path.write_text(json.dumps({
+                "baseline_p50_latency_ms": 120,
+                "candidate_p50_latency_ms": 90,
+                "results": [{"prompt_id": "p", "latency_delta_ms": 0}],
+            }), encoding="utf-8")
+            result = load_benchmark_result(report_path)
+            self.assertIsNone(result.mean_baseline_latency_ms)
+            self.assertIsNone(result.mean_candidate_latency_ms)
+            self.assertIsNone(result.mean_baseline_tokens_per_sec)
+            self.assertIsNone(result.mean_candidate_tokens_per_sec)
+            self.assertIsNone(result.metrics[0].baseline_latency_ms)
+            self.assertIsNone(result.metrics[0].candidate_latency_ms)
+            self.assertIsNone(result.metrics[0].candidate_tokens_per_sec)
+            self.assertEqual(result.metrics[0].latency_delta_ms, 0)
