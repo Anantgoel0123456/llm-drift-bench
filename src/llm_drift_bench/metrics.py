@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 import re
+from typing import Any
 
 _TOKEN_REGEX = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 
@@ -91,5 +92,59 @@ def normalized_levenshtein_similarity(text_a: str, text_b: str) -> float:
 
     distance = previous_row[-1]
     return max(0.0, 1.0 - (distance / max_len))
+
+
+def _json_type_tag(value: Any) -> str:
+    """Return a canonical JSON type label for a Python value."""
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    return "unknown"
+
+
+def flatten_json_paths(data: Any, prefix: str = "$") -> dict[str, Any]:
+    """Flatten nested JSON objects and arrays into a mapping of JSONPath -> leaf value."""
+    flattened: dict[str, Any] = {}
+    if isinstance(data, dict):
+        if not data:
+            flattened[prefix] = {}
+        else:
+            for key in sorted(data.keys()):
+                flattened.update(flatten_json_paths(data[key], f"{prefix}.{key}"))
+    elif isinstance(data, list):
+        if not data:
+            flattened[prefix] = []
+        else:
+            for idx, item in enumerate(data):
+                flattened.update(flatten_json_paths(item, f"{prefix}[{idx}]"))
+    else:
+        flattened[prefix] = data
+    return flattened
+
+
+def json_structural_similarity(json_a: Any, json_b: Any) -> float:
+    """Compute structural similarity in [0.0, 1.0] based on JSON key-paths and value types."""
+    flat_a = flatten_json_paths(json_a)
+    flat_b = flatten_json_paths(json_b)
+    if not flat_a and not flat_b:
+        return 1.0
+    if not flat_a or not flat_b:
+        return 0.0
+
+    typed_paths_a = {(path, _json_type_tag(val)) for path, val in flat_a.items()}
+    typed_paths_b = {(path, _json_type_tag(val)) for path, val in flat_b.items()}
+    intersection = len(typed_paths_a & typed_paths_b)
+    union = len(typed_paths_a | typed_paths_b)
+    return intersection / union if union > 0 else 1.0
+
 
 
