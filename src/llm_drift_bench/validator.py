@@ -6,7 +6,7 @@ import json
 import re
 from typing import Any
 
-from llm_drift_bench.models import ValidationIssue
+from llm_drift_bench.models import SchemaValidationResult, ValidationIssue
 
 _CODE_FENCE_PATTERN = re.compile(
     r"```(?:json|JSON)?\s*\n?(.*?)\n?\s*```",
@@ -256,4 +256,50 @@ def validate_against_schema(
                     )
 
     return issues
+
+
+def validate_output(
+    raw_text: str,
+    schema: dict[str, Any] | None = None,
+) -> SchemaValidationResult:
+    """Parse raw LLM output as JSON and optionally validate against a JSON Schema.
+
+    Args:
+        raw_text: Raw LLM response string.
+        schema: Optional JSON Schema dictionary. If None, only JSON syntax is checked.
+
+    Returns:
+        SchemaValidationResult containing parsed payload and any validation issues.
+    """
+    is_valid_json, parsed, error_msg = extract_json_payload(raw_text)
+    if not is_valid_json:
+        return SchemaValidationResult(
+            is_valid_json=False,
+            is_schema_conformant=False,
+            parsed_json=None,
+            issues=(
+                ValidationIssue(
+                    path="$",
+                    message=error_msg or "Invalid JSON syntax.",
+                    rule="json_syntax",
+                ),
+            ),
+        )
+
+    if schema is None:
+        return SchemaValidationResult(
+            is_valid_json=True,
+            is_schema_conformant=True,
+            parsed_json=parsed,
+            issues=(),
+        )
+
+    schema_issues = validate_against_schema(parsed, schema, path="$")
+    return SchemaValidationResult(
+        is_valid_json=True,
+        is_schema_conformant=len(schema_issues) == 0,
+        parsed_json=parsed,
+        issues=tuple(schema_issues),
+    )
+
 
