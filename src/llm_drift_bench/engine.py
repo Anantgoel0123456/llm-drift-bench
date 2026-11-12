@@ -288,3 +288,72 @@ def load_prompt_cases(path: str | Path) -> list[PromptCase]:
     return [PromptCase.from_dict(rec) for rec in records]
 
 
+def format_report_table(report: DriftBenchmarkReport) -> str:
+    """Format a DriftBenchmarkReport as a human-readable terminal summary table."""
+    status_label = "PASSED" if report.passed else "FAILED"
+    lines: list[str] = [
+        "=" * 78,
+        f" LLM DRIFT BENCHMARK REPORT  [{status_label}]",
+        "=" * 78,
+        f" Baseline Model  : {report.baseline_model}",
+        f" Candidate Model : {report.candidate_model}",
+        f" Total Samples   : {report.total_samples} (Drifted: {report.drifted_samples} / {report.drift_rate:.1%})",
+        "-" * 78,
+        f" {'Metric':<36} | {'Baseline':<16} | {'Candidate / Value':<18}",
+        "-" * 78,
+        f" {'JSON Conformity Rate':<36} | {report.baseline_json_conformity_rate:>15.1%} | {report.candidate_json_conformity_rate:>17.1%}",
+        f" {'Mean Composite Drift':<36} | {'0.0000 (ref)':>16} | {report.mean_composite_drift:>18.4f}",
+        f" {'Max Composite Drift':<36} | {'0.0000 (ref)':>16} | {report.max_composite_drift:>18.4f}",
+        f" {'Mean Token Jaccard Similarity':<36} | {'1.0000 (ref)':>16} | {report.mean_token_jaccard:>18.4f}",
+        f" {'Mean Levenshtein Similarity':<36} | {'1.0000 (ref)':>16} | {report.mean_levenshtein_similarity:>18.4f}",
+    ]
+
+    if report.mean_json_structural_similarity is not None:
+        lines.append(
+            f" {'Mean JSON Structural Similarity':<36} | {'1.0000 (ref)':>16} | {report.mean_json_structural_similarity:>18.4f}"
+        )
+    if report.mean_json_numeric_drift is not None:
+        lines.append(
+            f" {'Mean JSON Numeric Relative Drift':<36} | {'0.0000 (ref)':>16} | {report.mean_json_numeric_drift:>18.4f}"
+        )
+    if report.baseline_p50_latency_ms is not None and report.candidate_p50_latency_ms is not None:
+        lines.append(
+            f" {'P50 Latency (ms)':<36} | {report.baseline_p50_latency_ms:>16.1f} | {report.candidate_p50_latency_ms:>18.1f}"
+        )
+    if report.baseline_p95_latency_ms is not None and report.candidate_p95_latency_ms is not None:
+        lines.append(
+            f" {'P95 Latency (ms)':<36} | {report.baseline_p95_latency_ms:>16.1f} | {report.candidate_p95_latency_ms:>18.1f}"
+        )
+
+    lines.extend(
+        [
+            "-" * 78,
+            f" {'Prompt ID':<18} | {'Category':<12} | {'JSON OK':<9} | {'Struct Sim':<10} | {'Drift':<8} | {'State':<7}",
+            "-" * 78,
+        ]
+    )
+
+    for res in report.results:
+        json_ok = "YES" if res.candidate_validation.passed else "NO"
+        struct_str = (
+            f"{res.json_structural_similarity:.4f}"
+            if res.json_structural_similarity is not None
+            else "N/A"
+        )
+        state_str = "DRIFT" if res.drifted else "OK"
+        lines.append(
+            f" {res.prompt_id[:18]:<18} | {res.category[:12]:<12} | {json_ok:<9} | "
+            f"{struct_str:>10} | {res.composite_drift_score:>8.4f} | {state_str:<7}"
+        )
+
+    lines.append("=" * 78)
+    if report.failure_reasons:
+        lines.append(" Threshold Violations:")
+        for reason in report.failure_reasons:
+            lines.append(f"  - {reason}")
+        lines.append("=" * 78)
+
+    return "\n".join(lines)
+
+
+
