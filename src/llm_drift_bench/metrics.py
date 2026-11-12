@@ -197,5 +197,58 @@ def json_numeric_drift(json_a: Any, json_b: Any) -> float | None:
     return sum(drifts) / len(drifts)
 
 
+def compute_composite_drift_score(
+    *,
+    token_jaccard: float,
+    ngram_sim: float,
+    levenshtein_sim: float,
+    json_structural_sim: float | None = None,
+    json_field_match: float | None = None,
+    json_num_drift: float | None = None,
+    baseline_schema_passed: bool = True,
+    candidate_schema_passed: bool = True,
+) -> float:
+    """Compute a unified drift score in [0.0, 1.0] (0.0 = identical, 1.0 = completely drifted)."""
+    text_drift = (
+        0.35 * (1.0 - token_jaccard)
+        + 0.30 * (1.0 - ngram_sim)
+        + 0.35 * (1.0 - levenshtein_sim)
+    )
+
+    if json_structural_sim is not None and json_field_match is not None:
+        struct_drift = 1.0 - json_structural_sim
+        field_drift = 1.0 - json_field_match
+        if json_num_drift is not None:
+            json_drift = 0.40 * struct_drift + 0.35 * field_drift + 0.25 * json_num_drift
+        else:
+            json_drift = 0.50 * struct_drift + 0.50 * field_drift
+        combined = 0.35 * text_drift + 0.65 * json_drift
+    else:
+        combined = text_drift
+
+    # Apply a conformity regression penalty if baseline passed schema but candidate failed
+    if baseline_schema_passed and not candidate_schema_passed:
+        combined = max(combined, 0.75) + 0.25 * (1.0 - max(combined, 0.75))
+
+    return max(0.0, min(1.0, combined))
+
+
+def compute_percentile(values: list[float], percentile: float) -> float | None:
+    """Compute linear-interpolated percentile (0-100) for a non-empty list of floats."""
+    if not values:
+        return None
+    if percentile <= 0:
+        return min(values)
+    if percentile >= 100:
+        return max(values)
+    sorted_vals = sorted(values)
+    k = (len(sorted_vals) - 1) * (percentile / 100.0)
+    floor_idx = int(k)
+    ceil_idx = min(floor_idx + 1, len(sorted_vals) - 1)
+    fraction = k - floor_idx
+    return sorted_vals[floor_idx] + fraction * (sorted_vals[ceil_idx] - sorted_vals[floor_idx])
+
+
+
 
 
