@@ -1,236 +1,168 @@
+<div align="center">
+
 # llm-drift-bench
 
+**Catch silent regressions before you swap or quantize your LLM.**
+
+Compare captured outputs. Check structured responses. Gate your next model change.
+
+[![PyPI](https://img.shields.io/pypi/v/llm-drift-bench)](https://pypi.org/project/llm-drift-bench/)
 [![CI](https://github.com/anant-goel/llm-drift-bench/actions/workflows/ci.yml/badge.svg)](https://github.com/anant-goel/llm-drift-bench/actions/workflows/ci.yml)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Runtime dependencies](https://img.shields.io/badge/runtime-Pydantic%20%2B%20Rich-blue.svg)](pyproject.toml)
-[![Code style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
-[![Typed: Mypy Strict](https://img.shields.io/badge/typing-mypy%20strict-blue.svg)](http://mypy-lang.org/)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-**`llm-drift-bench`** is a Python CLI and library for comparing captured LLM outputs across model updates, prompt revisions, and quantizations. It measures lexical differences, JSON structure and field agreement, numeric changes, and recorded latency.
+[Quickstart](#quickstart) · [Examples](examples/README.md) · [Architecture](docs/architecture.md) · [Roadmap](docs/roadmap.md) · [Contribute](CONTRIBUTING.md)
 
----
+</div>
 
-## Why `llm-drift-bench`?
+> **Release status:** 0.1.0 has been released. This branch prepares **0.2.0**
+> (`0.2.0.dev0`). The commands and behavior below describe this development
+> checkout. Read the [migration notes](docs/migration-0.2.md) before upgrading.
 
-When upgrading model checkpoints or quantizing weights for production inference, subtle regressions frequently slip past perplexity benchmarks:
-- **Broken JSON Conformity**: Markdown fence artifacts or missing required keys in structured outputs.
-- **Structural Key-Path Drift**: Schema-valid payloads that drop optional nested fields or alter value types.
-- **Numeric Field Drift**: Extracted financial or confidence numbers drifting beyond acceptable tolerances.
-- **Tail Latency Regressions**: P95 latency spikes across specific prompt categories.
+## A faster model is only useful if its outputs still work
 
-The runtime uses Pydantic and Rich, together with their transitive dependencies.
+A quantized model can return valid JSON while changing a price, dropping a field,
+or choosing a different label. A prompt revision can change output formatting
+without improving the underlying task. A model update can affect both.
 
-Similarity measures agreement with a baseline, not factual correctness or semantic equivalence. The validator implements a JSON Schema subset and rejects unsupported keywords before checking the response. It is not a complete JSON Schema implementation.
+`llm-drift-bench` compares saved baseline and candidate responses by prompt ID
+and makes those changes inspectable. It runs locally, with no model API calls,
+API keys, embedding downloads, or GPU requirement. Its runtime dependencies are
+Pydantic and Rich, plus their transitive dependencies.
 
----
+| Check | What it tells you |
+| --- | --- |
+| JSON conformity | Whether responses parse and satisfy the supported schema subset |
+| Text similarity | Token, n-gram, and character-level agreement with your baseline |
+| JSON field agreement | Changes to structure, exact leaf values, and numeric values |
+| Recorded latency | P50/P95 differences when complete measurements are supplied |
+| CI gates | Whether a sample or suite exceeds your configured thresholds |
 
-## Quickstart after publication
+**Agreement is not correctness.** A wrong baseline can agree perfectly with a
+wrong candidate. These metrics are lexical and structural, not a semantic judge.
 
-```bash
-pip install llm-drift-bench
-llm-drift-bench init-sample --dir ./demo
-llm-drift-bench run -b ./demo/baseline_fp16.jsonl -c ./demo/candidate_int4.jsonl -p ./demo/prompts.json
+## Quickstart
+
+Try the development checkout from PowerShell with Python 3.10 or newer:
+
+```powershell
+git clone https://github.com/anant-goel/llm-drift-bench.git
+Set-Location llm-drift-bench
+python -m venv .venv
+& .\.venv\Scripts\python.exe -m pip install -e .
+& .\.venv\Scripts\python.exe -m llm_drift_bench --version
+& .\.venv\Scripts\python.exe -m llm_drift_bench run -b examples/baseline.jsonl -c examples/candidate-pass.jsonl -p examples/extraction-suite.json
 ```
 
----
+Expected: `0.2.0.dev0`, followed by a **PASSED** comparison and exit code `0`.
+On Linux/macOS, replace `.\.venv\Scripts\python.exe` with `.venv/bin/python`.
+No virtual-environment activation is needed.
 
-## Visual Terminal Output
+Now catch a regression:
 
-### 1. Drift Benchmark Comparison (`llm-drift-bench run`)
-
-```text
-==============================================================================
- LLM DRIFT BENCHMARK REPORT  [PASSED]
-==============================================================================
- Baseline Model  : llama-3-8b-fp16
- Candidate Model : llama-3-8b-q4_k_m
- Total Samples   : 2 (Drifted: 0 / 0.0%)
-------------------------------------------------------------------------------
- Metric                               | Baseline         | Candidate / Value 
-------------------------------------------------------------------------------
- JSON Conformity Rate                 |          100.0% |            100.0%
- Mean Composite Drift                 |     0.0000 (ref) |             0.0426
- Max Composite Drift                  |     0.0000 (ref) |             0.0852
- Mean Token Jaccard Similarity        |     1.0000 (ref) |             0.9412
- Mean Levenshtein Similarity          |     1.0000 (ref) |             0.9930
- Mean JSON Structural Similarity      |     1.0000 (ref) |             1.0000
- Mean JSON Numeric Relative Drift     |     0.0000 (ref) |             0.0160
- P50 Latency (ms)                     |            130.2 |               82.8
- P95 Latency (ms)                     |            141.3 |               88.6
-------------------------------------------------------------------------------
- Prompt ID          | Category     | JSON OK   | Struct Sim | Drift    | State  
-------------------------------------------------------------------------------
- extract_invoice_01 | extraction   | YES       |     1.0000 |   0.0000 | OK     
- classify_ticket_02 | classificati | YES       |     1.0000 |   0.0852 | OK
-==============================================================================
+```powershell
+& .\.venv\Scripts\python.exe -m llm_drift_bench run -b examples/baseline.jsonl -c examples/candidate-drift.jsonl -p examples/extraction-suite.json --output drift-report.json
+$LASTEXITCODE # Expected: 1
 ```
 
-### 2. Standalone JSON Conformity Validation (`llm-drift-bench validate`)
+These fixtures are **handwritten demonstrations**, not measurements of any real
+model or quantization. [Inspect the inputs and expected reports](examples/README.md).
 
-```bash
-llm-drift-bench validate -i ./demo/candidate_int4.jsonl -p ./demo/prompts.json --strict
+To install the published version instead:
+
+```powershell
+python -m pip install "llm-drift-bench==0.1.0"
+python -m llm_drift_bench --help
 ```
 
-```text
-========================================================================
- JSON CONFORMITY VALIDATION  [2/2 passed (100.0%)]
-========================================================================
- [PASS] extract_invoice_01 | Conformant
- [PASS] classify_ticket_02 | Conformant
-========================================================================
-```
+Published 0.1.0 does not include all changes documented on this branch.
 
----
+## Bring your own captures
 
-## Input & Configuration Formats
-
-### Prompt Suite with JSON Schemas (`prompts.json`)
+Create a JSON or JSONL file for each comparison target. Each record contains a
+unique, nonempty `prompt_id` and the captured response as an `output` string:
 
 ```json
-[
-  {
-    "prompt_id": "extract_invoice_01",
-    "category": "extraction",
-    "prompt": "Extract invoice fields as JSON.",
-    "schema": {
-      "type": "object",
-      "required": ["invoice_id", "total_usd", "status"],
-      "properties": {
-        "invoice_id": {"type": "string", "minLength": 3, "pattern": "^INV-"},
-        "total_usd": {"type": "number", "minimum": 0},
-        "status": {"type": "string", "enum": ["paid", "pending", "overdue"]}
-      },
-      "additionalProperties": false
-    }
-  }
-]
+{"prompt_id":"invoice-01","model_name":"my-baseline","output":"{\"total\":100}"}
 ```
 
-### Model Outputs (`baseline_fp16.jsonl` / `candidate_int4.jsonl`)
+Optionally include measured `latency_ms` and `tokens_generated`. Missing
+measurements remain unavailable; the tool does not estimate them from text.
+Baseline and candidate must have exactly matching prompt IDs. A supplied suite
+must cover the same IDs, with no duplicates or extra cases.
 
-```jsonl
-{"prompt_id": "extract_invoice_01", "model_name": "llama-3-8b-fp16", "latency_ms": 142.5, "output": "{\"invoice_id\": \"INV-2026-09\", \"total_usd\": 1250.00, \"status\": \"paid\"}"}
+A suite associates those IDs with prompts and schemas:
+
+```json
+[{"prompt_id":"invoice-01","prompt":"Extract the invoice total.","schema":{"type":"object","required":["total"],"properties":{"total":{"type":"number","minimum":0}}}}]
 ```
 
----
+JSON Schema support is intentionally limited. Unsupported keywords fail
+explicitly. See [current limitations](docs/current-limitations.md) before using
+complex schemas or untrusted regex patterns.
 
-## CLI Reference & CI Gating
+## Use it in CI
 
-Gate your CI/CD pipeline on model drift and JSON conformity thresholds using `--fail-on-drift`:
-
-```bash
-llm-drift-bench run \
-  --baseline ./baseline_fp16.jsonl \
-  --candidate ./candidate_int4.jsonl \
-  --prompts ./prompts.json \
-  --max-drift 0.15 \
-  --min-conformity 0.98 \
-  --max-numeric-drift 0.05 \
-  --max-latency-regression 25.0 \
-  --output ./artifacts/drift_report.json \
-  --fail-on-drift
+```powershell
+& .\.venv\Scripts\python.exe -m llm_drift_bench run -b baseline.jsonl -c candidate.jsonl -p prompts.json --max-drift 0.15 --min-conformity 0.98 --max-numeric-drift 0.05 --max-latency-regression 25 --format json --output drift-report.json
+exit $LASTEXITCODE
 ```
 
-| Flag | Default | Description |
-| :--- | :--- | :--- |
-| `-b`, `--baseline` | *(Required)* | Path to baseline model outputs (`.json` or `.jsonl`). |
-| `-c`, `--candidate` | *(Required)* | Path to candidate model outputs (`.json` or `.jsonl`). |
-| `-p`, `--prompts` | `None` | Optional prompt definitions with per-prompt JSON Schemas. |
-| `--max-drift` | `0.25` | Maximum allowed mean/per-sample composite drift score `[0.0, 1.0]`. |
-| `--min-conformity` | `0.95` | Minimum required candidate JSON Schema conformity rate `[0.0, 1.0]`. |
-| `--max-numeric-drift` | `0.15` | Maximum allowed relative numeric drift on shared JSON number fields. |
-| `--max-latency-regression` | `50.0` | Maximum allowed P95 latency regression percentage (`%`). |
-| `-o`, `--output` | `None` | File path to save the structured JSON benchmark report. |
-| `--format` | `table` | Output format on stdout (`table`, `rich`, `json`, or `markdown`). |
-| `--fail-on-drift` | `False` | Exit with code `1` if any threshold is violated or sample drifts. |
+| Exit code | Meaning |
+| --- | --- |
+| `0` | Passed |
+| `1` | Drift or a threshold failure |
+| `2` | Usage or input error |
 
-### Current behavior of the unreleased revision
+`--fail-on-drift` explicitly enables the default. `--no-fail-on-drift` makes a
+run informational, but its report still records failure. Input errors remain
+errors. A failed individual sample fails the suite even if the mean is low.
 
-Levenshtein similarity always compares characters (Unicode code points),
-including whitespace and case. Each response is limited to 16,384 characters
-for this metric. Longer responses raise an error (CLI exit code `2`), rather
-than being truncated or scored using a different unit. Unicode normalization
-is not applied.
+| Threshold | Default |
+| --- | ---: |
+| `--max-drift` | 0.25 |
+| `--min-conformity` | 0.95 |
+| `--max-numeric-drift` | 0.15 |
+| `--max-latency-regression` | 50 percent |
 
-Commands are `run`, `report`, `validate`, and `init-sample`.
-`--suite` and `--prompts` are aliases for the suite path.
+Calibrate thresholds using your own tasks. Missing timings skip the latency
+gate, so a passing report does not necessarily certify latency performance.
 
-Use existing captured-output files for both comparison targets.
-Missing files, directory paths, and model identifiers are input errors
-(CLI exit code `2`). The tool does not call model endpoints or generate
-responses. The library also accepts explicit sequences of `ModelSample`.
-`init-sample` creates illustrative fixtures, not measured model outputs.
-
-Baseline and candidate must contain exactly the same non-empty prompt IDs,
-with no duplicates. An explicitly supplied suite must cover exactly those
-IDs and cannot be empty. The `validate --prompts` command applies the same
-suite-coverage rule. Matching errors return CLI exit code `2`.
-Comparison results are ordered by prompt ID, independently of input order.
-For library callers, `evaluate_suite([], baseline, candidate)` still means
-infer the prompts from the complete matching output sets; it never selects
-only their intersection.
-
-Table and JSON output use the benchmark engine. Rich and Markdown output
-currently recompute scores through a second evaluator with different
-weights. Until these paths are unified, their scores are not interchangeable.
-
-Missing measurements appear as `n/a` in reports and `null` in JSON.
-Throughput requires an explicit `tokens_generated` count and positive measured
-`latency_ms`; text token estimates are not substituted. Zero latency remains
-a recorded value, but cannot produce throughput or a baseline-relative
-percentage regression.
-
-Suite means and latency percentiles require complete measurements for that
-side of the comparison. If either side lacks timings, the latency regression
-check is skipped; a passing result does not certify latency performance.
-Other drift and conformity thresholds still apply.
-
-Saved engine reports lose some information when converted by `report`.
-Unavailable latency means and throughput remain `n/a`; percentiles are not
-substituted for means or individual observations.
-
----
-
-## Python Library API
-
-Use `llm-drift-bench` directly inside your evaluation pipelines or pytest suites:
+## Python API
 
 ```python
-from llm_drift_bench import (
-    DriftBenchmarkEngine,
-    DriftThresholds,
-    ModelSample,
-    PromptCase,
-    format_report_table,
-)
+from llm_drift_bench import DriftBenchmarkEngine, ModelSample, PromptCase
 
-prompts = [
-    PromptCase(
-        prompt_id="invoice_1",
-        prompt="Extract invoice total.",
-        schema={
-            "type": "object",
-            "required": ["total"],
-            "properties": {"total": {"type": "number", "minimum": 0}},
-        },
-    )
-]
-
-baseline = [ModelSample(prompt_id="invoice_1", model_name="fp16", output='{"total": 100.0}')]
-candidate = [ModelSample(prompt_id="invoice_1", model_name="int4", output='{"total": 99.5}')]
-
-engine = DriftBenchmarkEngine(thresholds=DriftThresholds(max_composite_drift=0.10))
-report = engine.evaluate(baseline, candidate, prompts)
-
-print(format_report_table(report))
-assert report.passed
+suite = [PromptCase(prompt_id="invoice-01", prompt="Extract total.",
+                    schema={"type": "object", "required": ["total"]})]
+baseline = [ModelSample(prompt_id="invoice-01", output='{"total":100}')]
+candidate = [ModelSample(prompt_id="invoice-01", output='{"total":100}')]
+report = DriftBenchmarkEngine().evaluate(baseline, candidate, suite)
+assert report.passed, report.failure_reasons
 ```
 
----
+## Commands and reporting
 
-## Contributing & License
+| Command | Purpose |
+| --- | --- |
+| `run` | Compare captured baseline and candidate outputs |
+| `validate --strict` | Fail when captured outputs do not conform |
+| `report` | Render an existing result |
+| `init-sample --dir demo` | Create illustrative starter files |
 
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing instructions, and our `good first issue` roadmap.
+Use `run --format json` or the default table for canonical engine scores.
+Rich/Markdown currently use a second evaluator and can disagree with engine
+scores. Unifying them is a **0.2.0 release blocker**, tracked in the roadmap.
+For all options, run `python -m llm_drift_bench <command> --help`.
 
-Licensed under the [MIT License](LICENSE).
+## Help make model changes safer
+
+Useful contributions include a small failing capture, a reproducible bug report,
+a tested edge-case fix, or clearer documentation. Start with the
+[contributor guide](CONTRIBUTING.md) and [roadmap](docs/roadmap.md).
+
+If the tool catches a real regression, share a sanitized reproduction and the
+benchmark version. Reproducible examples help other users more than a score
+without its inputs.
+
+[Changelog](CHANGELOG.md) · [Migration guide](docs/migration-0.2.md) · [MIT license](LICENSE)

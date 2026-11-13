@@ -1,0 +1,2 @@
+{"prompt_id": "invoice-01", "model_name": "demo-candidate-drift", "output": "{\"total\":180}"}
+{"prompt_id": "ticket-01", "model_name": "demo-candidate-drift", "output": "{}"}

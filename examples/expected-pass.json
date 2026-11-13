@@ -1,0 +1,73 @@
+{
+  "baseline_model": "demo-reference",
+  "candidate_model": "demo-candidate-pass",
+  "total_samples": 2,
+  "drifted_samples": 0,
+  "drift_rate": 0.0,
+  "baseline_json_conformity_rate": 1.0,
+  "candidate_json_conformity_rate": 1.0,
+  "mean_composite_drift": 0.0,
+  "max_composite_drift": 0.0,
+  "mean_token_jaccard": 1.0,
+  "mean_levenshtein_similarity": 1.0,
+  "mean_json_structural_similarity": 1.0,
+  "mean_json_numeric_drift": 0.0,
+  "baseline_p50_latency_ms": null,
+  "candidate_p50_latency_ms": null,
+  "baseline_p95_latency_ms": null,
+  "candidate_p95_latency_ms": null,
+  "passed": true,
+  "failure_reasons": [],
+  "results": [
+    {
+      "prompt_id": "invoice-01",
+      "category": "extraction",
+      "baseline_validation": {
+        "is_valid_json": true,
+        "is_schema_conformant": true,
+        "passed": true,
+        "issues": []
+      },
+      "candidate_validation": {
+        "is_valid_json": true,
+        "is_schema_conformant": true,
+        "passed": true,
+        "issues": []
+      },
+      "token_jaccard_similarity": 1.0,
+      "ngram_similarity": 1.0,
+      "levenshtein_similarity": 1.0,
+      "json_structural_similarity": 1.0,
+      "json_exact_field_match": 1.0,
+      "json_numeric_drift": 0.0,
+      "composite_drift_score": 0.0,
+      "latency_delta_ms": null,
+      "drifted": false
+    },
+    {
+      "prompt_id": "ticket-01",
+      "category": "classification",
+      "baseline_validation": {
+        "is_valid_json": true,
+        "is_schema_conformant": true,
+        "passed": true,
+        "issues": []
+      },
+      "candidate_validation": {
+        "is_valid_json": true,
+        "is_schema_conformant": true,
+        "passed": true,
+        "issues": []
+      },
+      "token_jaccard_similarity": 1.0,
+      "ngram_similarity": 1.0,
+      "levenshtein_similarity": 1.0,
+      "json_structural_similarity": 1.0,
+      "json_exact_field_match": 1.0,
+      "json_numeric_drift": null,
+      "composite_drift_score": 0.0,
+      "latency_delta_ms": null,
+      "drifted": false
+    }
+  ]
+}

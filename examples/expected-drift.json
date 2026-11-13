@@ -1,0 +1,84 @@
+{
+  "baseline_model": "demo-reference",
+  "candidate_model": "demo-candidate-drift",
+  "total_samples": 2,
+  "drifted_samples": 2,
+  "drift_rate": 1.0,
+  "baseline_json_conformity_rate": 1.0,
+  "candidate_json_conformity_rate": 0.5,
+  "mean_composite_drift": 0.6694,
+  "max_composite_drift": 0.9597,
+  "mean_token_jaccard": 0.5238,
+  "mean_levenshtein_similarity": 0.5142,
+  "mean_json_structural_similarity": 0.5,
+  "mean_json_numeric_drift": 0.4444,
+  "baseline_p50_latency_ms": null,
+  "candidate_p50_latency_ms": null,
+  "baseline_p95_latency_ms": null,
+  "candidate_p95_latency_ms": null,
+  "passed": false,
+  "failure_reasons": [
+    "2 of 2 samples failed individual drift checks.",
+    "Mean composite drift (0.6694) exceeded threshold (0.2500).",
+    "Candidate JSON conformity rate (50.00%) fell below minimum (95.00%).",
+    "Mean numeric relative drift (0.4444) exceeded threshold (0.1500)."
+  ],
+  "results": [
+    {
+      "prompt_id": "invoice-01",
+      "category": "extraction",
+      "baseline_validation": {
+        "is_valid_json": true,
+        "is_schema_conformant": true,
+        "passed": true,
+        "issues": []
+      },
+      "candidate_validation": {
+        "is_valid_json": true,
+        "is_schema_conformant": true,
+        "passed": true,
+        "issues": []
+      },
+      "token_jaccard_similarity": 0.7143,
+      "ngram_similarity": 0.6667,
+      "levenshtein_similarity": 0.9231,
+      "json_structural_similarity": 1.0,
+      "json_exact_field_match": 0.0,
+      "json_numeric_drift": 0.4444,
+      "composite_drift_score": 0.3791,
+      "latency_delta_ms": null,
+      "drifted": true
+    },
+    {
+      "prompt_id": "ticket-01",
+      "category": "classification",
+      "baseline_validation": {
+        "is_valid_json": true,
+        "is_schema_conformant": true,
+        "passed": true,
+        "issues": []
+      },
+      "candidate_validation": {
+        "is_valid_json": true,
+        "is_schema_conformant": false,
+        "passed": false,
+        "issues": [
+          {
+            "path": "$.priority",
+            "message": "Missing required property 'priority'.",
+            "rule": "required"
+          }
+        ]
+      },
+      "token_jaccard_similarity": 0.3333,
+      "ngram_similarity": 0.0,
+      "levenshtein_similarity": 0.1053,
+      "json_structural_similarity": 0.0,
+      "json_exact_field_match": 0.0,
+      "json_numeric_drift": null,
+      "composite_drift_score": 0.9597,
+      "latency_delta_ms": null,
+      "drifted": true
+    }
+  ]
+}

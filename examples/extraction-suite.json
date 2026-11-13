@@ -1,0 +1,41 @@
+[
+  {
+    "prompt_id": "invoice-01",
+    "category": "extraction",
+    "prompt": "Extract total: invoice total is 100.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "total"
+      ],
+      "properties": {
+        "total": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "prompt_id": "ticket-01",
+    "category": "classification",
+    "prompt": "Classify: urgent billing problem.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "priority"
+      ],
+      "properties": {
+        "priority": {
+          "type": "string",
+          "enum": [
+            "low",
+            "high"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+]

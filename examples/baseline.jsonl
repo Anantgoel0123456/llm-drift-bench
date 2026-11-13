@@ -1,0 +1,2 @@
+{"prompt_id": "invoice-01", "model_name": "demo-reference", "output": "{\"total\":100}"}
+{"prompt_id": "ticket-01", "model_name": "demo-reference", "output": "{\"priority\":\"high\"}"}
