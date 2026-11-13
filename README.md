@@ -19,6 +19,17 @@ Compare captured outputs. Check structured responses. Gate your next model chang
 > (`0.2.0.dev0`). The commands and behavior below describe this development
 > checkout. Read the [migration notes](docs/migration-0.2.md) before upgrading.
 
+## See it in 18 seconds
+
+[![Animated walkthrough: an unchanged candidate passes, then changed fields fail](docs/assets/demo.gif)](docs/assets/demo.mp4)
+
+[Watch or download the MP4](docs/assets/demo.mp4) | [Static preview](docs/assets/demo-poster.png) | [Demo inputs](examples/README.md)
+
+This edited walkthrough uses actual CLI results from the **0.2.0 development
+checkout** and handwritten fixtures. It is not a real-model benchmark or a
+recording of execution speed. No audio is required. Open the static preview if
+you prefer no animation.
+
 ## A faster model is only useful if its outputs still work
 
 A quantized model can return valid JSON while changing a price, dropping a field,
