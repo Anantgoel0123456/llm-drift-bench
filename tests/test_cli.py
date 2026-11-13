@@ -5,6 +5,9 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,6 +24,55 @@ class TestCLI(unittest.TestCase):
             code = main([])
         self.assertEqual(code, 0)
         self.assertIn("llm-drift-bench", buf.getvalue())
+
+    def test_run_drift_exit_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            baseline = root / "baseline.json"
+            candidate = root / "candidate.json"
+            baseline.write_text('[{"prompt_id":"p","output":"alpha"}]', encoding="utf-8")
+            candidate.write_text('[{"prompt_id":"p","output":"omega"}]', encoding="utf-8")
+            args = ["run", "-b", str(baseline), "-c", str(candidate)]
+            for flags, expected in (([], 1), (["--fail-on-drift"], 1),
+                                    (["--no-fail-on-drift"], 0)):
+                with self.subTest(flags=flags):
+                    stdout = io.StringIO()
+                    with contextlib.redirect_stdout(stdout):
+                        code = main([*args, "--format", "json", *flags])
+                    self.assertEqual(code, expected)
+                    self.assertFalse(json.loads(stdout.getvalue())["passed"])
+            for flag, value in (
+                ("--max-drift", "nan"), ("--max-drift", "1.1"),
+                ("--min-conformity", "-0.1"), ("--max-numeric-drift", "inf"),
+                ("--max-latency-regression", "-1"),
+            ):
+                with self.subTest(flag=flag, value=value):
+                    with contextlib.redirect_stderr(io.StringIO()):
+                        code = main([*args, flag, value, "--no-fail-on-drift"])
+                    self.assertEqual(code, 2)
+
+    def test_module_process_exit_codes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            baseline = root / "baseline.json"
+            candidate = root / "candidate.json"
+            baseline.write_text('[{"prompt_id":"p","output":"alpha"}]', encoding="utf-8")
+            candidate.write_text('[{"prompt_id":"p","output":"omega"}]', encoding="utf-8")
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+            cases = [
+                (["run", "-b", str(baseline), "-c", str(baseline)], 0),
+                (["run", "-b", str(baseline), "-c", str(candidate)], 1),
+                (["run", "-b", str(baseline), "-c", str(root / "missing.json")], 2),
+                (["--unknown-option"], 2),
+            ]
+            for args, expected in cases:
+                with self.subTest(args=args):
+                    result = subprocess.run(
+                        [sys.executable, "-m", "llm_drift_bench", *args],
+                        cwd=root, env=env, capture_output=True, text=True, timeout=30,
+                    )
+                    self.assertEqual(result.returncode, expected, result.stderr)
 
     def test_init_sample_and_run_workflow(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

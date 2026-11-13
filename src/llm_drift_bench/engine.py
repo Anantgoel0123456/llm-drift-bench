@@ -214,6 +214,10 @@ class DriftBenchmarkEngine:
         cand_p95 = compute_percentile(cand_latencies, 95.0)
 
         failure_reasons: list[str] = []
+        if drifted_count:
+            failure_reasons.append(
+                f"{drifted_count} of {total} samples failed individual drift checks."
+            )
         if mean_drift > self.thresholds.max_composite_drift:
             failure_reasons.append(
                 f"Mean composite drift ({mean_drift:.4f}) exceeded threshold "

@@ -170,3 +170,14 @@ class TestEngine(unittest.TestCase):
         report = DriftBenchmarkEngine().evaluate(baseline, candidate)
         self.assertEqual(report.baseline_p95_latency_ms, 0)
         self.assertIn("zero baseline P95", format_report_table(report))
+
+    def test_individual_failure_cannot_be_hidden_by_suite_mean(self) -> None:
+        baseline = [ModelSample(prompt_id=str(i), output="alpha") for i in range(10)]
+        candidate = list(baseline)
+        candidate[0] = ModelSample(prompt_id="0", output="omega")
+        report = DriftBenchmarkEngine().evaluate(baseline, candidate)
+        self.assertLess(report.mean_composite_drift, 0.25)
+        self.assertEqual(report.drifted_samples, 1)
+        self.assertFalse(report.passed)
+        self.assertIn("individual drift checks", report.failure_reasons[0])
+        self.assertIn("FAILED", format_report_table(report))

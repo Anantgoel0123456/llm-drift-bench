@@ -98,6 +98,12 @@ applies thresholds.
 Its report contains mean and maximum drift, conformity rates, latency
 percentiles, individual drift flags, and aggregate failure reasons.
 
+The report fails if any sample fails its individual drift checks or any
+aggregate threshold fails. Thresholds reject non-finite and out-of-range
+values. `run` exits 1 for a failed report by default, 0 for a passing report,
+and 2 for usage or input errors. `--no-fail-on-drift` suppresses only exit
+code 1; it never changes the report's pass/fail status.
+
 Loaders and evaluators reject duplicate and blank prompt IDs. Baseline and
 candidate must have identical ID sets; no extra records are discarded.
 An explicit suite must be nonempty and cover exactly those IDs. The

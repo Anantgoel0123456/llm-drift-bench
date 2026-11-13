@@ -152,6 +152,23 @@ class DriftThresholds:
     max_numeric_relative_drift: float = 0.15
     max_latency_regression_pct: float = 50.0
 
+    def __post_init__(self) -> None:
+        """Reject thresholds that could silently disable failure comparisons."""
+        for name in (
+            "max_composite_drift", "min_json_conformity_rate", "max_numeric_relative_drift",
+            "max_latency_regression_pct",
+        ):
+            value = getattr(self, name)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value < 0
+            ):
+                raise ValueError(f"{name} must be a finite non-negative number.")
+            if name != "max_latency_regression_pct" and value > 1:
+                raise ValueError(f"{name} must be between 0 and 1.")
+
 
 @dataclass(frozen=True)
 class SampleDriftResult:

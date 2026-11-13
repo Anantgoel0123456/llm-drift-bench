@@ -92,8 +92,12 @@ def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     )
     run_parser.add_argument(
         "--fail-on-drift",
-        action="store_true",
-        help="Return exit code 1 if benchmark thresholds fail or any sample drifts.",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Return exit code 1 on drift or threshold failure (default). "
+            "Use --no-fail-on-drift for an informational run."
+        ),
     )
 
 
@@ -145,7 +149,7 @@ def _handle_run(args: argparse.Namespace) -> int:
     else:
         print(format_report_table(report))
 
-    if args.fail_on_drift and (not report.passed or report.drifted_samples > 0):
+    if args.fail_on_drift and not report.passed:
         return 1
     return 0
 
@@ -243,6 +247,8 @@ def _add_validate_subparser(
 def _handle_validate(args: argparse.Namespace) -> int:
     """Execute the 'validate' subcommand."""
     samples = load_model_samples(args.input)
+    if not samples:
+        raise ValueError("Validation requires at least one output sample.")
     global_schema: dict[str, Any] | None = None
     if args.schema:
         loaded = json.loads(Path(args.schema).read_text(encoding="utf-8"))
@@ -265,7 +271,9 @@ def _handle_validate(args: argparse.Namespace) -> int:
     records: list[dict[str, Any]] = []
     passed_count = 0
     for sample in samples:
-        active_schema = prompt_map.get(sample.prompt_id) or global_schema
+        active_schema = prompt_map.get(sample.prompt_id)
+        if active_schema is None:
+            active_schema = global_schema
         res = validate_output(sample.output, schema=active_schema)
         if res.passed:
             passed_count += 1
@@ -416,7 +424,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="llm-drift-bench",
         description=(
-            "Lightweight, zero-bloat CLI to benchmark LLM outputs, validate JSON "
+            "CLI to compare captured LLM outputs, validate JSON "
             "conformity, and detect output drift across model updates or quantizations."
         ),
     )
