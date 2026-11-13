@@ -27,9 +27,9 @@ For library callers, `evaluate_suite([], baseline, candidate)` still means
 infer the prompts from the complete matching output sets; it never selects
 only their intersection.
 
-Table and JSON output use the benchmark engine. Rich and Markdown output
-currently recompute scores through a second evaluator with different
-weights. Until these paths are unified, their scores are not interchangeable.
+All CLI run formats use the same engine report without reevaluation. The legacy
+evaluate_suite library API retains different scoring semantics and must not be
+compared directly with engine scores.
 
 Missing measurements appear as `n/a` in reports and `null` in JSON.
 Throughput requires an explicit `tokens_generated` count and positive measured
@@ -42,6 +42,9 @@ side of the comparison. If either side lacks timings, the latency regression
 check is skipped; a passing result does not certify latency performance.
 Other drift and conformity thresholds still apply.
 
-Saved engine reports lose some information when converted by `report`.
-Unavailable latency means and throughput remain `n/a`; percentiles are not
-substituted for means or individual observations.
+Saved engine reports are loaded as engine reports, without invented semantic
+or exact-match values. Reports missing required fields are rejected. Older
+complete reports without thresholds retain unknown thresholds. Legacy evaluator
+reports remain readable in JSON, Rich, and Markdown; HTML requires an engine
+report. The engine does not store throughput or latency means, so its renderers
+do not display them.

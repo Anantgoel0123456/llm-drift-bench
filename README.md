@@ -4,7 +4,7 @@
 
 **Catch silent regressions before you swap or quantize your LLM.**
 
-Compare captured outputs. Check structured responses. Gate your next model change.
+Offline regression checks for LLM outputs, structured responses, and model changes.
 
 [![PyPI](https://img.shields.io/pypi/v/llm-drift-bench)](https://pypi.org/project/llm-drift-bench/)
 [![CI](https://github.com/anant-goel/llm-drift-bench/actions/workflows/ci.yml/badge.svg)](https://github.com/anant-goel/llm-drift-bench/actions/workflows/ci.yml)
@@ -51,6 +51,46 @@ Pydantic and Rich, plus their transitive dependencies.
 
 **Agreement is not correctness.** A wrong baseline can agree perfectly with a
 wrong candidate. These metrics are lexical and structural, not a semantic judge.
+
+## From captured responses to a release decision
+
+```mermaid
+flowchart TD
+    A[Saved baseline responses] --> C[Match prompt IDs]
+    B[Saved candidate responses] --> C
+    C --> D[Validate and score]
+    D --> E{Thresholds pass?}
+    E -->|Yes| F[Pass CI or application test]
+    E -->|No| G[Inspect failed prompts and reasons]
+```
+
+### Evaluate the output your application depends on
+
+| Your workflow | What you can compare today | What needs separate evaluation |
+| --- | --- | --- |
+| Model updates and quantization | Saved responses for the same prompts | General intelligence or factual accuracy |
+| JSON extraction | Required fields, structure, field agreement, numeric changes | Whether extracted facts match the source |
+| RAG applications | Saved final answers or structured extraction outputs | Retrieval relevance, grounding, and citation correctness |
+| Agent workflows | Saved final responses or tool-argument JSON represented as output strings | Tool execution, intermediate traces, permissions, and task completion |
+
+You export the captures; the benchmark evaluates them offline. See
+[workflow recipes](docs/workflows.md) for examples and boundaries.
+
+### Available now and planned next
+
+| Capability | Development checkout | Direction |
+| --- | --- | --- |
+| Offline evaluation and JSON checks | Available | Harden schema and numeric handling |
+| CLI and Python test gates | Available | Add CI-native result exports |
+| Per-prompt failure inspection | Available | Canonical scores across CLI formats |
+| Local HTML report | Available | Inspect a saved engine result in a browser |
+| Run history and trends | Planned | Compare versioned results over time |
+| Trace import and correlation | Exploratory | Connect failures to externally captured spans |
+| Live production monitoring | Not implemented | Requires collection, storage, alerting, and operational design |
+
+The next release prioritizes trustworthy results. The local HTML report shows
+the same engine scores and failure decision as the CLI. Live monitoring and
+historical dashboards remain separate future work.
 
 ## Quickstart
 
@@ -152,6 +192,35 @@ report = DriftBenchmarkEngine().evaluate(baseline, candidate, suite)
 assert report.passed, report.failure_reasons
 ```
 
+## Turn a benchmark into an automated test
+
+The development version includes `assert_no_drift`, usable with pytest,
+unittest, or ordinary Python. It uses the canonical engine report and raises
+`AssertionError` when a sample or suite gate fails.
+
+```python
+from pathlib import Path
+from llm_drift_bench import (
+    DriftBenchmarkEngine, assert_no_drift, load_model_samples, load_prompt_cases,
+)
+
+
+def test_saved_outputs_do_not_regress():
+    fixtures = Path("examples")  # Run from the repository root.
+    report = DriftBenchmarkEngine().evaluate(
+        load_model_samples(fixtures / "baseline.jsonl"),
+        load_model_samples(fixtures / "candidate-pass.jsonl"),
+        load_prompt_cases(fixtures / "extraction-suite.json"),
+    )
+    assert_no_drift(report)
+```
+
+Switch the candidate to `candidate-drift.jsonl` to see a failing assertion.
+Failure messages include suite reasons and up to five failed prompt IDs, without
+printing captured response bodies. The helper does not recompute scores or
+add new checks; missing timings still mean the latency gate may be skipped.
+It is not available in published 0.1.0.
+
 ## Commands and reporting
 
 | Command | Purpose |
@@ -161,10 +230,30 @@ assert report.passed, report.failure_reasons
 | `report` | Render an existing result |
 | `init-sample --dir demo` | Create illustrative starter files |
 
-Use `run --format json` or the default table for canonical engine scores.
-Rich/Markdown currently use a second evaluator and can disagree with engine
-scores. Unifying them is a **0.2.0 release blocker**, tracked in the roadmap.
+All `run` formats now render the same engine result: table, JSON, Rich, Markdown,
+and HTML. Saved engine reports preserve scores, thresholds, and failure reasons.
+Legacy evaluator reports retain their original scoring semantics and are not
+converted into engine reports.
 For all options, run `python -m llm_drift_bench <command> --help`.
+
+## Inspect results in your browser
+
+Generate a report, then render it as a standalone HTML file:
+
+```powershell
+& .\.venv\Scripts\python.exe -m llm_drift_bench run -b examples/baseline.jsonl -c examples/candidate-drift.jsonl -p examples/extraction-suite.json -o drift-report.json
+# Exit 1 is expected for this failing fixture; the JSON report is still saved.
+& .\.venv\Scripts\python.exe -m llm_drift_bench report -i drift-report.json --format html -o drift-report.html
+Start-Process -FilePath (Resolve-Path -LiteralPath drift-report.html).Path
+```
+
+The report includes the pass/fail result, summary metrics, per-prompt rows,
+thresholds, failure reasons, and skipped-latency notices. It contains no scripts
+or external assets and works offline. This is a saved report, not a live dashboard.
+`run --output` always saves JSON, regardless of its stdout format; use
+`report --format html --output` to save HTML.
+
+[Download an example HTML report](docs/assets/example-report.html).
 
 ## Help make model changes safer
 

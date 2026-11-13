@@ -17,5 +17,16 @@ Keep raw captures and record the benchmark version alongside results. A scoring
 change does not prove that the underlying model improved.
 
 Use `run --format json --output report.json` for canonical engine results.
-Rich/Markdown currently use a separate evaluator; conversion of engine reports
-is lossy. Unifying these paths is required before the next stable release.
+Every CLI run format now renders the same engine result. Rich/Markdown scores
+therefore change from the previous alternate-evaluator display, not from a new
+engine scoring formula. HTML exports are available for engine reports.
+
+`load_report` and `load_benchmark_result` now return `DriftBenchmarkReport` for
+engine files and `BenchmarkResult` for legacy evaluator files. Use `isinstance`
+when consuming both. Incomplete historical files that previously received
+invented defaults now raise `ValueError`. Complete old engine reports may lack
+thresholds; these remain unavailable rather than assuming defaults.
+
+Saved numeric values retain the existing four-decimal score/two-decimal latency
+serialization. Rendering does not recompute pass/fail decisions from rounded
+scores. New engine reports include the thresholds that produced the decision.

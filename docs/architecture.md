@@ -147,20 +147,17 @@ Commands are:
 
 There is no inspect command.
 
-For file-based comparisons, table and JSON output use DriftBenchmarkReport.
+All CLI run formats render one DriftBenchmarkReport. Rich, Markdown, and HTML
+use the canonical summary/detail values without calling evaluate_suite. The
+engine report stores the active thresholds; old saved reports without them keep
+thresholds unavailable. JSON rounding does not trigger pass/fail recomputation.
 
-Rich and Markdown output currently reevaluate the same samples through
-evaluate_suite and render BenchmarkResult. Therefore output format can
-change the displayed score.
-
-The report command converts saved engine reports into BenchmarkResult.
-Unavailable timing and throughput fields remain None and render as n/a.
-Aggregate percentiles cannot reconstruct means or per-prompt observations.
-Other converted similarity and exact-match fields are still approximations;
-the conversion is not lossless.
-
-The release implementation should calculate one canonical report and
-render it without recomputing scores or manufacturing measurements.
+report_io.load_report validates complete engine and legacy evaluator reports.
+It preserves the report model instead of manufacturing semantic or exact-match
+values. The compatibility name load_benchmark_result delegates to this loader.
+Incomplete and unrecognized reports fail. The alternate evaluator library API
+retains its historical formula; its reports are explicitly separate from engine
+reports. HTML requires engine reports and includes no scripts or network assets.
 
 ## Entry points and packaging
 
@@ -168,8 +165,7 @@ The console entry point calls llm_drift_bench.cli.main.
 The module entry point supports python -m llm_drift_bench.
 The package includes a py.typed marker.
 
-The version currently appears independently in pyproject.toml and
-__init__.py. Release preparation should establish one source of truth.
+Hatch reads the version from __init__.py, which is the single version source.
 
 ## Testing limitations
 

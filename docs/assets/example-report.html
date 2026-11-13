@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<title>LLM Drift Benchmark Report: FAILED</title>
+<style>
+:root{color-scheme:dark}body{margin:0;background:#0b1220;color:#e8eef8;
+font:16px/1.6 system-ui,sans-serif}main{max-width:1100px;margin:auto;padding:40px 24px}
+h1{font-size:2.2rem;line-height:1.2}h2{margin-top:32px}.status{font-weight:700;
+color:#fda4af}.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;background:#111e32}th,td{padding:12px;
+border-bottom:1px solid #30405a;text-align:left}th{color:#7dd3fc}td{white-space:pre-wrap;
+overflow-wrap:anywhere}.muted{color:#a8bad2}footer{margin-top:40px}
+</style></head><body><main><p class="muted">llm-drift-bench / offline report</p>
+<h1>Model comparison <span class="status">FAILED</span></h1>
+<p>Baseline: demo-reference<br>Candidate: demo-candidate-drift</p>
+<p>2 samples / 2 drifted</p>
+<h2>Summary</h2><div class='scroll'><table><thead><tr><th scope='col'>Metric</th><th scope='col'>Baseline</th><th scope='col'>Candidate / value</th></tr></thead><tbody><tr><td>JSON conformity</td><td>100.0%</td><td>50.0%</td></tr><tr><td>Mean composite drift</td><td>0.0000 (ref)</td><td>0.6694</td></tr><tr><td>Max composite drift</td><td>0.0000 (ref)</td><td>0.9597</td></tr><tr><td>Token Jaccard similarity</td><td>1.0000 (ref)</td><td>0.5238</td></tr><tr><td>Levenshtein similarity</td><td>1.0000 (ref)</td><td>0.5142</td></tr><tr><td>JSON structural similarity</td><td>1.0000 (ref)</td><td>0.5000</td></tr><tr><td>Bounded numeric drift</td><td>0.0000 (ref)</td><td>0.4444</td></tr><tr><td>P50 latency (ms)</td><td>n/a</td><td>n/a</td></tr><tr><td>P95 latency (ms)</td><td>n/a</td><td>n/a</td></tr></tbody></table></div>
+<h2>Per-prompt results</h2><div class='scroll'><table><thead><tr><th scope='col'>Prompt ID</th><th scope='col'>Category</th><th scope='col'>Schema pass</th><th scope='col'>Structure</th><th scope='col'>Drift</th><th scope='col'>Latency delta</th><th scope='col'>State</th></tr></thead><tbody><tr><td>invoice-01</td><td>extraction</td><td>YES</td><td>1.0000</td><td>0.3791</td><td>n/a</td><td>DRIFT</td></tr><tr><td>ticket-01</td><td>classification</td><td>NO</td><td>0.0000</td><td>0.9597</td><td>n/a</td><td>DRIFT</td></tr></tbody></table></div>
+<h2>Checks and notes</h2><ul><li>2 of 2 samples failed individual drift checks.</li><li>Mean composite drift (0.6694) exceeded threshold (0.2500).</li><li>Candidate JSON conformity rate (50.00%) fell below minimum (95.00%).</li><li>Mean numeric relative drift (0.4444) exceeded threshold (0.1500).</li><li>Numeric drift: 1 of 2 samples comparable. Each shared numeric field uses min(1, abs(a - b) / max(abs(a), abs(b), 1e-9)); sample means are averaged, excluding samples with no shared numeric fields. This is not percentage change relative to the baseline.</li><li>Schema pass requires valid JSON and conformity to the supplied schema; without a schema, only JSON parsing is checked.</li><li>ticket-01: $.priority: Missing required property &#x27;priority&#x27;. [required]</li><li>Latency regression check skipped: missing timings or zero baseline P95.</li></ul><h2>Thresholds</h2><ul><li>max_composite_drift: 0.25</li><li>min_json_conformity_rate: 0.95</li><li>max_numeric_relative_drift: 0.15</li><li>max_latency_regression_pct: 50.0</li></ul>
+<footer class="muted">Saved evaluation, not live monitoring. Agreement is not correctness.
+Missing measurements remain unavailable.</footer></main></body></html>

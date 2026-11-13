@@ -6,6 +6,8 @@ Target: **0.2.0**. Development version: `0.2.0.dev0`.
 
 ### Changed
 
+- Reports distinguish schema conformity from JSON syntax, display candidate
+  validation issues, and explain numeric drift normalization and sample coverage.
 - `run` fails by default on drift or threshold failure. An individual failing
   sample fails the suite. `--no-fail-on-drift` enables informational runs.
 - Character-level Levenshtein now uses the same unit at every supported length.
@@ -13,6 +15,11 @@ Target: **0.2.0**. Development version: `0.2.0.dev0`.
 - Package metadata and CLI version use one version source.
 
 ### Fixed
+
+- All CLI run formats now use the canonical engine result without reevaluation.
+- Saved engine reports retain scores and thresholds without invented metrics.
+- Report loading rejects incomplete formats; see migration notes for the updated
+  load_benchmark_result return types.
 
 - Duplicate and mismatched prompt IDs cannot silently drop records.
 - Missing files cannot generate synthetic evaluation results.
@@ -24,6 +31,11 @@ Target: **0.2.0**. Development version: `0.2.0.dev0`.
 
 ### Added
 
+- Self-contained offline HTML reports, with escaped input text and no scripts
+  or external assets: `report --format html --output report.html`.
+
+- Framework-independent `assert_no_drift(report)` helper for automated regression
+  tests, preserving canonical engine gates and summarizing failed prompt IDs.
 - Reproducible passing and failing offline examples with expected reports.
 - Migration guidance and a prioritized roadmap.
 
