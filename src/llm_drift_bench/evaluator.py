@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from difflib import SequenceMatcher
 import json
 import math
+from collections.abc import Sequence
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 

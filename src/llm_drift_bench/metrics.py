@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections import Counter
 import re
+from collections import Counter
 from typing import Any
 
 _TOKEN_REGEX = re.compile(r"\w+|[^\w\s]", re.UNICODE)

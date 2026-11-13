@@ -82,9 +82,11 @@ class TestMatching(unittest.TestCase):
                 )
                 path.write_text(content, encoding="utf-8")
                 for loader in (load_model_samples, load_prompt_cases, load_test_prompts):
-                    with self.subTest(suffix=suffix, loader=loader.__name__):
-                        with self.assertRaisesRegex(ValueError, "Duplicate prompt_id"):
-                            loader(path)
+                    with (
+                        self.subTest(suffix=suffix, loader=loader.__name__),
+                        self.assertRaisesRegex(ValueError, "Duplicate prompt_id"),
+                    ):
+                        loader(path)
 
     def test_cli_rejects_incomplete_and_empty_suites(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
