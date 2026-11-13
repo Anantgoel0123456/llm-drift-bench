@@ -10,6 +10,7 @@ import sys
 from typing import Any
 
 from llm_drift_bench import __version__
+from llm_drift_bench._matching import require_same_ids
 from llm_drift_bench.engine import (
     DriftBenchmarkEngine,
     format_report_table,
@@ -254,6 +255,12 @@ def _handle_validate(args: argparse.Namespace) -> int:
         if args.prompts
         else {}
     )
+    if args.prompts:
+        if not prompt_map:
+            raise ValueError("An explicitly supplied prompt suite cannot be empty.")
+        require_same_ids(
+            {sample.prompt_id for sample in samples}, set(prompt_map), "Prompt suite"
+        )
 
     records: list[dict[str, Any]] = []
     passed_count = 0

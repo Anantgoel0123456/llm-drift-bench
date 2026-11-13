@@ -98,12 +98,20 @@ applies thresholds.
 Its report contains mean and maximum drift, conformity rates, latency
 percentiles, individual drift flags, and aggregate failure reasons.
 
-Current input matching does not consistently reject duplicate IDs,
-extra records, or incomplete suite coverage.
+Loaders and evaluators reject duplicate and blank prompt IDs. Baseline and
+candidate must have identical ID sets; no extra records are discarded.
+An explicit suite must be nonempty and cover exactly those IDs. The
+validate command enforces the same suite-coverage requirement. Direct pair
+evaluation also checks that both samples and the optional prompt share an ID.
+Comparison results use sorted prompt-ID order for reproducibility.
 
 ## Alternate evaluator
 
 `evaluate_suite` produces BenchmarkResult using a different scoring formula.
+
+An empty prompt sequence in this library API requests inference from the
+matching output sets. A nonempty prompt sequence must match them exactly.
+Missing or extra outputs are rejected before any prompt inference.
 
 Targets must be existing captured-output files or explicit ModelSample
 sequences. Missing files, directories, and model identifiers raise input

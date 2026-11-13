@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from llm_drift_bench._matching import index_records, require_same_ids
 from llm_drift_bench.metrics import (
     compute_composite_drift_score,
     compute_percentile,
@@ -44,6 +45,12 @@ def evaluate_sample_pair(
     Returns:
         SampleDriftResult detailing validation, similarity, and composite drift metrics.
     """
+    index_records([baseline], "baseline")
+    index_records([candidate], "candidate")
+    if baseline.prompt_id != candidate.prompt_id:
+        raise ValueError("Baseline and candidate prompt IDs must match.")
+    if prompt_case is not None and prompt_case.prompt_id != baseline.prompt_id:
+        raise ValueError("Prompt case ID must match the sample prompt ID.")
     active_thresholds = thresholds or DriftThresholds()
     schema = prompt_case.schema if prompt_case is not None else None
     category = prompt_case.category if prompt_case is not None else "general"
@@ -123,21 +130,23 @@ class DriftBenchmarkEngine:
         if not candidate_samples:
             raise ValueError("candidate_samples cannot be empty.")
 
-        cand_map = {sample.prompt_id: sample for sample in candidate_samples}
-        prompt_map = (
-            {case.prompt_id: case for case in prompt_cases} if prompt_cases else {}
-        )
+        base_map = index_records(baseline_samples, "baseline")
+        cand_map = index_records(candidate_samples, "candidate")
+        require_same_ids(set(base_map), set(cand_map), "Candidate")
+        prompt_map: dict[str, PromptCase] = {}
+        if prompt_cases is not None:
+            if not prompt_cases:
+                raise ValueError("An explicitly supplied prompt suite cannot be empty.")
+            prompt_map = index_records(prompt_cases, "prompt suite")
+            require_same_ids(set(base_map), set(prompt_map), "Prompt suite")
 
         pair_results: list[SampleDriftResult] = []
         base_latencies: list[float] = []
         cand_latencies: list[float] = []
 
-        for base_sample in baseline_samples:
-            cand_sample = cand_map.get(base_sample.prompt_id)
-            if cand_sample is None:
-                raise ValueError(
-                    f"Missing candidate sample for prompt_id {base_sample.prompt_id!r}."
-                )
+        for prompt_id in sorted(base_map):
+            base_sample = base_map[prompt_id]
+            cand_sample = cand_map[prompt_id]
             prompt_case = prompt_map.get(base_sample.prompt_id)
             res = evaluate_sample_pair(
                 baseline=base_sample,
@@ -308,13 +317,17 @@ def load_model_samples(
     fallback_model = top_model or (
         default_model_name if default_model_name != "unknown" else file_path.stem
     )
-    return [ModelSample.from_dict(rec, default_model_name=fallback_model) for rec in records]
+    samples = [ModelSample.from_dict(rec, default_model_name=fallback_model) for rec in records]
+    index_records(samples, str(file_path))
+    return samples
 
 
 def load_prompt_cases(path: str | Path) -> list[PromptCase]:
     """Load a list of PromptCase objects from a JSON or JSONL file."""
     records, _ = _load_records(path, ("prompts", "cases", "items"))
-    return [PromptCase.from_dict(rec) for rec in records]
+    prompts = [PromptCase.from_dict(rec) for rec in records]
+    index_records(prompts, str(path))
+    return prompts
 
 
 def format_report_table(report: DriftBenchmarkReport) -> str:

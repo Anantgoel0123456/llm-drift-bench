@@ -9,6 +9,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+from llm_drift_bench._matching import index_records, require_same_ids
 from llm_drift_bench.engine import load_model_samples
 from llm_drift_bench.metrics import (
     jaccard_similarity,
@@ -184,7 +185,9 @@ def load_test_prompts(path: str | Path) -> list[TestPrompt]:
         else:
             raise ValueError(f"Unsupported prompt suite format in {file_path}.")
 
-    return [TestPrompt.model_validate(item) for item in items]
+    prompts = [TestPrompt.model_validate(item) for item in items]
+    index_records(prompts, str(file_path))
+    return prompts
 
 
 def _resolve_target_samples(
@@ -194,7 +197,7 @@ def _resolve_target_samples(
     if not isinstance(target, (str, Path)):
         sample_list = list(target)
         model_label = sample_list[0].model_name if sample_list else "unknown"
-        return model_label, {s.prompt_id: s for s in sample_list}
+        return model_label, index_records(sample_list, "target samples")
 
     target_path = Path(target)
     if not target_path.is_file():
@@ -204,7 +207,7 @@ def _resolve_target_samples(
         )
     loaded = load_model_samples(target_path)
     model_label = loaded[0].model_name if loaded else target_path.stem
-    return model_label, {s.prompt_id: s for s in loaded}
+    return model_label, index_records(loaded, str(target_path))
 
 
 def evaluate_suite(
@@ -217,20 +220,20 @@ def evaluate_suite(
     base_model, base_map = _resolve_target_samples(baseline)
     cand_model, cand_map = _resolve_target_samples(candidate)
 
-    active_prompts = list(prompts)
-    if not active_prompts:
-        shared_ids = [pid for pid in base_map if pid in cand_map]
-        active_prompts = [TestPrompt(prompt_id=pid, prompt="") for pid in shared_ids]
-
-    if not active_prompts:
-        raise ValueError("No prompts available to evaluate.")
+    if not base_map or not cand_map:
+        raise ValueError("Baseline and candidate samples cannot be empty.")
+    require_same_ids(set(base_map), set(cand_map), "Candidate")
+    if prompts:
+        prompt_map = index_records(prompts, "prompt suite")
+        require_same_ids(set(base_map), set(prompt_map), "Prompt suite")
+        active_prompts = [prompt_map[pid] for pid in sorted(base_map)]
+    else:
+        active_prompts = [TestPrompt(prompt_id=pid, prompt="") for pid in sorted(base_map)]
 
     metrics_list: list[DriftMetrics] = []
     for prompt in active_prompts:
-        b_sample = base_map.get(prompt.id)
-        c_sample = cand_map.get(prompt.id)
-        if b_sample is None or c_sample is None:
-            raise ValueError(f"Missing baseline or candidate output for prompt {prompt.id!r}.")
+        b_sample = base_map[prompt.id]
+        c_sample = cand_map[prompt.id]
         item_metrics = evaluate_response_pair(
             prompt=prompt,
             baseline_output=b_sample.output,

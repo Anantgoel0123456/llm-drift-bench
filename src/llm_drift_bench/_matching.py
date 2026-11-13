@@ -1,0 +1,37 @@
+"""Strict prompt identity checks shared by loaders and evaluators."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Protocol, TypeVar
+
+
+class _HasPromptID(Protocol):
+    @property
+    def prompt_id(self) -> str: ...
+
+
+Record = TypeVar("Record", bound=_HasPromptID)
+
+
+def index_records(records: Sequence[Record], label: str) -> dict[str, Record]:
+    """Index without silently replacing duplicate or blank prompt IDs."""
+    indexed: dict[str, Record] = {}
+    for record in records:
+        prompt_id = record.prompt_id
+        if not isinstance(prompt_id, str) or not prompt_id.strip():
+            raise ValueError(f"{label} requires non-empty string prompt IDs.")
+        if prompt_id in indexed:
+            raise ValueError(f"Duplicate prompt_id {prompt_id!r} in {label}.")
+        indexed[prompt_id] = record
+    return indexed
+
+
+def require_same_ids(expected: set[str], actual: set[str], label: str) -> None:
+    """Reject both missing and extra records with deterministic diagnostics."""
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected)
+    if missing or extra:
+        raise ValueError(
+            f"{label} prompt IDs do not match: missing={missing!r}, extra={extra!r}."
+        )

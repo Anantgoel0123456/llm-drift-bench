@@ -162,6 +162,15 @@ Missing files, directory paths, and model identifiers are input errors
 responses. The library also accepts explicit sequences of `ModelSample`.
 `init-sample` creates illustrative fixtures, not measured model outputs.
 
+Baseline and candidate must contain exactly the same non-empty prompt IDs,
+with no duplicates. An explicitly supplied suite must cover exactly those
+IDs and cannot be empty. The `validate --prompts` command applies the same
+suite-coverage rule. Matching errors return CLI exit code `2`.
+Comparison results are ordered by prompt ID, independently of input order.
+For library callers, `evaluate_suite([], baseline, candidate)` still means
+infer the prompts from the complete matching output sets; it never selects
+only their intersection.
+
 Table and JSON output use the benchmark engine. Rich and Markdown output
 currently recompute scores through a second evaluator with different
 weights. Until these paths are unified, their scores are not interchangeable.
