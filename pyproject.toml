@@ -1,14 +1,15 @@
 [build-system]
-requires = ["hatchling>=1.20.0"]
+requires = ["hatchling>=1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
 name = "llm-drift-bench"
-version = "0.1.0"
-description = "A lightweight, zero-bloat CLI and Python library to benchmark, validate JSON conformity, and detect output drift across LLM updates and quantizations."
+dynamic = ["version"]
+description = "Compare captured LLM outputs, validate JSON conformity, and catch regressions across model updates and quantizations."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Anant Goel" },
 ]
@@ -26,7 +27,6 @@ classifiers = [
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -50,6 +50,7 @@ dev = [
     "ruff>=0.5.0",
     "mypy>=1.10.0",
     "build>=1.2.0",
+    "twine>=6.0.0",
 ]
 
 [project.scripts]
@@ -59,6 +60,10 @@ llm-drift-bench = "llm_drift_bench.cli:main"
 Homepage = "https://github.com/anant-goel/llm-drift-bench"
 Repository = "https://github.com/anant-goel/llm-drift-bench"
 Issues = "https://github.com/anant-goel/llm-drift-bench/issues"
+Changelog = "https://github.com/anant-goel/llm-drift-bench/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+path = "src/llm_drift_bench/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/llm_drift_bench"]

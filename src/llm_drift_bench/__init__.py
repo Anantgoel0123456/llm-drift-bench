@@ -53,7 +53,7 @@ from llm_drift_bench.validator import (
     validate_output,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0.dev0"
 
 __all__ = [
     "BenchmarkResult",
