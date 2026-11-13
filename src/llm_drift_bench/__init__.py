@@ -43,10 +43,13 @@ from llm_drift_bench.models import (
     TestPrompt,
     ValidationIssue,
 )
+from llm_drift_bench.report_io import load_report
 from llm_drift_bench.reporter import (
+    export_html_report,
     export_markdown_report,
     render_console_report,
 )
+from llm_drift_bench.testing import assert_no_drift
 from llm_drift_bench.validator import (
     extract_json_payload,
     validate_against_schema,
@@ -68,6 +71,7 @@ __all__ = [
     "TestPrompt",
     "ValidationIssue",
     "__version__",
+    "assert_no_drift",
     "check_json_adherence",
     "compute_composite_drift_score",
     "compute_percentile",
@@ -77,6 +81,7 @@ __all__ = [
     "evaluate_response_pair",
     "evaluate_sample_pair",
     "evaluate_suite",
+    "export_html_report",
     "export_markdown_report",
     "extract_json_payload",
     "flatten_json_paths",
@@ -88,6 +93,7 @@ __all__ = [
     "load_benchmark_result",
     "load_model_samples",
     "load_prompt_cases",
+    "load_report",
     "load_test_prompts",
     "ngram_overlap_similarity",
     "normalized_levenshtein_similarity",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -246,6 +246,7 @@ class DriftBenchmarkReport:
     passed: bool
     failure_reasons: tuple[str, ...] = ()
     results: tuple[SampleDriftResult, ...] = ()
+    thresholds: DriftThresholds | None = None
 
     @property
     def drift_rate(self) -> float:
@@ -300,6 +301,7 @@ class DriftBenchmarkReport:
             ),
             "passed": self.passed,
             "failure_reasons": list(self.failure_reasons),
+            "thresholds": asdict(self.thresholds) if self.thresholds is not None else None,
             "results": [r.to_dict() for r in self.results],
         }
 

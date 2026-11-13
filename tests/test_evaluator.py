@@ -175,7 +175,7 @@ class TestEvaluator(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_test_prompts(bad_p)
 
-            # 5. Load BenchmarkResult directly and from legacy DriftBenchmarkReport schema
+            # 5. Incomplete historical reports cannot be completed with invented metrics
             legacy_file = root / "legacy_report.json"
             legacy_file.write_text(
                 json.dumps(
@@ -202,9 +202,8 @@ class TestEvaluator(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            converted = load_benchmark_result(legacy_file)
-            self.assertEqual(converted.baseline_model, "base-m")
-            self.assertEqual(converted.total_prompts, 1)
+            with self.assertRaises(ValueError):
+                load_benchmark_result(legacy_file)
 
     def test_missing_measurements_remain_none(self) -> None:
         prompt = TestPrompt(prompt_id="p", prompt="Return JSON")
@@ -253,12 +252,5 @@ class TestEvaluator(unittest.TestCase):
                 "candidate_p50_latency_ms": 90,
                 "results": [{"prompt_id": "p", "latency_delta_ms": 0}],
             }), encoding="utf-8")
-            result = load_benchmark_result(report_path)
-            self.assertIsNone(result.mean_baseline_latency_ms)
-            self.assertIsNone(result.mean_candidate_latency_ms)
-            self.assertIsNone(result.mean_baseline_tokens_per_sec)
-            self.assertIsNone(result.mean_candidate_tokens_per_sec)
-            self.assertIsNone(result.metrics[0].baseline_latency_ms)
-            self.assertIsNone(result.metrics[0].candidate_latency_ms)
-            self.assertIsNone(result.metrics[0].candidate_tokens_per_sec)
-            self.assertEqual(result.metrics[0].latency_delta_ms, 0)
+            with self.assertRaises(ValueError):
+                load_benchmark_result(report_path)

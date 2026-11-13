@@ -269,6 +269,7 @@ class DriftBenchmarkEngine:
             passed=len(failure_reasons) == 0,
             failure_reasons=tuple(failure_reasons),
             results=tuple(pair_results),
+            thresholds=self.thresholds,
         )
 
 

@@ -23,6 +23,12 @@
     "Candidate JSON conformity rate (50.00%) fell below minimum (95.00%).",
     "Mean numeric relative drift (0.4444) exceeded threshold (0.1500)."
   ],
+  "thresholds": {
+    "max_composite_drift": 0.25,
+    "min_json_conformity_rate": 0.95,
+    "max_numeric_relative_drift": 0.15,
+    "max_latency_regression_pct": 50.0
+  },
   "results": [
     {
       "prompt_id": "invoice-01",

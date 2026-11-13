@@ -8,8 +8,17 @@ from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
-from llm_drift_bench.models import BenchmarkResult
+from llm_drift_bench._report_views import (
+    DETAIL_HEADERS,
+    canonical_html,
+    canonical_markdown,
+    detail_rows,
+    report_notes,
+    summary_rows,
+)
+from llm_drift_bench.models import BenchmarkResult, DriftBenchmarkReport
 
 
 def _measurement(value: float | None, spec: str = ".2f") -> str:
@@ -17,7 +26,7 @@ def _measurement(value: float | None, spec: str = ".2f") -> str:
     return "n/a" if value is None else format(value, spec)
 
 
-def render_console_report(
+def _render_legacy_console_report(
     result: BenchmarkResult,
     console: Console | None = None,
 ) -> str:
@@ -107,7 +116,7 @@ def render_console_report(
     return buffer.getvalue()
 
 
-def export_markdown_report(
+def _export_legacy_markdown_report(
     result: BenchmarkResult,
     output_path: str | Path | None = None,
 ) -> str:
@@ -173,3 +182,65 @@ def export_markdown_report(
         out_file.write_text(markdown, encoding="utf-8")
 
     return markdown
+
+
+def render_console_report(
+    result: DriftBenchmarkReport | BenchmarkResult,
+    console: Console | None = None,
+) -> str:
+    """Render existing scores, keeping legacy evaluator reports separate."""
+    if isinstance(result, BenchmarkResult):
+        return _render_legacy_console_report(result, console)
+    buffer = io.StringIO()
+    targets = (console or Console(), Console(file=buffer, width=100, color_system=None))
+    state = "PASSED" if result.passed else "FAILED"
+    summary = Table("Metric", "Baseline", "Candidate / value", title="Summary", safe_box=True)
+    for row in summary_rows(result):
+        summary.add_row(*(Text(value) for value in row))
+    details = Table(*DETAIL_HEADERS, title="Per-prompt results", safe_box=True)
+    for detail in detail_rows(result):
+        details.add_row(*(Text(value) for value in detail))
+    heading = Text(
+        f"{state} | Baseline: {result.baseline_model} | Candidate: {result.candidate_model}\n"
+        f"Samples: {result.total_samples}; drifted: {result.drifted_samples}"
+    )
+    for target in targets:
+        target.print(Panel(heading, title="llm-drift-bench", safe_box=True))
+        target.print(summary)
+        target.print(details)
+        for note in report_notes(result):
+            target.print(Text(note))
+        if result.thresholds is not None:
+            target.print(Text(f"Thresholds: {result.thresholds}"))
+    return buffer.getvalue()
+
+
+def _save_text(text: str, path: str | Path | None) -> str:
+    if path is not None:
+        output = Path(path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(text, encoding="utf-8")
+    return text
+
+
+def export_markdown_report(
+    result: DriftBenchmarkReport | BenchmarkResult,
+    output_path: str | Path | None = None,
+) -> str:
+    """Render canonical engine scores or an explicitly labeled legacy report."""
+    if isinstance(result, BenchmarkResult):
+        text = _export_legacy_markdown_report(result)
+        text += "\nLegacy evaluator scores; not interchangeable with engine scores.\n"
+    else:
+        text = canonical_markdown(result)
+    return _save_text(text, output_path)
+
+
+def export_html_report(
+    result: DriftBenchmarkReport | BenchmarkResult,
+    output_path: str | Path | None = None,
+) -> str:
+    """Export a self-contained, script-free canonical report with no network assets."""
+    if isinstance(result, BenchmarkResult):
+        raise ValueError("HTML requires an engine report. Rerun with 'run --output report.json'.")
+    return _save_text(canonical_html(result), output_path)

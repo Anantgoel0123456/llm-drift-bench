@@ -19,7 +19,14 @@ from llm_drift_bench.metrics import (
     normalized_levenshtein_similarity,
     tokenize_text,
 )
-from llm_drift_bench.models import BenchmarkResult, DriftMetrics, ModelSample, TestPrompt
+from llm_drift_bench.models import (
+    BenchmarkResult,
+    DriftBenchmarkReport,
+    DriftMetrics,
+    ModelSample,
+    TestPrompt,
+)
+from llm_drift_bench.report_io import load_report
 from llm_drift_bench.validator import extract_json_payload, validate_output
 
 
@@ -277,50 +284,11 @@ def evaluate_suite(
     )
 
 
-def load_benchmark_result(path: str | Path) -> BenchmarkResult:
-    """Load a BenchmarkResult from a JSON file (supporting BenchmarkResult and legacy schemas)."""
-    raw = json.loads(Path(path).read_text(encoding="utf-8"))
-    if "total_prompts" in raw and "metrics" in raw:
-        return BenchmarkResult.model_validate(raw)
+def load_benchmark_result(path: str | Path) -> DriftBenchmarkReport | BenchmarkResult:
+    """Load a saved report without approximating another scoring model.
 
-    # Preserve missing measurements; percentiles cannot reconstruct means or samples.
-    results_raw = raw.get("results", [])
-    converted_metrics: list[DriftMetrics] = []
-    for item in results_raw:
-        base_v = item.get("baseline_validation", {})
-        cand_v = item.get("candidate_validation", {})
-        drift_val = float(item.get("composite_drift_score", 0.0))
-        sim_val = round(max(0.0, 1.0 - drift_val), 4)
-        converted_metrics.append(
-            DriftMetrics(
-                prompt_id=str(item.get("prompt_id", "unknown")),
-                category=str(item.get("category", "general")),
-                exact_match=drift_val == 0.0,
-                baseline_valid_json=bool(base_v.get("is_valid_json", True)),
-                candidate_valid_json=bool(cand_v.get("is_valid_json", True)),
-                format_adherence=bool(cand_v.get("passed", True)),
-                semantic_similarity=sim_val,
-                token_diff_ratio=round(1.0 - float(item.get("levenshtein_similarity", sim_val)), 4),
-                drift_score=drift_val,
-                latency_delta_ms=item.get("latency_delta_ms"),
-            )
-        )
-    total = max(1, len(converted_metrics))
-    return BenchmarkResult(
-        suite_name=str(raw.get("suite_name", "default")),
-        baseline_model=str(raw.get("baseline_model", "baseline")),
-        candidate_model=str(raw.get("candidate_model", "candidate")),
-        total_prompts=len(converted_metrics),
-        exact_match_rate=round(sum(1 for m in converted_metrics if m.exact_match) / total, 4),
-        baseline_json_adherence_rate=float(raw.get("baseline_json_conformity_rate", 1.0)),
-        candidate_json_adherence_rate=float(raw.get("candidate_json_conformity_rate", 1.0)),
-        mean_semantic_similarity=round(
-            sum(m.semantic_similarity for m in converted_metrics) / total, 4
-        ),
-        mean_token_diff_ratio=round(
-            sum(m.token_diff_ratio for m in converted_metrics) / total, 4
-        ),
-        mean_drift_score=float(raw.get("mean_composite_drift", 0.0)),
-        metrics=converted_metrics,
-    )
-
+    Engine files now return DriftBenchmarkReport, not a fabricated BenchmarkResult.
+    Complete legacy evaluator files still return BenchmarkResult. Prefer load_report
+    in new code and use isinstance when working with both formats.
+    """
+    return load_report(path)

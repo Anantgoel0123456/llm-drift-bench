@@ -17,13 +17,13 @@ from llm_drift_bench.engine import (
     load_model_samples,
     load_prompt_cases,
 )
-from llm_drift_bench.evaluator import (
-    evaluate_suite,
-    load_benchmark_result,
-    load_test_prompts,
+from llm_drift_bench.models import DriftBenchmarkReport, DriftThresholds
+from llm_drift_bench.report_io import load_report
+from llm_drift_bench.reporter import (
+    export_html_report,
+    export_markdown_report,
+    render_console_report,
 )
-from llm_drift_bench.models import DriftThresholds
-from llm_drift_bench.reporter import export_markdown_report, render_console_report
 from llm_drift_bench.validator import validate_output
 
 
@@ -86,9 +86,9 @@ def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     )
     run_parser.add_argument(
         "--format",
-        choices=("table", "rich", "json", "markdown"),
+        choices=("table", "rich", "json", "markdown", "html"),
         default="table",
-        help="Stdout display format: 'table' (default), 'rich', 'json', or 'markdown'.",
+        help="Stdout format: table (default), rich, json, markdown, or html.",
     )
     run_parser.add_argument(
         "--fail-on-drift",
@@ -134,18 +134,12 @@ def _handle_run(args: argparse.Namespace) -> int:
 
     if args.format == "json":
         print(report.to_json(indent=2))
-    elif args.format in ("rich", "markdown"):
-        suite_prompts = load_test_prompts(args.suite) if args.suite else []
-        bench_res = evaluate_suite(
-            prompts=suite_prompts,
-            baseline=baseline_samples,
-            candidate=candidate_samples,
-            suite_name=Path(args.suite).stem if args.suite else "default",
-        )
-        if args.format == "markdown":
-            print(export_markdown_report(bench_res), end="")
-        else:
-            render_console_report(bench_res)
+    elif args.format == "markdown":
+        print(export_markdown_report(report), end="")
+    elif args.format == "html":
+        print(export_html_report(report), end="")
+    elif args.format == "rich":
+        render_console_report(report)
     else:
         print(format_report_table(report))
 
@@ -171,9 +165,9 @@ def _add_report_subparser(
     rep_parser.add_argument(
         "-f",
         "--format",
-        choices=("markdown", "console", "table", "json"),
+        choices=("markdown", "console", "table", "json", "html"),
         default="markdown",
-        help="Output report format: 'markdown' (default), 'console'/'table', or 'json'.",
+        help="Output format: markdown (default), console/table, json, or html.",
     )
     rep_parser.add_argument(
         "-o",
@@ -185,17 +179,20 @@ def _add_report_subparser(
 
 def _handle_report(args: argparse.Namespace) -> int:
     """Execute the 'report' subcommand."""
-    result = load_benchmark_result(args.input)
+    result = load_report(args.input)
     if args.format == "markdown":
         md = export_markdown_report(result, output_path=args.output)
         print(md, end="")
     elif args.format == "json":
-        payload = result.model_dump_json(indent=2)
+        payload = (result.to_json(indent=2) if isinstance(result, DriftBenchmarkReport)
+                   else result.model_dump_json(indent=2))
         if args.output:
             out_file = Path(args.output)
             out_file.parent.mkdir(parents=True, exist_ok=True)
             out_file.write_text(payload, encoding="utf-8")
         print(payload)
+    elif args.format == "html":
+        print(export_html_report(result, output_path=args.output), end="")
     else:
         rendered = render_console_report(result)
         if args.output:
