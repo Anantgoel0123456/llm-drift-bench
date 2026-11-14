@@ -49,6 +49,7 @@ from llm_drift_bench.reporter import (
     export_markdown_report,
     render_console_report,
 )
+from llm_drift_bench.scores import EvidenceScore
 from llm_drift_bench.testing import assert_no_drift
 from llm_drift_bench.tool_events import ToolCheckResult, ToolEvent, check_read_before_edit
 from llm_drift_bench.validator import (
@@ -65,6 +66,7 @@ __all__ = [
     "DriftBenchmarkReport",
     "DriftMetrics",
     "DriftThresholds",
+    "EvidenceScore",
     "ModelSample",
     "PromptCase",
     "SampleDriftResult",

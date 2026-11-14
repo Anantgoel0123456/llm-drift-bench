@@ -35,6 +35,7 @@ from llm_drift_bench import DriftBenchmarkEngine, ModelSample, export_html_repor
 import llm_drift_bench
 package = Path(llm_drift_bench.__file__).parent
 assert (package / "py.typed").is_file()
+assert not (package / "_vendor").exists()
 baseline = [ModelSample(prompt_id="p", output='{"x":1}')]
 candidate = [ModelSample(prompt_id="p", output='{"x":9}')]
 engine = DriftBenchmarkEngine()

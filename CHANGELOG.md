@@ -45,6 +45,10 @@ Target: **0.2.0**. Development version: `0.2.0.dev0`.
 
 ### Added
 
+- Optional `opik` extra and explicit `EvidenceScore.to_opik()` adapter that
+  constructs the installed SDK result and rejects unavailable evidence.
+- Local `EvidenceScore` result model for tool-event verdicts with explicit
+  unavailable values; no vendored SDK source is packaged.
 - CI tests on Windows and Linux, plus isolated wheel and sdist installation checks.
 - Coverage for the module CLI entry point.
 - Offline `ToolEvent` and `check_read_before_edit` Python API with PASS, FAIL,

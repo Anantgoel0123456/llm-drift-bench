@@ -6,6 +6,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+from llm_drift_bench.scores import EvidenceScore
+
 
 @dataclass(frozen=True)
 class ToolEvent:
@@ -54,6 +56,22 @@ class ToolCheckResult:
     covered_characters: int
     required_characters: int
     first_edit_sequence: int | None
+
+    def to_score(self) -> EvidenceScore:
+        """Expose the verdict as a structured local evidence score."""
+        return EvidenceScore(
+            name="read_before_edit",
+            value=1.0 if self.status == "PASS" else 0.0,
+            reason=self.reason,
+            category_name="workflow_compliance",
+            scoring_failed=self.status == "UNKNOWN",
+            metadata={
+                "status": self.status,
+                "covered_characters": self.covered_characters,
+                "required_characters": self.required_characters,
+                "first_edit_sequence": self.first_edit_sequence,
+            },
+        )
 
 
 def check_read_before_edit(

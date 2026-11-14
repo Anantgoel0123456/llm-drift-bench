@@ -2,7 +2,7 @@
 
 Available in the development Python API, not the CLI or published 0.1.0.
 This complements output comparison: matching final text does not establish that
-an agent followed a required workflow. No live tracing or Opik integration is provided.
+an agent followed a required workflow. No live tracing is provided.
 
 ```python
 from llm_drift_bench import ToolEvent, check_read_before_edit
@@ -52,5 +52,26 @@ This is evidence of content delivery, not proof of comprehension or correctness.
 The verdict is separate from composite output drift. CI callers should explicitly
 decide whether UNKNOWN blocks their workflow; do not treat it as PASS.
 
-This implementation is original code. The design review of Opik's structured
-metric results and trajectory evaluator informed the scope; no Opik source was copied.
+Its `to_score()` adapter returns a local `EvidenceScore` dataclass. No vendored
+SDK source is used or packaged. No SDK installation, tracing server, API key,
+or network request is required for offline checks.
+
+```python
+score = result.to_score()
+print(score.to_dict())
+```
+
+PASS maps to 1.0 and FAIL to 0.0. UNKNOWN sets `scoring_failed=True` and exports
+`value: null` through `to_dict()`. Use `measured_value`, not the inherited numeric
+placeholder, when aggregating. These are workflow evidence scores, not composite
+drift scores or confidence estimates.
+
+## Installed Opik integration
+
+Install `llm-drift-bench[opik]` to use `result.to_score().to_opik()`.
+The adapter imports `opik.evaluation.metrics.score_result` only when explicitly
+called, and returns that installed SDK's `ScoreResult`. It does not send results
+to a server. UNKNOWN raises `ValueError` before importing the SDK. Missing Opik
+produces an installation hint; missing dependencies inside a broken SDK installation
+are propagated rather than hidden by a fallback. Test against your chosen Opik
+version before deploying an integration; the extra is optional and not version-pinned.
