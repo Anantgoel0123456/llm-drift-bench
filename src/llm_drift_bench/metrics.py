@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter
 from typing import Any
+
+from llm_drift_bench._numbers import finite_number
 
 _TOKEN_REGEX = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 _MAX_EDIT_DISTANCE_CHARS = 16_384
@@ -134,7 +137,13 @@ def flatten_json_paths(data: Any, prefix: str = "$") -> dict[str, Any]:
             flattened[prefix] = {}
         else:
             for key in sorted(data.keys()):
-                flattened.update(flatten_json_paths(data[key], f"{prefix}.{key}"))
+                # Preserve readable simple keys, quote all other keys to avoid
+                # collisions between literal dots/brackets and nested structure.
+                segment = (
+                    f".{key}" if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key)
+                    else f"[{json.dumps(key, ensure_ascii=True)}]"
+                )
+                flattened.update(flatten_json_paths(data[key], f"{prefix}{segment}"))
     elif isinstance(data, list):
         if not data:
             flattened[prefix] = []
@@ -191,6 +200,11 @@ def json_numeric_drift(json_a: Any, json_b: Any) -> float | None:
     """
     flat_a = flatten_json_paths(json_a)
     flat_b = flatten_json_paths(json_b)
+    # Invalid values must not disappear just because their path is unmatched.
+    for values in (flat_a, flat_b):
+        for value in values.values():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                finite_number(value)
     shared_paths = sorted(set(flat_a.keys()) & set(flat_b.keys()))
 
     drifts: list[float] = []
@@ -203,8 +217,13 @@ def json_numeric_drift(json_a: Any, json_b: Any) -> float | None:
             and isinstance(val_b, (int, float))
             and not isinstance(val_b, bool)
         ):
-            denom = max(abs(float(val_a)), abs(float(val_b)), 1e-9)
-            rel_diff = abs(float(val_a) - float(val_b)) / denom
+            number_a, number_b = finite_number(val_a), finite_number(val_b)
+            denom = max(abs(number_a), abs(number_b), 1e-9)
+            # Opposite large values can overflow on subtraction before division.
+            if (number_a < 0) != (number_b < 0):
+                rel_diff = abs(number_a / denom - number_b / denom)
+            else:
+                rel_diff = abs(number_a - number_b) / denom
             drifts.append(min(1.0, rel_diff))
 
     if not drifts:

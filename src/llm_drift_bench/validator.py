@@ -3,15 +3,25 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from typing import Any
 
+from llm_drift_bench._numbers import parse_finite_float, parse_finite_int, reject_constant
+from llm_drift_bench._patterns import MAX_PATTERN_INPUT, pattern_policy_error
 from llm_drift_bench.models import SchemaValidationResult, ValidationIssue
 
 _CODE_FENCE_PATTERN = re.compile(
     r"```(?:json|JSON)?\s*\n?(.*?)\n?\s*```",
     re.DOTALL,
 )
+
+
+def _parse_payload(text: str) -> Any:
+    return json.loads(
+        text, parse_constant=reject_constant,
+        parse_float=parse_finite_float, parse_int=parse_finite_int,
+    )
 
 
 def extract_json_payload(raw_text: str) -> tuple[bool, Any, str | None]:
@@ -33,18 +43,22 @@ def extract_json_payload(raw_text: str) -> tuple[bool, Any, str | None]:
 
     # 1. Try direct JSON parsing first.
     try:
-        return True, json.loads(stripped), None
+        return True, _parse_payload(stripped), None
     except json.JSONDecodeError as direct_err:
         last_error = str(direct_err)
+    except ValueError as numeric_err:
+        return False, None, str(numeric_err)
 
     # 2. Try extracting from markdown ```json ... ``` fences.
     fence_match = _CODE_FENCE_PATTERN.search(stripped)
     if fence_match:
         candidate = fence_match.group(1).strip()
         try:
-            return True, json.loads(candidate), None
+            return True, _parse_payload(candidate), None
         except json.JSONDecodeError as fence_err:
             last_error = str(fence_err)
+        except ValueError as numeric_err:
+            return False, None, str(numeric_err)
 
     # 3. Try locating the first '{' or '[' and matching to last '}' or ']'.
     for open_char, close_char in (("{", "}"), ("[", "]")):
@@ -53,9 +67,11 @@ def extract_json_payload(raw_text: str) -> tuple[bool, Any, str | None]:
         if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
             sub = stripped[start_idx : end_idx + 1]
             try:
-                return True, json.loads(sub), None
+                return True, _parse_payload(sub), None
             except json.JSONDecodeError:
                 continue
+            except ValueError as numeric_err:
+                return False, None, str(numeric_err)
 
     return False, None, f"Invalid JSON syntax: {last_error}"
 
@@ -90,6 +106,74 @@ _SCHEMA_ANNOTATIONS = frozenset({
 })
 
 
+def _json_equal(left: Any, right: Any) -> bool:
+    """JSON equality keeps booleans distinct from numbers, including nested values."""
+    if isinstance(left, bool) or isinstance(right, bool):
+        return type(left) is type(right) and left == right
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(
+            _json_equal(value, right[key]) for key, value in left.items()
+        )
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(
+            _json_equal(a, b) for a, b in zip(left, right, strict=True)
+        )
+    return bool(left == right)
+
+
+def _keyword_shape_errors(node: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    valid_types = {"null", "boolean", "integer", "number", "string", "array", "object"}
+    if "type" in node:
+        value = node["type"]
+        types = [value] if isinstance(value, str) else value
+        if (
+            not isinstance(types, list) or not types
+            or any(not isinstance(t, str) or t not in valid_types for t in types)
+            or len(set(types)) != len(types)
+        ):
+            errors.append("type must be a known type or a non-empty array of unique known types.")
+    for key in ("minLength", "maxLength", "minItems", "maxItems"):
+        if key in node and (type(node[key]) is not int or node[key] < 0):
+            errors.append(f"{key} must be a non-negative integer.")
+    for key in ("minimum", "maximum"):
+        if key in node:
+            value = node[key]
+            if (
+                isinstance(value, bool) or not isinstance(value, (int, float))
+                or (isinstance(value, float) and not math.isfinite(value))
+            ):
+                errors.append(f"{key} must be a finite number.")
+    if "required" in node:
+        value = node["required"]
+        if (
+            not isinstance(value, list) or any(not isinstance(v, str) for v in value)
+            or len(set(value)) != len(value)
+        ):
+            errors.append("required must be an array of unique strings.")
+    if "enum" in node:
+        value = node["enum"]
+        if not isinstance(value, list) or not value:
+            errors.append("enum must be a non-empty array.")
+        elif any(_json_equal(item, prior) for i, item in enumerate(value) for prior in value[:i]):
+            errors.append("enum must contain unique JSON values.")
+    if "pattern" in node:
+        if not isinstance(node["pattern"], str):
+            errors.append("pattern must be a string.")
+        elif len(node["pattern"]) > 256:
+            errors.append("pattern exceeds 256 characters.")
+        else:
+            try:
+                re.compile(node["pattern"])
+            except re.error as exc:
+                errors.append(f"Invalid pattern: {exc}.")
+            else:
+                policy_error = pattern_policy_error(node["pattern"])
+                if policy_error:
+                    errors.append(f"Unsupported pattern: {policy_error}")
+    return errors
+
+
 def _schema_support_issues(schema: dict[str, Any], path: str) -> list[ValidationIssue]:
     """Check every schema node, including rules for absent instance fields."""
     issues: list[ValidationIssue] = []
@@ -108,6 +192,10 @@ def _schema_support_issues(schema: dict[str, Any], path: str) -> list[Validation
                 location, "Only object-valued schemas are supported.", "unsupported_schema"
             ))
             continue
+        issues.extend(
+            ValidationIssue(location, message, "invalid_schema")
+            for message in _keyword_shape_errors(node)
+        )
         for keyword in node:
             if keyword not in _SUPPORTED_SCHEMA_KEYWORDS | _SCHEMA_ANNOTATIONS:
                 issues.append(ValidationIssue(
@@ -178,7 +266,7 @@ def _validate_instance(
             return issues
 
     # 2. Check enum and const constraints
-    if "enum" in schema and instance not in schema["enum"]:
+    if "enum" in schema and not any(_json_equal(instance, item) for item in schema["enum"]):
         issues.append(
             ValidationIssue(
                 path=path,
@@ -187,7 +275,7 @@ def _validate_instance(
             )
         )
 
-    if "const" in schema and instance != schema["const"]:
+    if "const" in schema and not _json_equal(instance, schema["const"]):
         issues.append(
             ValidationIssue(
                 path=path,
@@ -217,7 +305,11 @@ def _validate_instance(
                 )
             )
         pattern = schema.get("pattern")
-        if isinstance(pattern, str) and re.search(pattern, instance) is None:
+        if isinstance(pattern, str) and len(instance) > MAX_PATTERN_INPUT:
+            issues.append(ValidationIssue(
+                path, f"Pattern input exceeds {MAX_PATTERN_INPUT} characters.", "pattern_limit"
+            ))
+        elif isinstance(pattern, str) and re.search(pattern, instance) is None:
             issues.append(
                 ValidationIssue(
                     path=path,
