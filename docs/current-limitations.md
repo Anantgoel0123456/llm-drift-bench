@@ -17,6 +17,30 @@ use floating-point arithmetic, so integer differences above floating-point
 precision may be rounded. Exact field matching still compares parsed integers
 without converting them to floats. These metrics are not exact financial arithmetic.
 
+## Output contract
+
+A captured `output` (or `response`) must be a JSON string. Objects, arrays, numbers,
+booleans and `null` are rejected, never converted to Python text, because converting
+would change what the text metrics compare and could turn `null` into the string
+`None`. If your logger stores parsed JSON, call `json.dumps` on it before capture.
+Exact text metrics depend on the serialization you choose (spacing, key order), so
+use the same serializer for baseline and candidate.
+
+Duplicate object keys are rejected wherever JSON is parsed: dataset files, saved
+reports, and every output-extraction mode. The JSON Schema `integer` type accepts
+finite numbers without a fractional part, so `1.0` and `1e2` conform while `1.5`
+and `true` do not. Schema keyword values such as `minLength` still must be written
+as integers.
+
+## Saved reports
+
+`load_report` rejects reports whose parts disagree, including out-of-range scores,
+means that do not match the per-prompt results, and a passing verdict that
+contradicts recorded thresholds. Checks allow for the four-decimal score and
+two-decimal latency rounding used when reports are saved. Conformity rates are
+checked for plausibility against per-prompt outcomes; the file does not record
+which prompts had schemas, so the exact denominator cannot be recomputed.
+
 ## Evaluation scope
 
 Dataset, schema and saved-report files must be UTF-8; an initial UTF-8 BOM and

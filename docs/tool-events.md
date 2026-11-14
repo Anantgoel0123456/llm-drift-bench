@@ -73,5 +73,8 @@ The adapter imports `opik.evaluation.metrics.score_result` only when explicitly
 called, and returns that installed SDK's `ScoreResult`. It does not send results
 to a server. UNKNOWN raises `ValueError` before importing the SDK. Missing Opik
 produces an installation hint; missing dependencies inside a broken SDK installation
-are propagated rather than hidden by a fallback. Test against your chosen Opik
-version before deploying an integration; the extra is optional and not version-pinned.
+are propagated rather than hidden by a fallback. The extra requires
+`opik>=1.10.24,<3`: earlier releases do not accept the `category_name` argument.
+CI runs `tests/test_opik_integration.py` against that minimum and the latest
+release. Re-test against your chosen version before deploying; versions outside the
+tested range are not supported.

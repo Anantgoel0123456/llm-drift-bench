@@ -11,6 +11,10 @@
 | Edit distance | Unicode characters, maximum 16,384 each | Recalibrate thresholds with representative captures |
 | Schema subset | Unsupported keywords fail | Review schemas before upgrading |
 | Validation | Empty input errors; {} overrides global schema | Supply actual samples and intentional schemas |
+| Output type | `output` and `response` must be strings; objects, arrays, numbers, booleans and null are errors | Apply `json.dumps` to structured values before capture |
+| Duplicate keys | Rejected in captured output, including fenced and prose-wrapped JSON | Fix the capture that produced the duplicate key |
+| Saved reports | Per-prompt scores and summaries must be mutually consistent | Regenerate hand-edited or merged report files |
+| Opik extra | `llm-drift-bench[opik]` requires `opik>=1.10.24,<3` | Upgrade the SDK |
 
 Use `--no-fail-on-drift` for informational runs. Reports still record failure.
 Keep raw captures and record the benchmark version alongside results. A scoring

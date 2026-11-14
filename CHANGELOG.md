@@ -6,6 +6,12 @@ Target: **0.2.0**. Development version: `0.2.0.dev0`.
 
 ### Changed
 
+- Captured outputs must be strings. `ModelSample` and `ModelSample.from_dict` now
+  reject objects, arrays, numbers, booleans and null with an explicit error
+  instead of converting them to Python text such as `{'ok': True}` or `None`.
+  Serialize structured values with `json.dumps` before capture.
+- The `opik` extra is now `opik>=1.10.24,<3`, the range tested in CI. Earlier SDK
+  releases do not accept the `category_name` argument the adapter passes.
 - Reports distinguish schema conformity from JSON syntax, display candidate
   validation issues, and explain numeric drift normalization and sample coverage.
 - `run` fails by default on drift or threshold failure. An individual failing
@@ -16,6 +22,18 @@ Target: **0.2.0**. Development version: `0.2.0.dev0`.
 
 ### Fixed
 
+- Saved engine reports validate every per-prompt metric (range 0 to 1), JSON
+  comparison scores against validation results, validation fields against their
+  issues, the `drifted` flag against recorded thresholds, every summary mean and
+  maximum against the per-prompt results, conformity rates against the validation
+  outcomes, latency summaries against per-prompt deltas, and a passing verdict
+  against the thresholds it records. A report claiming `passed: true` with a
+  per-prompt drift score of 99 is rejected. Legacy reports are checked the same way.
+- Captured output parsing rejects duplicate object keys in every extraction mode
+  (direct, fenced and prose-wrapped, including nested objects), as dataset files
+  already did. `{"total":100,"total":1}` no longer silently becomes `{"total":1}`.
+- Schema type `integer` accepts finite numbers without a fractional part such as
+  `1.0` and `1e2`, as JSON Schema defines, while still rejecting booleans.
 - Dataset, schema and report loading share bounded UTF-8/BOM handling and reject
   duplicate keys and nonfinite numbers. JSONL errors identify their line.
 - Saved engine reports reject contradictory pass/fail status and out-of-range
@@ -49,7 +67,14 @@ Target: **0.2.0**. Development version: `0.2.0.dev0`.
   constructs the installed SDK result and rejects unavailable evidence.
 - Local `EvidenceScore` result model for tool-event verdicts with explicit
   unavailable values; no vendored SDK source is packaged.
-- CI tests on Windows and Linux, plus isolated wheel and sdist installation checks.
+- CI tests on Windows and Linux, plus isolated wheel and sdist installation checks
+  on Windows and Linux for Python 3.10 to 3.13, built once and installed from the
+  same artifacts.
+- Distribution content checks: wheel and sdist must include `py.typed` and exclude
+  retired vendored code and local commit helper scripts.
+- Integration tests against the real installed Opik SDK, run in CI against the
+  minimum supported and the latest release. `REQUIRE_OPIK=1` turns a missing SDK
+  into a failure instead of a skip.
 - Coverage for the module CLI entry point.
 - Offline `ToolEvent` and `check_read_before_edit` Python API with PASS, FAIL,
   and UNKNOWN verdicts, revision matching, and deduplicated content coverage.
