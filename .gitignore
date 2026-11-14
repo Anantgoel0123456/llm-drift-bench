@@ -76,3 +76,6 @@ Thumbs.db
 # Local issue preparation and submission screenshots
 /docs/issue-drafts/
 /docs/assets/github-issues.png
+
+# Local commit/push helpers, not project deliverables
+/scripts/commit-*.ps1
