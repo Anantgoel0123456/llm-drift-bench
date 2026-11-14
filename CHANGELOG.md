@@ -16,6 +16,20 @@ Target: **0.2.0**. Development version: `0.2.0.dev0`.
 
 ### Fixed
 
+- Dataset, schema and report loading share bounded UTF-8/BOM handling and reject
+  duplicate keys and nonfinite numbers. JSONL errors identify their line.
+- Saved engine reports reject contradictory pass/fail status and out-of-range
+  aggregate similarity scores.
+- Schema patterns now enforce a bounded, conservative regex subset before
+  matching; unsafe expressions and oversized inputs fail explicitly.
+- Malformed supported schema keywords now produce explicit validation issues,
+  including in absent properties. Enum and const distinguish booleans from numbers.
+- Structural metric paths quote special object keys to prevent collisions with
+  nested fields and array indices.
+- Output extraction rejects nonstandard numeric constants and numbers outside
+  the finite floating-point range, including fenced and prose-wrapped payloads.
+- Numeric drift rejects invalid numbers instead of returning a plausible score,
+  and handles opposite-sign finite extremes without subtraction overflow.
 - All CLI run formats now use the canonical engine result without reevaluation.
 - Saved engine reports retain scores and thresholds without invented metrics.
 - Report loading rejects incomplete formats; see migration notes for the updated
@@ -31,6 +45,10 @@ Target: **0.2.0**. Development version: `0.2.0.dev0`.
 
 ### Added
 
+- CI tests on Windows and Linux, plus isolated wheel and sdist installation checks.
+- Coverage for the module CLI entry point.
+- Offline `ToolEvent` and `check_read_before_edit` Python API with PASS, FAIL,
+  and UNKNOWN verdicts, revision matching, and deduplicated content coverage.
 - Self-contained offline HTML reports, with escaped input text and no scripts
   or external assets: `report --format html --output report.html`.
 

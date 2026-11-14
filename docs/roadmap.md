@@ -12,9 +12,11 @@ This is a prioritized plan, not a list of shipped capabilities or release dates.
 - [x] Unify CLI engine, saved report, Rich, and Markdown scores and failure reasons.
 - [x] Add standalone HTML exports of canonical engine reports.
 - [ ] Complete schema validation policy, malformed-schema checks, and regex safety.
-- [ ] Reject nonfinite JSON numbers; remove ambiguous JSON key paths.
-- [ ] Handle BOM input and document encoding and size limits consistently.
-- [ ] Separate TestPyPI manual publishing from production release publishing.
+- [x] Reject nonfinite and out-of-range numbers in captured output parsing and numeric drift.
+- [x] Remove ambiguous JSON key paths in structural, field-match, and numeric metrics.
+- [x] Add an offline read-before-edit library check for normalized tool events.
+- [x] Handle BOM input and document encoding and size limits consistently.
+- [x] Separate TestPyPI manual publishing from production release publishing.
 - [ ] Verify built wheels outside the checkout on Windows and Python 3.10-3.13.
 
 ## After the reliability release

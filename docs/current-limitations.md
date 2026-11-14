@@ -2,6 +2,48 @@
 
 Applies to the 0.2.0 development checkout.
 
+## Numeric output policy
+
+Output parsing rejects `NaN`, `Infinity`, and `-Infinity`, which are not JSON
+number literals. It also rejects otherwise legal literals such as `1e400`
+whose values exceed the finite floating-point range supported by our metrics.
+This range restriction is a library policy, not a claim that those literals
+violate JSON grammar. The same checks apply to plain, fenced, and prose-wrapped
+outputs. A rejected candidate fails validation and has no JSON numeric score.
+
+Direct calls to `json_numeric_drift` raise `ValueError` for nonfinite or
+out-of-range numbers, including numbers at unmatched paths. Numeric metrics
+use floating-point arithmetic, so integer differences above floating-point
+precision may be rounded. Exact field matching still compares parsed integers
+without converting them to floats. These metrics are not exact financial arithmetic.
+
+## Evaluation scope
+
+Dataset, schema and saved-report files must be UTF-8; an initial UTF-8 BOM and
+Windows line endings are accepted. Each file has a 16 MiB byte limit, enforced
+during reading. JSONL errors identify the line. Duplicate JSON keys and nonfinite
+numbers in these files are rejected rather than silently overwritten or accepted.
+
+Supported schema keywords are checked for valid shapes before evaluating data,
+including rules for absent properties. Invalid or unsupported regular expressions
+are reported as schema issues before matching, including in absent properties.
+
+Patterns use a conservative subset of Python regex: literals, character classes,
+dot, anchors, escaped punctuation, and `\d`, `\D`, `\s`, `\S`, `\w`, `\W`.
+At most one `*` or `+` repetition is allowed, and that expression must start with
+`^`. Groups, alternation, backreferences, lookarounds, counted repetitions,
+optional repetitions, and lazy/possessive repetitions are rejected explicitly.
+For example, `^INV-\d+$` is supported; `(a+)+$` and `a+a+$` are not.
+Patterns are limited to 256 characters; matching input is limited to 16,384
+Unicode characters. Larger input produces a `pattern_limit` issue, without
+truncation. This deliberately restricts compatibility rather than running
+arbitrary Python regular expressions with unbounded backtracking. It is not a
+general-purpose JSON Schema regex implementation.
+
+Metric paths retain dot notation for simple ASCII identifier keys and use JSON-quoted
+brackets for other object keys, for example `$["a.b"]` versus `$.a.b`.
+This prevents literal keys from colliding with nested fields. Saved older reports
+are not recalculated; comparisons involving special keys may change on rerun.
 
 Levenshtein similarity always compares characters (Unicode code points),
 including whitespace and case. Each response is limited to 16,384 characters

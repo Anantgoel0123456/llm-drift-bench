@@ -257,6 +257,15 @@ or external assets and works offline. This is a saved report, not a live dashboa
 
 ## Help make model changes safer
 
+### Check an agent's workflow offline
+
+The development Python API includes `check_read_before_edit`: verify that a
+required file section was returned before an agent's first edit attempt.
+It consumes normalized tool events and returns PASS, FAIL, or UNKNOWN.
+Repeated reads count only once; incomplete traces cannot pass.
+This checks content delivery, not comprehension, and does not collect live traces.
+See the [tool-event guide and example](docs/tool-events.md).
+
 Useful contributions include a small failing capture, a reproducible bug report,
 a tested edge-case fix, or clearer documentation. Start with the
 [contributor guide](CONTRIBUTING.md) and [roadmap](docs/roadmap.md).

@@ -72,3 +72,7 @@ dmypy.json
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Local issue preparation and submission screenshots
+/docs/issue-drafts/
+/docs/assets/github-issues.png
