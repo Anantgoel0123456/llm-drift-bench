@@ -79,6 +79,7 @@ Thumbs.db
 
 # Local commit/push helpers, not project deliverables
 /scripts/commit-*.ps1
+/docs/commit-*.ps1
 
 # Retired upstream source retained locally, never packaged or committed
 /src/llm_drift_bench/_vendor/
