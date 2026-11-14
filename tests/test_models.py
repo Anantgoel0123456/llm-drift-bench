@@ -47,7 +47,7 @@ class TestModels(unittest.TestCase):
         sample = ModelSample.from_dict(
             {
                 "id": "s1",
-                "response": 12345,
+                "response": "12345",
                 "model": "qwen-7b",
                 "latency_ms": "88.5",
                 "tokens_generated": "42",

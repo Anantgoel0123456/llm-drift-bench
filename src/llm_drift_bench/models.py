@@ -62,6 +62,11 @@ class ModelSample:
             or self.latency_ms < 0
         ):
             raise ValueError("latency_ms must be a finite non-negative number or None.")
+        if not isinstance(self.output, str):
+            raise ValueError(
+                f"output must be a string, got {type(self.output).__name__}. "
+                "Serialize structured values with json.dumps before capture."
+            )
         if self.tokens_generated is not None and (
             isinstance(self.tokens_generated, bool)
             or not isinstance(self.tokens_generated, int)
@@ -77,8 +82,13 @@ class ModelSample:
             raise ValueError("ModelSample requires a non-empty 'prompt_id' or 'id'.")
         if "output" not in data and "response" not in data:
             raise ValueError(f"ModelSample '{prompt_id}' requires an 'output' or 'response' field.")
-        raw_output = data.get("output", data.get("response", ""))
-        output = raw_output if isinstance(raw_output, str) else str(raw_output)
+        output = data.get("output", data.get("response", ""))
+        if not isinstance(output, str):
+            raise ValueError(
+                f"ModelSample '{prompt_id}' output must be a string, got "
+                f"{type(output).__name__}. Serialize structured values with json.dumps "
+                "before capture; null is not a model output."
+            )
         model_name = str(data.get("model_name") or data.get("model") or default_model_name)
         latency_raw = data.get("latency_ms")
         if isinstance(latency_raw, bool):

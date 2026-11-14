@@ -7,7 +7,7 @@ import math
 import re
 from typing import Any
 
-from llm_drift_bench._numbers import parse_finite_float, parse_finite_int, reject_constant
+from llm_drift_bench._file_io import parse_json
 from llm_drift_bench._patterns import MAX_PATTERN_INPUT, pattern_policy_error
 from llm_drift_bench.models import SchemaValidationResult, ValidationIssue
 
@@ -18,10 +18,13 @@ _CODE_FENCE_PATTERN = re.compile(
 
 
 def _parse_payload(text: str) -> Any:
-    return json.loads(
-        text, parse_constant=reject_constant,
-        parse_float=parse_finite_float, parse_int=parse_finite_int,
-    )
+    """Parse one candidate payload with the same strict rules as dataset files.
+
+    Duplicate object keys, nonstandard constants and nonfinite numbers raise
+    ValueError (JSONDecodeError for syntax errors) in every extraction mode, so a
+    later duplicate can never silently replace an earlier value.
+    """
+    return parse_json(text)
 
 
 def extract_json_payload(raw_text: str) -> tuple[bool, Any, str | None]:
@@ -46,8 +49,8 @@ def extract_json_payload(raw_text: str) -> tuple[bool, Any, str | None]:
         return True, _parse_payload(stripped), None
     except json.JSONDecodeError as direct_err:
         last_error = str(direct_err)
-    except ValueError as numeric_err:
-        return False, None, str(numeric_err)
+    except ValueError as value_err:
+        return False, None, str(value_err)
 
     # 2. Try extracting from markdown ```json ... ``` fences.
     fence_match = _CODE_FENCE_PATTERN.search(stripped)
@@ -57,8 +60,8 @@ def extract_json_payload(raw_text: str) -> tuple[bool, Any, str | None]:
             return True, _parse_payload(candidate), None
         except json.JSONDecodeError as fence_err:
             last_error = str(fence_err)
-        except ValueError as numeric_err:
-            return False, None, str(numeric_err)
+        except ValueError as value_err:
+            return False, None, str(value_err)
 
     # 3. Try locating the first '{' or '[' and matching to last '}' or ']'.
     for open_char, close_char in (("{", "}"), ("[", "]")):
@@ -70,8 +73,8 @@ def extract_json_payload(raw_text: str) -> tuple[bool, Any, str | None]:
                 return True, _parse_payload(sub), None
             except json.JSONDecodeError:
                 continue
-            except ValueError as numeric_err:
-                return False, None, str(numeric_err)
+            except ValueError as value_err:
+                return False, None, str(value_err)
 
     return False, None, f"Invalid JSON syntax: {last_error}"
 
@@ -83,7 +86,12 @@ def _check_json_type(instance: Any, expected_type: str) -> bool:
     if expected_type == "boolean":
         return isinstance(instance, bool)
     if expected_type == "integer":
-        return isinstance(instance, int) and not isinstance(instance, bool)
+        if isinstance(instance, bool):
+            return False
+        if isinstance(instance, int):
+            return True
+        # JSON Schema treats any finite number without a fractional part as an integer.
+        return isinstance(instance, float) and math.isfinite(instance) and instance.is_integer()
     if expected_type == "number":
         return isinstance(instance, (int, float)) and not isinstance(instance, bool)
     if expected_type == "string":
