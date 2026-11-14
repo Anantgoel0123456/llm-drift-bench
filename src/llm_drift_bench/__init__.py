@@ -50,6 +50,7 @@ from llm_drift_bench.reporter import (
     render_console_report,
 )
 from llm_drift_bench.testing import assert_no_drift
+from llm_drift_bench.tool_events import ToolCheckResult, ToolEvent, check_read_before_edit
 from llm_drift_bench.validator import (
     extract_json_payload,
     validate_against_schema,
@@ -69,10 +70,13 @@ __all__ = [
     "SampleDriftResult",
     "SchemaValidationResult",
     "TestPrompt",
+    "ToolCheckResult",
+    "ToolEvent",
     "ValidationIssue",
     "__version__",
     "assert_no_drift",
     "check_json_adherence",
+    "check_read_before_edit",
     "compute_composite_drift_score",
     "compute_percentile",
     "compute_semantic_similarity",
