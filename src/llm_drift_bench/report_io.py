@@ -2,24 +2,12 @@
 
 from __future__ import annotations
 
-import json
-import math
 from pathlib import Path
 
 from pydantic import TypeAdapter
 
+from llm_drift_bench._file_io import parse_json, read_utf8
 from llm_drift_bench.models import BenchmarkResult, DriftBenchmarkReport
-
-
-def _reject_constant(value: str) -> None:
-    raise ValueError(f"Nonfinite JSON number is not allowed in reports: {value}.")
-
-
-def _finite_float(value: str) -> float:
-    number = float(value)
-    if not math.isfinite(number):
-        raise ValueError("Saved report numbers must be finite.")
-    return number
 
 
 def load_report(path: str | Path) -> DriftBenchmarkReport | BenchmarkResult:
@@ -29,8 +17,8 @@ def load_report(path: str | Path) -> DriftBenchmarkReport | BenchmarkResult:
     Incomplete or unrecognized reports are rejected instead of filling in scores.
     Legacy BenchmarkResult reports retain their historical scoring semantics.
     """
-    text = Path(path).read_text(encoding="utf-8-sig")
-    raw = json.loads(text, parse_constant=_reject_constant, parse_float=_finite_float)
+    text = read_utf8(path)
+    raw = parse_json(text)
     if not isinstance(raw, dict):
         raise ValueError("A saved report must be a JSON object.")
     engine = "total_samples" in raw and "results" in raw
@@ -48,4 +36,15 @@ def load_report(path: str | Path) -> DriftBenchmarkReport | BenchmarkResult:
         raise ValueError("Saved report prompt IDs must be nonempty and unique.")
     if report.drifted_samples != sum(result.drifted for result in report.results):
         raise ValueError("Saved report drifted sample count is inconsistent.")
+    if report.passed != (not report.failure_reasons) or (report.passed and report.drifted_samples):
+        raise ValueError("Saved report pass/fail status contradicts its failure evidence.")
+    for name in (
+        "baseline_json_conformity_rate", "candidate_json_conformity_rate",
+        "mean_composite_drift", "max_composite_drift", "mean_token_jaccard",
+        "mean_levenshtein_similarity", "mean_json_structural_similarity",
+        "mean_json_numeric_drift",
+    ):
+        value = getattr(report, name)
+        if value is not None and not 0 <= value <= 1:
+            raise ValueError(f"Saved report {name} must be between 0 and 1.")
     return report

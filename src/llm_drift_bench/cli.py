@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from llm_drift_bench import __version__
+from llm_drift_bench._file_io import parse_json, read_utf8
 from llm_drift_bench._matching import require_same_ids
 from llm_drift_bench.engine import (
     DriftBenchmarkEngine,
@@ -248,7 +249,7 @@ def _handle_validate(args: argparse.Namespace) -> int:
         raise ValueError("Validation requires at least one output sample.")
     global_schema: dict[str, Any] | None = None
     if args.schema:
-        loaded = json.loads(Path(args.schema).read_text(encoding="utf-8"))
+        loaded = parse_json(read_utf8(args.schema))
         if not isinstance(loaded, dict):
             raise ValueError("Global schema file must contain a JSON object.")
         global_schema = loaded

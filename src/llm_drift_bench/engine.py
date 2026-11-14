@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from llm_drift_bench._file_io import parse_json, read_utf8
 from llm_drift_bench._matching import index_records, require_same_ids
 from llm_drift_bench.metrics import (
     compute_composite_drift_score,
@@ -279,7 +279,7 @@ def _load_records(
 ) -> tuple[list[dict[str, Any]], str | None]:
     """Read a JSON or JSONL file into a list of dicts and optional top-level model_name."""
     file_path = Path(path)
-    raw = file_path.read_text(encoding="utf-8").strip()
+    raw = read_utf8(file_path).strip()
     if not raw:
         return [], None
 
@@ -289,13 +289,16 @@ def _load_records(
             stripped = line.strip()
             if not stripped:
                 continue
-            item = json.loads(stripped)
+            try:
+                item = parse_json(stripped)
+            except ValueError as exc:
+                raise ValueError(f"Invalid JSON on line {idx} in {file_path}: {exc}") from exc
             if not isinstance(item, dict):
                 raise ValueError(f"Line {idx} in {file_path} must be a JSON object.")
             records.append(item)
         return records, None
 
-    parsed = json.loads(raw)
+    parsed = parse_json(raw)
     if isinstance(parsed, list):
         for item in parsed:
             if not isinstance(item, dict):
@@ -307,6 +310,8 @@ def _load_records(
         model_str = str(top_model) if top_model is not None else None
         for key in container_keys:
             if key in parsed and isinstance(parsed[key], list):
+                if any(not isinstance(item, dict) for item in parsed[key]):
+                    raise ValueError(f"All items in {file_path} must be JSON objects.")
                 return list(parsed[key]), model_str
 
     raise ValueError(f"Unsupported dataset format in {file_path}.")

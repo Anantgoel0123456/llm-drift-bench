@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 from collections.abc import Sequence
 from difflib import SequenceMatcher
@@ -10,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from llm_drift_bench._matching import index_records, require_same_ids
-from llm_drift_bench.engine import load_model_samples
+from llm_drift_bench.engine import _load_records, load_model_samples
 from llm_drift_bench.metrics import (
     jaccard_similarity,
     json_exact_field_match,
@@ -177,20 +176,7 @@ def evaluate_response_pair(
 def load_test_prompts(path: str | Path) -> list[TestPrompt]:
     """Load TestPrompt items from a JSON or JSONL suite file."""
     file_path = Path(path)
-    raw = file_path.read_text(encoding="utf-8").strip()
-    if not raw:
-        return []
-
-    if file_path.suffix.lower() == ".jsonl":
-        items = [json.loads(line) for line in raw.splitlines() if line.strip()]
-    else:
-        parsed = json.loads(raw)
-        if isinstance(parsed, dict):
-            items = parsed.get("prompts") or parsed.get("cases") or parsed.get("suite") or []
-        elif isinstance(parsed, list):
-            items = parsed
-        else:
-            raise ValueError(f"Unsupported prompt suite format in {file_path}.")
+    items, _ = _load_records(file_path, ("prompts", "cases", "suite", "items"))
 
     prompts = [TestPrompt.model_validate(item) for item in items]
     index_records(prompts, str(file_path))
