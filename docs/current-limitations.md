@@ -29,8 +29,9 @@ use the same serializer for baseline and candidate.
 Duplicate object keys are rejected wherever JSON is parsed: dataset files, saved
 reports, and every output-extraction mode. The JSON Schema `integer` type accepts
 finite numbers without a fractional part, so `1.0` and `1e2` conform while `1.5`
-and `true` do not. Schema keyword values such as `minLength` still must be written
-as integers.
+and `true` do not. Schema limits `minLength`, `maxLength`, `minItems`, and
+`maxItems` also accept non-negative integral floats such as `3.0`. Fractional,
+negative, nonfinite, boolean, and string values are rejected.
 
 ## Saved reports
 

@@ -264,7 +264,9 @@ required file section was returned before an agent's first edit attempt.
 It consumes normalized tool events and returns PASS, FAIL, or UNKNOWN.
 Repeated reads count only once; incomplete traces cannot pass.
 This checks content delivery, not comprehension, and does not collect live traces.
-See the [tool-event guide and example](docs/tool-events.md).
+Run it with `llm-drift-bench check-tools`, then attach the saved verdict to HTML or
+Markdown reports with `--tool-check`. See the
+[tool-event guide and example](docs/tool-events.md).
 
 Useful contributions include a small failing capture, a reproducible bug report,
 a tested edge-case fix, or clearer documentation. Start with the

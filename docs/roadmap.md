@@ -19,7 +19,23 @@ This is a prioritized plan, not a list of shipped capabilities or release dates.
 - [x] Separate TestPyPI manual publishing from production release publishing.
 - [ ] Verify built wheels outside the checkout on Windows and Python 3.10-3.13.
 
-## After the reliability release
+## Remaining verification and integrations
+
+- Hosted CI: verify `installed` on Windows/Linux and Python 3.10-3.13, and
+  `opik-integration` at the minimum and newest supported SDK version. Local
+  passing tests do not establish that these hosted jobs have succeeded.
+- Trusted Publishing: verify registry and GitHub environment settings using
+  `docs/publishing.md`, then perform the authorized TestPyPI release checks.
+- Vendor transcript adapters: the checker accepts normalized tool events, but
+  does not import Claude Code or OpenAI transcripts. Implementation needs a
+  sanitized sample and tool-result semantics. Line ranges alone cannot establish
+  exact character coverage without the corresponding file revision/content;
+  retain UNKNOWN when the evidence is insufficient. This is a future integration,
+  not a blocker for the existing offline output-comparison API.
+
+The CI version constraint and integral-float schema-limit issues are fixed locally.
+
+## Planned features
 
 | Feature | Value | Relative effort |
 | --- | --- | --- |
