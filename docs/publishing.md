@@ -22,7 +22,7 @@ resolution. A verification failure does not undo the completed upload.
 To verify an already uploaded version without uploading anything:
 
 ```powershell
-& .\.venv\Scripts\python.exe scripts/verify_registry.py testpypi 0.2.0.dev0
+& .\.venv\Scripts\python.exe scripts/verify_registry.py testpypi 0.2.0
 ```
 
 Use the actual uploaded version; this command cannot verify an unpublished version.
@@ -85,8 +85,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
 & .\.venv\Scripts\python.exe -m twine check dist/*
 if ($LASTEXITCODE -ne 0) { throw 'Metadata validation failed' }
 # Select the exact NEW version's artifacts, not stale files from older builds.
-$Wheel = Get-Item 'dist/llm_drift_bench-0.2.0.dev0-py3-none-any.whl'
-$Sdist = Get-Item 'dist/llm_drift_bench-0.2.0.dev0.tar.gz'
+$Wheel = Get-Item 'dist/llm_drift_bench-0.2.0-py3-none-any.whl'
+$Sdist = Get-Item 'dist/llm_drift_bench-0.2.0.tar.gz'
 & .\.venv\Scripts\python.exe scripts/check_installed.py $Wheel.FullName
 if ($LASTEXITCODE -ne 0) { throw 'Wheel smoke test failed' }
 & .\.venv\Scripts\python.exe scripts/check_installed.py $Sdist.FullName

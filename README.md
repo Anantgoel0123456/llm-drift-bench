@@ -15,9 +15,9 @@ Offline regression checks for LLM outputs, structured responses, and model chang
 
 </div>
 
-> **Release status:** 0.1.0 has been released. This branch prepares **0.2.0**
-> (`0.2.0.dev0`). The commands and behavior below describe this development
-> checkout. Read the [migration notes](docs/migration-0.2.md) before upgrading.
+> **Release status:** This checkout is prepared for **0.2.0**. Registry publication
+> is a separate step; the PyPI badge shows the published version.
+> Read the [migration notes](docs/migration-0.2.md) before upgrading.
 
 ## See it in 18 seconds
 
@@ -78,7 +78,7 @@ You export the captures; the benchmark evaluates them offline. See
 
 ### Available now and planned next
 
-| Capability | Development checkout | Direction |
+| Capability | 0.2.0 | Direction |
 | --- | --- | --- |
 | Offline evaluation and JSON checks | Available | Harden schema and numeric handling |
 | CLI and Python test gates | Available | Add CI-native result exports |
@@ -94,7 +94,7 @@ historical dashboards remain separate future work.
 
 ## Quickstart
 
-Try the development checkout from PowerShell with Python 3.10 or newer:
+Try this checkout from PowerShell with Python 3.10 or newer:
 
 ```powershell
 git clone https://github.com/anant-goel/llm-drift-bench.git
@@ -105,7 +105,7 @@ python -m venv .venv
 & .\.venv\Scripts\python.exe -m llm_drift_bench run -b examples/baseline.jsonl -c examples/candidate-pass.jsonl -p examples/extraction-suite.json
 ```
 
-Expected: `0.2.0.dev0`, followed by a **PASSED** comparison and exit code `0`.
+Expected: `0.2.0`, followed by a **PASSED** comparison and exit code `0`.
 On Linux/macOS, replace `.\.venv\Scripts\python.exe` with `.venv/bin/python`.
 No virtual-environment activation is needed.
 

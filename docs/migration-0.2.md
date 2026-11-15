@@ -1,8 +1,8 @@
 # Moving to 0.2.0
 
-0.2.0 is in development. Installing 0.1.0 does not provide these changes.
+This guide describes the changes in 0.2.0. Installing 0.1.0 does not provide them.
 
-| Area | Development behavior | Migration |
+| Area | 0.2.0 behavior | Migration |
 | --- | --- | --- |
 | Exit codes | 0 pass, 1 drift, 2 input error | Handle failed comparisons explicitly |
 | Prompt matching | Exact ID sets; no duplicates | Capture every expected prompt on both sides |

@@ -2,19 +2,7 @@
 
 ## [Unreleased]
 
-Target: **0.2.0**. Development version: `0.2.0.dev0`.
-
-- `llm-drift-bench check-tools` runs the offline read-before-edit check on a
-  normalized trace (`.jsonl` or `.json`) with distinct exit codes: 0 PASS, 1 FAIL,
-  3 UNKNOWN, 2 error. `-o` saves a validated verdict file.
-- Strict trace import (`load_tool_events`, `parse_tool_events`) that rejects unknown
-  fields, duplicate keys, nonfinite and non-integer offsets, naming the bad line.
-- `ToolCheckRecord`, `check_trace`, `check_trace_file` and `load_tool_check` keep the
-  question beside each verdict and reject saved verdicts their own evidence
-  contradicts.
-- `--tool-check` on `run` and `report`, and a `tool_checks` argument on
-  `export_html_report` and `export_markdown_report`, add a separate Tool evidence
-  section that never affects the drift verdict.
+## [0.2.0] - 2026-11-15
 
 ### Changed
 
@@ -81,6 +69,18 @@ Target: **0.2.0**. Development version: `0.2.0.dev0`.
 
 ### Added
 
+- `llm-drift-bench check-tools` runs the offline read-before-edit check on a
+  normalized trace (`.jsonl` or `.json`) with distinct exit codes: 0 PASS, 1 FAIL,
+  3 UNKNOWN, 2 error. `-o` saves a validated verdict file.
+- Strict trace import (`load_tool_events`, `parse_tool_events`) that rejects unknown
+  fields, duplicate keys, nonfinite and non-integer offsets, naming the bad line.
+- `ToolCheckRecord`, `check_trace`, `check_trace_file` and `load_tool_check` keep the
+  question beside each verdict and reject saved verdicts their own evidence
+  contradicts.
+- `--tool-check` on `run` and `report`, and a `tool_checks` argument on
+  `export_html_report` and `export_markdown_report`, add a separate Tool evidence
+  section that never affects the drift verdict.
+
 - Post-upload registry verification jobs download the exact published wheel and
   run clean-environment installation checks, separately from upload permissions.
 - Optional `opik` extra and explicit `EvidenceScore.to_opik()` adapter that
@@ -108,8 +108,8 @@ Target: **0.2.0**. Development version: `0.2.0.dev0`.
 
 ## [0.1.0]
 
-Initial release. Release date and exact artifact contents still need reconciliation
-with the local history before publishing the next release notes.
+Initial published release. See the linked PyPI release for its artifacts.
 
 [Unreleased]: https://github.com/anant-goel/llm-drift-bench/commits/main/
+[0.2.0]: https://github.com/anant-goel/llm-drift-bench/releases/tag/v0.2.0
 [0.1.0]: https://pypi.org/project/llm-drift-bench/0.1.0/
