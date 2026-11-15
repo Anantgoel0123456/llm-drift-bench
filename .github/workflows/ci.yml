@@ -67,7 +67,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The lowest version the opik extra allows, and whatever is newest.
+        # The lowest version the extra allows, and the newest supported version.
         opik: ["1.10.24", "latest"]
     steps:
       - name: Checkout repository
@@ -85,7 +85,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
           if [ "${{ matrix.opik }}" = "latest" ]; then
-            pip install --upgrade opik
+            pip install --upgrade "opik>=1.10.24,<3"
           else
             pip install "opik==${{ matrix.opik }}"
           fi

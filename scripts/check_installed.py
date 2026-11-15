@@ -80,6 +80,22 @@ else:
     raise AssertionError("structured output must be rejected")
 '''
         subprocess.run([str(python), "-c", code], cwd=root, env=env, check=True)
+        # The installed CLI must map PASS, FAIL and UNKNOWN to distinct exit codes.
+        trace = root / "trace.jsonl"
+        trace.write_text(
+            '{"kind": "read", "resource": "g@1", "start": 0, "end": 10}\n'
+            '{"kind": "edit", "resource": "a@1"}\n', encoding="utf-8")
+        for flags, expected in (
+            (["--end", "10", "--trace-complete"], 0),
+            (["--end", "20", "--trace-complete"], 1),
+            (["--end", "10"], 3),
+        ):
+            outcome = subprocess.run(
+                [str(cli), "check-tools", "-i", str(trace), "--resource", "g@1", *flags],
+                cwd=root, env=env, check=False, capture_output=True,
+            )
+            if outcome.returncode != expected:
+                raise SystemExit(f"check-tools {flags}: exit {outcome.returncode}, want {expected}")
     print(f"Installed artifact checks passed: {artifact.name}")
 
 
