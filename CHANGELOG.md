@@ -78,6 +78,8 @@ Target: **0.2.0**. Development version: `0.2.0.dev0`.
 
 ### Added
 
+- Post-upload registry verification jobs download the exact published wheel and
+  run clean-environment installation checks, separately from upload permissions.
 - Optional `opik` extra and explicit `EvidenceScore.to_opik()` adapter that
   constructs the installed SDK result and rejects unavailable evidence.
 - Local `EvidenceScore` result model for tool-event verdicts with explicit

@@ -2,11 +2,30 @@
 
 The workflow is prepared locally; changing it does not publish a package.
 
-Manual `workflow_dispatch` publishes only to TestPyPI. A published GitHub release
-publishes to PyPI. Both paths test and build once, check metadata, install the wheel
+Manual `workflow_dispatch` has a Yes/No choice, defaulting to No. No runs tests,
+builds and checks artifacts without uploading. With Yes, choose the registry:
+TestPyPI (default) or PyPI. Open Actions, Publish distributions, Run workflow to
+select these options. Manual PyPI publishing does not require creating a GitHub
+release or tag. It still rejects development versions and respects environment
+approval rules. A published GitHub release also publishes to PyPI. Both paths test and build once, check metadata, install the wheel
 and sdist in isolated environments, and pass the same artifacts to a separate
 upload job. Production tags must equal `v` plus the package version; development
 versions cannot pass the production guard. Actions are pinned to commits.
+
+After each upload, a separate verification job downloads that exact version's
+wheel from the target registry and runs the isolated installation checks. It
+retries failed downloads three times to allow brief index propagation delays.
+The project wheel is downloaded with `--no-deps`; its dependencies are then
+installed using the normal PyPI index rather than mixing TestPyPI and PyPI
+resolution. A verification failure does not undo the completed upload.
+
+To verify an already uploaded version without uploading anything:
+
+```powershell
+& .\.venv\Scripts\python.exe scripts/verify_registry.py testpypi 0.2.0.dev0
+```
+
+Use the actual uploaded version; this command cannot verify an unpublished version.
 
 Configure Trusted Publishing separately on each registry for owner `anant-goel`,
 repository `llm-drift-bench`, workflow `publish.yml`:
@@ -32,7 +51,7 @@ repository, so tick each item in the web UI before triggering a publish.
 | Repository | `llm-drift-bench` | `llm-drift-bench` |
 | Workflow filename | `publish.yml` | `publish.yml` |
 | Environment name | `testpypi` | `pypi` |
-| Trigger | manual `workflow_dispatch` | published GitHub release |
+| Trigger | manual: Yes + TestPyPI | manual: Yes + PyPI, or published GitHub release |
 
 - [ ] `git remote -v` shows `anant-goel/llm-drift-bench`, the owner in the table.
 - [ ] GitHub, Settings, Environments: `testpypi` and `pypi` both exist.

@@ -17,13 +17,14 @@ This is a prioritized plan, not a list of shipped capabilities or release dates.
 - [x] Add an offline read-before-edit library check for normalized tool events.
 - [x] Handle BOM input and document encoding and size limits consistently.
 - [x] Separate TestPyPI manual publishing from production release publishing.
-- [ ] Verify built wheels outside the checkout on Windows and Python 3.10-3.13.
+- [x] Verify built wheels outside the checkout on Windows/Linux and Python 3.10-3.13.
 
 ## Remaining verification and integrations
 
-- Hosted CI: verify `installed` on Windows/Linux and Python 3.10-3.13, and
-  `opik-integration` at the minimum and newest supported SDK version. Local
-  passing tests do not establish that these hosted jobs have succeeded.
+- Hosted CI passed, as confirmed by the maintainer's run screenshot on
+  2026-11-15: eight source-test jobs, eight installed-package jobs, two SDK
+  integration jobs, lint/type checking, and package build checks. Keep these
+  checks green on subsequent changes; this does not verify registry publishing.
 - Trusted Publishing: verify registry and GitHub environment settings using
   `docs/publishing.md`, then perform the authorized TestPyPI release checks.
 - Vendor transcript adapters: the checker accepts normalized tool events, but
