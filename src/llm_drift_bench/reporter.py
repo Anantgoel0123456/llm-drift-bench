@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+from collections.abc import Sequence
 from pathlib import Path
 
 from rich.console import Console
@@ -19,6 +20,7 @@ from llm_drift_bench._report_views import (
     summary_rows,
 )
 from llm_drift_bench.models import BenchmarkResult, DriftBenchmarkReport
+from llm_drift_bench.tool_log import ToolCheckRecord
 
 
 def _measurement(value: float | None, spec: str = ".2f") -> str:
@@ -223,24 +225,43 @@ def _save_text(text: str, path: str | Path | None) -> str:
     return text
 
 
+def _require_engine_report(
+    result: DriftBenchmarkReport | BenchmarkResult, tool_checks: Sequence[ToolCheckRecord] | None,
+) -> None:
+    if tool_checks and isinstance(result, BenchmarkResult):
+        raise ValueError(
+            "Tool evidence can only be attached to engine reports. "
+            "Rerun with 'run --output report.json'."
+        )
+
+
 def export_markdown_report(
     result: DriftBenchmarkReport | BenchmarkResult,
     output_path: str | Path | None = None,
+    tool_checks: Sequence[ToolCheckRecord] | None = None,
 ) -> str:
-    """Render canonical engine scores or an explicitly labeled legacy report."""
+    """Render canonical engine scores or an explicitly labeled legacy report.
+
+    tool_checks adds a separate evidence section; it never changes the drift verdict.
+    """
+    _require_engine_report(result, tool_checks)
     if isinstance(result, BenchmarkResult):
         text = _export_legacy_markdown_report(result)
         text += "\nLegacy evaluator scores; not interchangeable with engine scores.\n"
     else:
-        text = canonical_markdown(result)
+        text = canonical_markdown(result, tuple(tool_checks or ()))
     return _save_text(text, output_path)
 
 
 def export_html_report(
     result: DriftBenchmarkReport | BenchmarkResult,
     output_path: str | Path | None = None,
+    tool_checks: Sequence[ToolCheckRecord] | None = None,
 ) -> str:
-    """Export a self-contained, script-free canonical report with no network assets."""
+    """Export a self-contained, script-free canonical report with no network assets.
+
+    tool_checks adds a separate evidence section; it never changes the drift verdict.
+    """
     if isinstance(result, BenchmarkResult):
         raise ValueError("HTML requires an engine report. Rerun with 'run --output report.json'.")
-    return _save_text(canonical_html(result), output_path)
+    return _save_text(canonical_html(result, tuple(tool_checks or ())), output_path)

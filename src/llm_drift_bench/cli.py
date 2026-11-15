@@ -25,7 +25,34 @@ from llm_drift_bench.reporter import (
     export_markdown_report,
     render_console_report,
 )
+from llm_drift_bench.tool_log import (
+    ToolCheckRecord,
+    check_trace_file,
+    load_tool_check,
+)
 from llm_drift_bench.validator import validate_output
+
+# UNKNOWN is neither success nor an error: scripts must decide what it means.
+EXIT_TOOL_UNKNOWN = 3
+
+
+def _add_tool_check_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--tool-check",
+        action="append",
+        default=[],
+        metavar="FILE",
+        help=(
+            "Saved 'check-tools' result to show in a separate Tool evidence section "
+            "(repeatable; markdown or html output only). Never changes the drift verdict."
+        ),
+    )
+
+
+def _load_tool_checks(paths: Sequence[str], output_format: str) -> list[ToolCheckRecord]:
+    if paths and output_format not in ("markdown", "html"):
+        raise ValueError("--tool-check requires markdown or html output.")
+    return [load_tool_check(path) for path in paths]
 
 
 def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -91,6 +118,7 @@ def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         default="table",
         help="Stdout format: table (default), rich, json, markdown, or html.",
     )
+    _add_tool_check_option(run_parser)
     run_parser.add_argument(
         "--fail-on-drift",
         action=argparse.BooleanOptionalAction,
@@ -114,6 +142,7 @@ def _handle_run(args: argparse.Namespace) -> int:
     baseline_samples = load_model_samples(args.baseline)
     candidate_samples = load_model_samples(args.candidate)
     prompt_cases = load_prompt_cases(args.suite) if args.suite else None
+    tool_checks = _load_tool_checks(args.tool_check, args.format)
 
     thresholds = DriftThresholds(
         max_composite_drift=args.max_drift,
@@ -136,9 +165,9 @@ def _handle_run(args: argparse.Namespace) -> int:
     if args.format == "json":
         print(report.to_json(indent=2))
     elif args.format == "markdown":
-        print(export_markdown_report(report), end="")
+        print(export_markdown_report(report, tool_checks=tool_checks), end="")
     elif args.format == "html":
-        print(export_html_report(report), end="")
+        print(export_html_report(report, tool_checks=tool_checks), end="")
     elif args.format == "rich":
         render_console_report(report)
     else:
@@ -176,13 +205,15 @@ def _add_report_subparser(
         default=None,
         help="Optional output file path to write the rendered report.",
     )
+    _add_tool_check_option(rep_parser)
 
 
 def _handle_report(args: argparse.Namespace) -> int:
     """Execute the 'report' subcommand."""
+    tool_checks = _load_tool_checks(args.tool_check, args.format)
     result = load_report(args.input)
     if args.format == "markdown":
-        md = export_markdown_report(result, output_path=args.output)
+        md = export_markdown_report(result, output_path=args.output, tool_checks=tool_checks)
         print(md, end="")
     elif args.format == "json":
         payload = (result.to_json(indent=2) if isinstance(result, DriftBenchmarkReport)
@@ -193,7 +224,9 @@ def _handle_report(args: argparse.Namespace) -> int:
             out_file.write_text(payload, encoding="utf-8")
         print(payload)
     elif args.format == "html":
-        print(export_html_report(result, output_path=args.output), end="")
+        print(
+            export_html_report(result, output_path=args.output, tool_checks=tool_checks), end=""
+        )
     else:
         rendered = render_console_report(result)
         if args.output:
@@ -313,6 +346,76 @@ def _handle_validate(args: argparse.Namespace) -> int:
     if args.strict and passed_count < total:
         return 1
     return 0
+
+
+def _add_check_tools_subparser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Register the 'check-tools' subcommand for offline read-before-edit checks."""
+    parser = subparsers.add_parser(
+        "check-tools",
+        help="Check that required content was read before the first edit in a normalized trace.",
+        description=(
+            "Offline read-before-edit check over a normalized trace (.json array or .jsonl). "
+            "Exit codes: 0 PASS, 1 FAIL, 3 UNKNOWN, 2 error. UNKNOWN is never treated as PASS."
+        ),
+    )
+    parser.add_argument("-i", "--input", required=True, help="Normalized trace file.")
+    parser.add_argument(
+        "--resource", required=True,
+        help="Exact resource revision identifier to require (must match the trace).",
+    )
+    parser.add_argument(
+        "--start", type=int, default=0,
+        help="First required character offset, zero-based (default: 0).",
+    )
+    parser.add_argument(
+        "--end", type=int, required=True,
+        help="Exclusive end of the required character range (e.g. the revision's length).",
+    )
+    parser.add_argument(
+        "--trace-complete", action="store_true",
+        help="Attest that the trace includes every read and edit of the run.",
+    )
+    parser.add_argument(
+        "--format", choices=("text", "json"), default="text",
+        help="Stdout format: text (default) or json (the saved check file).",
+    )
+    parser.add_argument(
+        "-o", "--output", default=None,
+        help="Write the check result JSON here, for 'run/report --tool-check'.",
+    )
+
+
+def _handle_check_tools(args: argparse.Namespace) -> int:
+    """Execute the 'check-tools' subcommand."""
+    record = check_trace_file(
+        args.input, resource=args.resource, required_start=args.start,
+        required_end=args.end, trace_complete=args.trace_complete,
+    )
+    payload = json.dumps(record.to_dict(), indent=2)
+    if args.output:
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(payload + "\n", encoding="utf-8")
+    result = record.result
+    if args.format == "json":
+        print(payload)
+    else:
+        print(f"read_before_edit: {result.status}")
+        print(f"Resource: {record.resource}")
+        print(
+            f"Required: [{record.required_start}, {record.required_end}) "
+            f"({result.required_characters} characters); returned before first edit: "
+            f"{result.covered_characters}"
+        )
+        edit = "none recorded" if result.first_edit_sequence is None else result.first_edit_sequence
+        print(f"First edit sequence: {edit}")
+        print(f"Trace attested complete: {'yes' if record.trace_complete else 'no'}")
+        print(f"Reason: {result.reason}")
+    if result.status == "PASS":
+        return 0
+    return 1 if result.status == "FAIL" else EXIT_TOOL_UNKNOWN
 
 
 def _add_init_sample_subparser(
@@ -436,6 +539,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_run_subparser(subparsers)
     _add_report_subparser(subparsers)
     _add_validate_subparser(subparsers)
+    _add_check_tools_subparser(subparsers)
     _add_init_sample_subparser(subparsers)
     return parser
 
@@ -454,6 +558,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _handle_report(args)
         if args.command == "validate":
             return _handle_validate(args)
+        if args.command == "check-tools":
+            return _handle_check_tools(args)
         if args.command == "init-sample":
             return _handle_init_sample(args)
     except Exception as exc:

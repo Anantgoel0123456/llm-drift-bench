@@ -52,6 +52,14 @@ from llm_drift_bench.reporter import (
 from llm_drift_bench.scores import EvidenceScore
 from llm_drift_bench.testing import assert_no_drift
 from llm_drift_bench.tool_events import ToolCheckResult, ToolEvent, check_read_before_edit
+from llm_drift_bench.tool_log import (
+    ToolCheckRecord,
+    check_trace,
+    check_trace_file,
+    load_tool_check,
+    load_tool_events,
+    parse_tool_events,
+)
 from llm_drift_bench.validator import (
     extract_json_payload,
     validate_against_schema,
@@ -72,6 +80,7 @@ __all__ = [
     "SampleDriftResult",
     "SchemaValidationResult",
     "TestPrompt",
+    "ToolCheckRecord",
     "ToolCheckResult",
     "ToolEvent",
     "ValidationIssue",
@@ -79,6 +88,8 @@ __all__ = [
     "assert_no_drift",
     "check_json_adherence",
     "check_read_before_edit",
+    "check_trace",
+    "check_trace_file",
     "compute_composite_drift_score",
     "compute_percentile",
     "compute_semantic_similarity",
@@ -101,6 +112,9 @@ __all__ = [
     "load_prompt_cases",
     "load_report",
     "load_test_prompts",
+    "load_tool_check",
+    "load_tool_events",
+    "parse_tool_events",
     "ngram_overlap_similarity",
     "normalized_levenshtein_similarity",
     "render_console_report",

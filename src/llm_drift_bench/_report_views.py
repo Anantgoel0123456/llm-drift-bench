@@ -7,6 +7,30 @@ from dataclasses import asdict
 from html import escape
 
 from llm_drift_bench.models import DriftBenchmarkReport
+from llm_drift_bench.tool_log import ToolCheckRecord
+
+TOOL_HEADERS = (
+    "Resource", "Required range", "Status", "Covered", "First edit", "Trace attested", "Reason",
+)
+TOOL_NOTE = (
+    "Read-before-edit evidence from supplied normalized traces. It is reported "
+    "separately, does not change the drift verdict above, and does not establish "
+    "comprehension or correctness. UNKNOWN is not a pass."
+)
+
+
+def tool_check_rows(records: Sequence[ToolCheckRecord]) -> list[tuple[str, ...]]:
+    return [
+        (
+            record.resource, f"[{record.required_start}, {record.required_end})",
+            record.result.status,
+            f"{record.result.covered_characters} of {record.result.required_characters}",
+            "none" if record.result.first_edit_sequence is None
+            else str(record.result.first_edit_sequence),
+            "yes" if record.trace_complete else "no", record.result.reason,
+        )
+        for record in records
+    ]
 
 
 def measurement(value: float | None, spec: str = ".4f") -> str:
@@ -79,7 +103,9 @@ def markdown_cell(value: str) -> str:
     )
 
 
-def canonical_markdown(report: DriftBenchmarkReport) -> str:
+def canonical_markdown(
+    report: DriftBenchmarkReport, tool_checks: Sequence[ToolCheckRecord] = (),
+) -> str:
     state = "PASSED" if report.passed else "FAILED"
     lines = [f"# LLM Drift Benchmark Report: {state}", "",
              f"Baseline: {markdown_cell(report.baseline_model)}", "",
@@ -92,6 +118,12 @@ def canonical_markdown(report: DriftBenchmarkReport) -> str:
               "| " + " | ".join(["---"] * len(DETAIL_HEADERS)) + " |"]
     lines.extend("| " + " | ".join(markdown_cell(v) for v in row) + " |"
                  for row in detail_rows(report))
+    if tool_checks:
+        lines += ["", "## Tool evidence", "", TOOL_NOTE, "",
+                  "| " + " | ".join(TOOL_HEADERS) + " |",
+                  "| " + " | ".join(["---"] * len(TOOL_HEADERS)) + " |"]
+        lines.extend("| " + " | ".join(markdown_cell(v) for v in row) + " |"
+                     for row in tool_check_rows(tool_checks))
     lines += ["", "## Checks and notes", ""]
     lines.extend(f"- {markdown_cell(note)}" for note in report_notes(report))
     if report.thresholds is not None:
@@ -100,7 +132,9 @@ def canonical_markdown(report: DriftBenchmarkReport) -> str:
     return "\n".join(lines) + "\n"
 
 
-def canonical_html(report: DriftBenchmarkReport) -> str:
+def canonical_html(
+    report: DriftBenchmarkReport, tool_checks: Sequence[ToolCheckRecord] = (),
+) -> str:
     def table(headers: tuple[str, ...], rows: Sequence[tuple[str, ...]]) -> str:
         head = "".join(f"<th scope='col'>{escape(v)}</th>" for v in headers)
         body = "".join("<tr>" + "".join(f"<td>{escape(v)}</td>" for v in row) + "</tr>"
@@ -109,6 +143,12 @@ def canonical_html(report: DriftBenchmarkReport) -> str:
                 f"<tbody>{body}</tbody></table></div>")
 
     state = "PASSED" if report.passed else "FAILED"
+    tool_section = ""
+    if tool_checks:
+        tool_section = (
+            f"<h2>Tool evidence</h2><p class=\"muted\">{escape(TOOL_NOTE)}</p>"
+            + table(TOOL_HEADERS, tool_check_rows(tool_checks))
+        )
     notes = "".join(f"<li>{escape(note)}</li>" for note in report_notes(report))
     thresholds = ""
     if report.thresholds is not None:
@@ -134,7 +174,7 @@ overflow-wrap:anywhere}}.muted{{color:#a8bad2}}footer{{margin-top:40px}}
 <p>{report.total_samples} samples / {report.drifted_samples} drifted</p>
 <h2>Summary</h2>{table(('Metric', 'Baseline', 'Candidate / value'), summary_rows(report))}
 <h2>Per-prompt results</h2>{table(DETAIL_HEADERS, detail_rows(report))}
-<h2>Checks and notes</h2><ul>{notes}</ul>{thresholds}
+{tool_section}<h2>Checks and notes</h2><ul>{notes}</ul>{thresholds}
 <footer class="muted">Saved evaluation, not live monitoring. Agreement is not correctness.
 Missing measurements remain unavailable.</footer></main></body></html>
 """
