@@ -142,7 +142,7 @@ def _keyword_shape_errors(node: dict[str, Any]) -> list[str]:
         ):
             errors.append("type must be a known type or a non-empty array of unique known types.")
     for key in ("minLength", "maxLength", "minItems", "maxItems"):
-        if key in node and (type(node[key]) is not int or node[key] < 0):
+        if key in node and (not _check_json_type(node[key], "integer") or node[key] < 0):
             errors.append(f"{key} must be a non-negative integer.")
     for key in ("minimum", "maximum"):
         if key in node:
@@ -295,7 +295,7 @@ def _validate_instance(
     # 3. String constraints
     if isinstance(instance, str):
         min_len = schema.get("minLength")
-        if isinstance(min_len, int) and len(instance) < min_len:
+        if isinstance(min_len, (int, float)) and len(instance) < min_len:
             issues.append(
                 ValidationIssue(
                     path=path,
@@ -304,7 +304,7 @@ def _validate_instance(
                 )
             )
         max_len = schema.get("maxLength")
-        if isinstance(max_len, int) and len(instance) > max_len:
+        if isinstance(max_len, (int, float)) and len(instance) > max_len:
             issues.append(
                 ValidationIssue(
                     path=path,
@@ -350,7 +350,7 @@ def _validate_instance(
     # 5. Array constraints
     if isinstance(instance, list):
         min_items = schema.get("minItems")
-        if isinstance(min_items, int) and len(instance) < min_items:
+        if isinstance(min_items, (int, float)) and len(instance) < min_items:
             issues.append(
                 ValidationIssue(
                     path=path,
@@ -359,7 +359,7 @@ def _validate_instance(
                 )
             )
         max_items = schema.get("maxItems")
-        if isinstance(max_items, int) and len(instance) > max_items:
+        if isinstance(max_items, (int, float)) and len(instance) > max_items:
             issues.append(
                 ValidationIssue(
                     path=path,
