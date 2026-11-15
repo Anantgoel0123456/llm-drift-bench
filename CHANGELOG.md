@@ -18,6 +18,9 @@ Target: **0.2.0**. Development version: `0.2.0.dev0`.
 
 ### Changed
 
+- CI and publishing use commit-pinned Node.js 24 actions for checkout, Python
+  setup and artifact transfers, replacing deprecated Node.js 20 runtimes.
+
 - Captured outputs must be strings. `ModelSample` and `ModelSample.from_dict` now
   reject objects, arrays, numbers, booleans and null with an explicit error
   instead of converting them to Python text such as `{'ok': True}` or `None`.
