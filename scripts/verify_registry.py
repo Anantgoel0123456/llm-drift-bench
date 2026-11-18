@@ -44,9 +44,13 @@ def main() -> None:
             f"llm-drift-bench=={args.version}",
         ]
         for attempt in range(3):
-            result = subprocess.run(command, check=False, timeout=180)
-            if result.returncode == 0:
-                break
+            try:
+                result = subprocess.run(command, check=False, timeout=180)
+            except subprocess.TimeoutExpired:
+                print("Registry download timed out after 180 seconds.", flush=True)
+            else:
+                if result.returncode == 0:
+                    break
             if attempt == 2:
                 raise SystemExit("Release download failed after three attempts.")
             print("Waiting 15 seconds for registry availability.", flush=True)

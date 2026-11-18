@@ -11,13 +11,16 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "verify_registry.py"
 
 
-def test_exact_testpypi_wheel_is_checked_after_retry() -> None:
+@pytest.mark.parametrize("timeout", [False, True])
+def test_exact_testpypi_wheel_is_checked_after_retry(timeout: bool) -> None:
     calls = []
 
     def execute(command, **kwargs):
         calls.append(command)
         if "download" in command:
             if len(calls) == 1:
+                if timeout:
+                    raise subprocess.TimeoutExpired(command, 180)
                 return subprocess.CompletedProcess(command, 1)
             destination = Path(command[command.index("--dest") + 1])
             (destination / "llm_drift_bench-0.2.0-py3-none-any.whl").write_bytes(b"fixture")
