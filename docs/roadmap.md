@@ -36,11 +36,15 @@ This is a prioritized plan, not a list of shipped capabilities or release dates.
 
 The CI version constraint and integral-float schema-limit issues are fixed locally.
 
+## 0.3.0 development
+
+- [x] JUnit XML exports with per-prompt cases and an overall benchmark gate.
+- [x] GitHub step summaries with `run --github-summary`.
+
 ## Planned features
 
 | Feature | Value | Relative effort |
 | --- | --- | --- |
-| GitHub step summary and JUnit | Make failures visible where developers work | Medium |
 | Configurable weights and drift.toml | Reuse task-specific evaluation policies | Medium |
 | Compare one baseline with many candidates | Inspect a quantization sweep | Medium |
 | Endpoint collection with provenance | Capture reproducible inputs | Large |

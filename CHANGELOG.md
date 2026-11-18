@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+Target: 0.3.0 (development version 0.3.0.dev0).
+
+### Added
+
+- `run --github-summary` appends the comparison result to a GitHub Actions job summary.
+- `run --junit-output FILE` saves XML from the same comparison as the console
+  and JSON reports, including when drift makes the command exit with code 1.
+- `check-tools` rejects an output path that would overwrite the input trace.
+
+- JUnit XML export for canonical engine reports through the Python API and
+  `run/report --format junit`. Includes one case per prompt and an overall
+  benchmark gate so suite-only failures remain visible to CI test viewers.
+
 ## [0.2.0] - 2026-11-15
 
 ### Changed

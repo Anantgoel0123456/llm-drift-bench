@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -18,6 +19,7 @@ from llm_drift_bench.engine import (
     load_model_samples,
     load_prompt_cases,
 )
+from llm_drift_bench.junit import export_junit_report
 from llm_drift_bench.models import DriftBenchmarkReport, DriftThresholds
 from llm_drift_bench.report_io import load_report
 from llm_drift_bench.reporter import (
@@ -114,9 +116,17 @@ def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     )
     run_parser.add_argument(
         "--format",
-        choices=("table", "rich", "json", "markdown", "html"),
+        choices=("table", "rich", "json", "markdown", "html", "junit"),
         default="table",
-        help="Stdout format: table (default), rich, json, markdown, or html.",
+        help="Stdout format: table (default), rich, json, markdown, html, or junit.",
+    )
+    run_parser.add_argument(
+        "--junit-output", metavar="FILE",
+        help="Write JUnit XML alongside the console result and optional JSON report.",
+    )
+    run_parser.add_argument(
+        "--github-summary", action="store_true",
+        help="Append the benchmark verdict and metrics to GITHUB_STEP_SUMMARY.",
     )
     _add_tool_check_option(run_parser)
     run_parser.add_argument(
@@ -130,6 +140,17 @@ def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     )
 
 
+def _protect_inputs(output: str | None, *inputs: str | None) -> None:
+    """Refuse to overwrite a capture, saved report, or attached tool check."""
+    if output is None:
+        return
+    target = Path(output)
+    if target.exists():
+        for source in inputs:
+            if source and Path(source).exists() and target.samefile(source):
+                raise ValueError(f"Choose a different --output path. {source!r} is an input file.")
+
+
 def _handle_run(args: argparse.Namespace) -> int:
     """Execute the 'run' subcommand."""
     for label, target in (("baseline", args.baseline), ("candidate", args.candidate)):
@@ -139,6 +160,20 @@ def _handle_run(args: argparse.Namespace) -> int:
                 "Model identifiers are not supported; supply captured JSON/JSONL outputs."
             )
 
+    _protect_inputs(args.output, args.baseline, args.candidate, args.suite, *args.tool_check)
+    if args.junit_output:
+        _protect_inputs(args.junit_output, args.baseline, args.candidate, args.suite,
+                        args.output, *args.tool_check)
+        if args.output and Path(args.output).resolve() == Path(args.junit_output).resolve():
+            raise ValueError("--output and --junit-output require different files.")
+    summary_path = None
+    if args.github_summary:
+        destination = os.environ.get("GITHUB_STEP_SUMMARY")
+        if not destination or not Path(destination).is_file():
+            raise ValueError("--github-summary requires an existing GITHUB_STEP_SUMMARY file.")
+        _protect_inputs(destination, args.baseline, args.candidate, args.suite,
+                        args.output, args.junit_output, *args.tool_check)
+        summary_path = Path(destination)
     baseline_samples = load_model_samples(args.baseline)
     candidate_samples = load_model_samples(args.candidate)
     prompt_cases = load_prompt_cases(args.suite) if args.suite else None
@@ -162,7 +197,14 @@ def _handle_run(args: argparse.Namespace) -> int:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(report.to_json(indent=2), encoding="utf-8")
 
-    if args.format == "json":
+    if args.junit_output:
+        junit_path = Path(args.junit_output)
+        junit_path.parent.mkdir(parents=True, exist_ok=True)
+        junit_path.write_text(export_junit_report(report), encoding="utf-8")
+
+    if args.format == "junit":
+        print(export_junit_report(report), end="")
+    elif args.format == "json":
         print(report.to_json(indent=2))
     elif args.format == "markdown":
         print(export_markdown_report(report, tool_checks=tool_checks), end="")
@@ -172,6 +214,16 @@ def _handle_run(args: argparse.Namespace) -> int:
         render_console_report(report)
     else:
         print(format_report_table(report))
+
+    if summary_path is not None:
+        verdict = "PASSED" if report.passed else "FAILED"
+        with summary_path.open("a", encoding="utf-8") as stream:
+            stream.write(
+                f"\n## LLM drift comparison: {verdict}\n\n"
+                f"- Drifted prompts: {report.drifted_samples} of {report.total_samples}\n"
+                f"- Mean composite drift: {report.mean_composite_drift:.4f}\n"
+                f"- Candidate JSON conformity: {report.candidate_json_conformity_rate:.1%}\n"
+            )
 
     if args.fail_on_drift and not report.passed:
         return 1
@@ -195,9 +247,9 @@ def _add_report_subparser(
     rep_parser.add_argument(
         "-f",
         "--format",
-        choices=("markdown", "console", "table", "json", "html"),
+        choices=("markdown", "console", "table", "json", "html", "junit"),
         default="markdown",
-        help="Output format: markdown (default), console/table, json, or html.",
+        help="Output format: markdown (default), console/table, json, html, or junit.",
     )
     rep_parser.add_argument(
         "-o",
@@ -211,8 +263,24 @@ def _add_report_subparser(
 def _handle_report(args: argparse.Namespace) -> int:
     """Execute the 'report' subcommand."""
     tool_checks = _load_tool_checks(args.tool_check, args.format)
+    if not Path(args.input).is_file():
+        raise ValueError(
+            f"Saved report file not found: {args.input!r}. "
+            "Create it with 'run --output', or try -i examples/expected-pass.json "
+            "from the repository root."
+        )
+    _protect_inputs(args.output, args.input, *args.tool_check)
     result = load_report(args.input)
-    if args.format == "markdown":
+    if args.format == "junit":
+        if not isinstance(result, DriftBenchmarkReport):
+            raise ValueError("JUnit export requires a canonical engine report.")
+        xml = export_junit_report(result)
+        if args.output:
+            target = Path(args.output)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(xml, encoding="utf-8")
+        print(xml, end="")
+    elif args.format == "markdown":
         md = export_markdown_report(result, output_path=args.output, tool_checks=tool_checks)
         print(md, end="")
     elif args.format == "json":
@@ -389,6 +457,7 @@ def _add_check_tools_subparser(
 
 def _handle_check_tools(args: argparse.Namespace) -> int:
     """Execute the 'check-tools' subcommand."""
+    _protect_inputs(args.output, args.input)
     record = check_trace_file(
         args.input, resource=args.resource, required_start=args.start,
         required_end=args.end, trace_complete=args.trace_complete,

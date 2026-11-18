@@ -15,7 +15,7 @@ Offline regression checks for LLM outputs, structured responses, and model chang
 
 </div>
 
-> **Release status:** This checkout is prepared for **0.2.0**. Registry publication
+> **Release status:** This checkout develops **0.3.0** (`0.3.0.dev0`). Registry publication
 > is a separate step; the PyPI badge shows the published version.
 > Read the [migration notes](docs/migration-0.2.md) before upgrading.
 
@@ -105,7 +105,7 @@ python -m venv .venv
 & .\.venv\Scripts\python.exe -m llm_drift_bench run -b examples/baseline.jsonl -c examples/candidate-pass.jsonl -p examples/extraction-suite.json
 ```
 
-Expected: `0.2.0`, followed by a **PASSED** comparison and exit code `0`.
+Expected: `0.3.0.dev0`, followed by a **PASSED** comparison and exit code `0`.
 On Linux/macOS, replace `.\.venv\Scripts\python.exe` with `.venv/bin/python`.
 No virtual-environment activation is needed.
 
@@ -277,3 +277,39 @@ benchmark version. Reproducible examples help other users more than a score
 without its inputs.
 
 [Changelog](CHANGELOG.md) · [Migration guide](docs/migration-0.2.md) · [MIT license](LICENSE)
+
+## JUnit reports for CI (0.3.0 development)
+
+Generate JSON and JUnit XML together while viewing the comparison in your terminal:
+
+```powershell
+& .\.venv\Scripts\python.exe -m llm_drift_bench run -s examples/extraction-suite.json -b examples/baseline.jsonl -c examples/candidate-pass.jsonl -o result.json --junit-output junit.xml
+```
+
+From the repository root, try the exporter with a bundled report:
+
+```powershell
+& .\.venv\Scripts\python.exe -m llm_drift_bench report -i examples/expected-pass.json --format junit -o junit.xml
+Get-Content junit.xml
+```
+
+To generate a new result from captures and export it:
+
+```powershell
+llm-drift-bench run -b examples/baseline.jsonl -c examples/candidate-drift.jsonl -p examples/extraction-suite.json -o result.json
+$DriftExit = $LASTEXITCODE
+llm-drift-bench report -i result.json --format junit -o junit.xml
+# Preserve $DriftExit as the CI gate; rendering a saved report exits 0.
+```
+
+JUnit contains one test per prompt plus a `benchmark_gate` test. A failing
+benchmark therefore produces an extra failure in addition to any drifted prompts.
+This preserves suite-only latency failures. Model latencies are not test execution
+times, so no `time` attributes are invented. Raw captured responses are excluded;
+prompt IDs and failure reasons are included. XML-invalid characters are replaced.
+Legacy evaluator reports and `--tool-check` attachments are not supported in this
+format. `run --format junit` writes XML to stdout; its `-o` still saves JSON.
+
+In GitHub Actions, add `--github-summary` to a `run` command to append the verdict,
+drifted prompt count, mean drift and candidate conformity to the job summary.
+The usual drift exit code still applies.

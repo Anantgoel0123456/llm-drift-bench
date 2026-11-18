@@ -119,6 +119,19 @@ jobs:
       - name: Verify distribution metadata with twine
         run: twine check dist/*
 
+      - name: Exercise CI reporting from the built wheel
+        run: |
+          python -m pip install dist/*.whl
+          python -I -m llm_drift_bench run -b examples/baseline.jsonl -c examples/candidate-pass.jsonl -s examples/extraction-suite.json --github-summary --junit-output ci-reports/junit.xml
+
+      - name: Store demo JUnit report
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: success() || failure()
+        with:
+          name: drift-demo-junit
+          path: ci-reports/junit.xml
+          if-no-files-found: ignore
+
       - name: Store distributions for installed-package checks
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:

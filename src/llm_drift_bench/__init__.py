@@ -19,6 +19,7 @@ from llm_drift_bench.evaluator import (
     load_benchmark_result,
     load_test_prompts,
 )
+from llm_drift_bench.junit import export_junit_report
 from llm_drift_bench.metrics import (
     compute_composite_drift_score,
     compute_percentile,
@@ -66,7 +67,7 @@ from llm_drift_bench.validator import (
     validate_output,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.3.0.dev0"
 
 __all__ = [
     "BenchmarkResult",
@@ -99,6 +100,7 @@ __all__ = [
     "evaluate_sample_pair",
     "evaluate_suite",
     "export_html_report",
+    "export_junit_report",
     "export_markdown_report",
     "extract_json_payload",
     "flatten_json_paths",

@@ -83,3 +83,7 @@ Thumbs.db
 
 # Retired upstream source retained locally, never packaged or committed
 /src/llm_drift_bench/_vendor/
+
+# Local CLI quickstart reports
+/result.json
+/junit.xml
