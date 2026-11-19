@@ -279,14 +279,14 @@ def _load_records(
 ) -> tuple[list[dict[str, Any]], str | None]:
     """Read a JSON or JSONL file into a list of dicts and optional top-level model_name."""
     file_path = Path(path)
-    raw = read_utf8(file_path).strip()
-    if not raw:
+    raw = read_utf8(file_path)
+    if not raw.strip(" \t\r\n"):
         return [], None
 
     if file_path.suffix.lower() == ".jsonl":
         records: list[dict[str, Any]] = []
-        for idx, line in enumerate(raw.splitlines(), start=1):
-            stripped = line.strip()
+        for idx, line in enumerate(raw.split("\n"), start=1):
+            stripped = line.strip(" \t\r")
             if not stripped:
                 continue
             try:
@@ -403,7 +403,7 @@ def format_report_table(report: DriftBenchmarkReport) -> str:
         [
             "-" * 78,
             (
-                f" {'Prompt ID':<18} | {'Category':<12} | {'JSON OK':<9} | "
+                f" {'Prompt ID':<18} | {'Category':<14} | {'JSON OK':<7} | "
                 f"{'Struct Sim':<10} | {'Drift':<8} | {'State':<7}"
             ),
             "-" * 78,
@@ -418,8 +418,10 @@ def format_report_table(report: DriftBenchmarkReport) -> str:
             else "N/A"
         )
         state_str = "DRIFT" if res.drifted else "OK"
+        prompt_id = res.prompt_id if len(res.prompt_id) <= 18 else res.prompt_id[:15] + "..."
+        category = res.category if len(res.category) <= 14 else res.category[:11] + "..."
         lines.append(
-            f" {res.prompt_id[:18]:<18} | {res.category[:12]:<12} | {json_ok:<9} | "
+            f" {prompt_id:<18} | {category:<14} | {json_ok:<7} | "
             f"{struct_str:>10} | {res.composite_drift_score:>8.4f} | {state_str:<7}"
         )
 

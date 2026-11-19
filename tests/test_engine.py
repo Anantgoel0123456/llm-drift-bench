@@ -181,3 +181,15 @@ class TestEngine(unittest.TestCase):
         self.assertFalse(report.passed)
         self.assertIn("individual drift checks", report.failure_reasons[0])
         self.assertIn("FAILED", format_report_table(report))
+
+def test_jsonl_preserves_unicode_and_physical_line_numbers(tmp_path: Path) -> None:
+    path = tmp_path / "capture.jsonl"
+    row = json.dumps({"prompt_id": "p", "output": "a\u2028b"}, ensure_ascii=False)
+    path.write_bytes(("\r\n" + row + "\r\n").encode())
+    assert load_model_samples(path)[0].output == "a\u2028b"
+    with path.open("ab") as stream:
+        stream.write(b"invalid\n")
+    import pytest
+
+    with pytest.raises(ValueError, match="line 3"):
+        load_model_samples(path)
