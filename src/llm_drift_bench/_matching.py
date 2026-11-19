@@ -31,7 +31,12 @@ def require_same_ids(expected: set[str], actual: set[str], label: str) -> None:
     """Reject both missing and extra records with deterministic diagnostics."""
     missing = sorted(expected - actual)
     extra = sorted(actual - expected)
+    def preview(ids: list[str]) -> str:
+        if len(ids) <= 5:
+            return repr(ids)
+        return f"{ids[:5]!r} (+{len(ids) - 5} more)"
+
     if missing or extra:
         raise ValueError(
-            f"{label} prompt IDs do not match: missing={missing!r}, extra={extra!r}."
+            f"{label} prompt IDs do not match: missing={preview(missing)}, extra={preview(extra)}."
         )

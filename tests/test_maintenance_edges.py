@@ -41,3 +41,10 @@ def test_two_output_containers(tmp_path):
     path.write_text('{"samples":[],"outputs":[{"id":"abc","output":"x"}]}')
     with pytest.raises(ValueError, match="Ambiguous dataset containers"):
         load_model_samples(path)
+
+
+def test_large_mismatch_shows_omitted_count():
+    from llm_drift_bench._matching import require_same_ids
+
+    with pytest.raises(ValueError, match=r"\(\+95 more\)"):
+        require_same_ids({str(i) for i in range(100)}, set(), "candidate")
