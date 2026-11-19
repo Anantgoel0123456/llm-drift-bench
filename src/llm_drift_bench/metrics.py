@@ -243,6 +243,12 @@ def compute_composite_drift_score(
     candidate_schema_passed: bool = True,
 ) -> float:
     """Compute a unified drift score in [0.0, 1.0] (0.0 = identical, 1.0 = completely drifted)."""
+    for score in (token_jaccard, ngram_sim, levenshtein_sim):
+        if isinstance(score, bool) or not 0 <= score <= 1:
+            raise ValueError("Text similarity scores must be numbers between 0 and 1.")
+    for value in (json_structural_sim, json_field_match, json_num_drift):
+        if value is not None and (isinstance(value, bool) or not 0 <= value <= 1):
+            raise ValueError("JSON metric scores must be numbers between 0 and 1.")
     text_drift = (
         0.35 * (1.0 - token_jaccard)
         + 0.30 * (1.0 - ngram_sim)

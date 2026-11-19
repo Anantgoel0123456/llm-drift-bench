@@ -24,6 +24,11 @@ from llm_drift_bench.metrics import (
 class TestMetrics(unittest.TestCase):
     """Test suite for similarity, structural, and drift metric functions."""
 
+    def test_composite_rejects_invalid_components(self) -> None:
+        for invalid in (float("nan"), float("inf"), -0.1, 1.1, True):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                compute_composite_drift_score(token_jaccard=invalid, ngram_sim=1, levenshtein_sim=1)
+
     def test_tokenize_and_jaccard_similarity(self) -> None:
         self.assertEqual(tokenize_text(""), [])
         self.assertEqual(tokenize_text("Hello, World!"), ["hello", ",", "world", "!"])
