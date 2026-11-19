@@ -33,7 +33,10 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def parse_json(text: str) -> Any:
-    return json.loads(
-        text, parse_constant=reject_constant, parse_float=parse_finite_float,
-        parse_int=parse_finite_int, object_pairs_hook=_unique_object,
-    )
+    try:
+        return json.loads(
+            text, parse_constant=reject_constant, parse_float=parse_finite_float,
+            parse_int=parse_finite_int, object_pairs_hook=_unique_object,
+        )
+    except RecursionError as exc:
+        raise ValueError("JSON nesting exceeds the decoder limit.") from exc

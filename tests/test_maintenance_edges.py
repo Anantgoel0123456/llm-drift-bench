@@ -57,3 +57,14 @@ def test_evaluator_rejects_conflicting_aliases(tmp_path):
     path.write_text('[{"id":"first","prompt_id":"second","prompt":"test"}]')
     with pytest.raises(ValueError, match="Conflicting"):
         load_test_prompts(path)
+
+
+def test_decoder_recursion_error_has_input_diagnostic(monkeypatch):
+    from llm_drift_bench import _file_io
+
+    def exceeded_limit(*args, **kwargs):
+        raise RecursionError("decoder limit")
+
+    monkeypatch.setattr(_file_io.json, "loads", exceeded_limit)
+    with pytest.raises(ValueError, match="nesting"):
+        _file_io.parse_json("[]")
