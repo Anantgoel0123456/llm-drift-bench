@@ -22,6 +22,12 @@ from llm_drift_bench.models import (
 class TestModels(unittest.TestCase):
     """Test suite for PromptCase, ModelSample, ValidationIssue, and Report models."""
 
+    def test_capture_ids_do_not_coerce_or_hide_conflicts(self) -> None:
+        for model in (ModelSample, PromptCase):
+            for fields in ({"id": 1}, {"id": "   "}, {"id": "a", "prompt_id": "b"}):
+                with self.subTest(model=model, fields=fields), self.assertRaises(ValueError):
+                    model.from_dict({**fields, "output": "{}"})
+
     def test_prompt_case_from_dict_valid(self) -> None:
         data = {
             "id": "case_01",

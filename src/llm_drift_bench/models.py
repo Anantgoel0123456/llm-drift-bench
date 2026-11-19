@@ -10,6 +10,15 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
+def _record_prompt_id(data: dict[str, Any]) -> str:
+    prompt_id = data.get("prompt_id", data.get("id"))
+    if not isinstance(prompt_id, str) or not prompt_id.strip():
+        raise ValueError("Records require a non-empty string 'prompt_id' or 'id'.")
+    if "id" in data and data["id"] != prompt_id:
+        raise ValueError("Conflicting 'prompt_id' and 'id' in one record.")
+    return prompt_id
+
+
 @dataclass(frozen=True)
 class PromptCase:
     """Represents a single benchmark prompt case and optional expected JSON schema."""
@@ -23,9 +32,7 @@ class PromptCase:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PromptCase:
         """Construct a PromptCase from a dictionary payload."""
-        prompt_id = str(data.get("prompt_id") or data.get("id") or "")
-        if not prompt_id:
-            raise ValueError("PromptCase requires a non-empty 'prompt_id' or 'id'.")
+        prompt_id = _record_prompt_id(data)
         prompt = str(data.get("prompt", ""))
         schema = data.get("schema")
         if schema is not None and not isinstance(schema, dict):
@@ -77,9 +84,7 @@ class ModelSample:
     @classmethod
     def from_dict(cls, data: dict[str, Any], default_model_name: str = "unknown") -> ModelSample:
         """Construct a ModelSample from a dictionary payload."""
-        prompt_id = str(data.get("prompt_id") or data.get("id") or "")
-        if not prompt_id:
-            raise ValueError("ModelSample requires a non-empty 'prompt_id' or 'id'.")
+        prompt_id = _record_prompt_id(data)
         if "output" not in data and "response" not in data:
             raise ValueError(f"ModelSample '{prompt_id}' requires an 'output' or 'response' field.")
         output = data.get("output", data.get("response", ""))
