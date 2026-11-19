@@ -33,7 +33,9 @@ def generate_advice(findings: Sequence[Finding], model: Path, device: str) -> st
     except ImportError as exc:
         raise ValueError("Install the ai extra to enable OpenVINO GenAI.") from exc
     pipeline = sdk.LLMPipeline(str(model.resolve()), device)
-    response = pipeline.generate(build_advisor_prompt(findings), max_new_tokens=160, do_sample=False)
+    response = pipeline.generate(
+        build_advisor_prompt(findings), max_new_tokens=160, do_sample=False
+    )
     if not isinstance(response, str) or not response.strip():
         raise ValueError("The local model produced no usable advice.")
     return response.strip()
