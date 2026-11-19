@@ -48,3 +48,12 @@ def test_large_mismatch_shows_omitted_count():
 
     with pytest.raises(ValueError, match=r"\(\+95 more\)"):
         require_same_ids({str(i) for i in range(100)}, set(), "candidate")
+
+
+def test_evaluator_rejects_conflicting_aliases(tmp_path):
+    from llm_drift_bench import load_test_prompts
+
+    path = tmp_path / "suite.json"
+    path.write_text('[{"id":"first","prompt_id":"second","prompt":"test"}]')
+    with pytest.raises(ValueError, match="Conflicting"):
+        load_test_prompts(path)
