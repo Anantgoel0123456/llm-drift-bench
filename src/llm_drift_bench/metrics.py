@@ -275,6 +275,8 @@ def compute_composite_drift_score(
 
 def compute_percentile(values: list[float], percentile: float) -> float | None:
     """Compute linear-interpolated percentile (0-100) for a non-empty list of floats."""
+    percentile = finite_number(percentile)
+    values = [finite_number(value) for value in values]
     if not values:
         return None
     if percentile <= 0:
