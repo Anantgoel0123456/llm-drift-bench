@@ -26,7 +26,7 @@ def test_sdk_class_accepts_every_field_the_adapter_passes() -> None:
 
 
 def test_adapter_returns_the_real_public_score_result() -> None:
-    metadata = {"status": "PASS", "covered_characters": 5}
+    metadata = {"status": "PASS", "covered_characters": 5, "ranges": [[0, 5]]}
     score = EvidenceScore("read_before_edit", 1.0, reason="all covered",
                           category_name="tool-evidence", metadata=metadata)
     exported = score.to_opik()
@@ -37,6 +37,7 @@ def test_adapter_returns_the_real_public_score_result() -> None:
     assert exported.category_name == "tool-evidence"
     assert exported.metadata == metadata
     assert exported.metadata is not metadata
+    assert exported.metadata["ranges"] is not metadata["ranges"]
     assert exported.scoring_failed is False
 
 

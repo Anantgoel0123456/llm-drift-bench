@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from importlib import import_module
 from typing import Any
@@ -51,5 +52,5 @@ class EvidenceScore:
         return module.ScoreResult(
             name=self.name, value=self.value, reason=self.reason,
             category_name=self.category_name,
-            metadata=dict(self.metadata) if self.metadata is not None else None,
+            metadata=deepcopy(self.metadata),
         )
