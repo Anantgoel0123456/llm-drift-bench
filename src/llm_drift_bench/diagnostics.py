@@ -17,6 +17,11 @@ class Finding:
     suggestion: str
 
 
+_RULE_ADVICE = {
+    "required": "Restore the required field in the extraction prompt or output mapping.",
+}
+
+
 def diagnose_report(report: DriftBenchmarkReport) -> list[Finding]:
     """Return actionable observations without recomputing the benchmark verdict."""
     findings: list[Finding] = []
@@ -29,6 +34,12 @@ def diagnose_report(report: DriftBenchmarkReport) -> list[Finding]:
                 "invalid_json", result.prompt_id, "Baseline parsed as JSON and candidate did not.",
                 "Inspect the captured response for truncation, malformed JSON or duplicate keys.",
             ))
+            continue
+        if validation.issues:
+            for issue in validation.issues:
+                suggestion = _RULE_ADVICE.get(issue.rule, "Compare the field with the saved schema.")
+                findings.append(Finding("schema", result.prompt_id,
+                                        f"{issue.path}: {issue.rule}", suggestion))
             continue
         findings.append(Finding(
             "drift", result.prompt_id, f"Composite drift {result.composite_drift_score:.4f}",
