@@ -22,6 +22,7 @@ from llm_drift_bench.engine import (
     load_prompt_cases,
 )
 from llm_drift_bench.junit import export_junit_report
+from llm_drift_bench.local_advisor import generate_advice
 from llm_drift_bench.models import DriftBenchmarkReport, DriftThresholds
 from llm_drift_bench.report_io import load_report
 from llm_drift_bench.reporter import (
@@ -605,16 +606,30 @@ def _handle_diagnose(args: argparse.Namespace) -> int:
     displayed = findings[:args.limit]
     omitted = len(findings) - len(displayed)
     verdict = "PASSED" if report.passed else "FAILED"
+    if args.device and args.ai_model is None:
+        raise ValueError("--device requires --ai-model.")
+    advice = None
+    error = None
+    if args.ai_model is not None:
+        try:
+            advice = generate_advice(findings, args.ai_model, args.device or "CPU")
+        except (ValueError, RuntimeError, OSError) as exc:
+            error = str(exc)
     if args.format == "json":
         print(json.dumps({"verdict": verdict, "findings": [asdict(item) for item in displayed],
-                          "omitted": omitted}))
-        return 0
+                          "omitted": omitted, "ai_advice": advice, "ai_error": error}))
+        return 2 if error is not None else 0
     print(f"Benchmark {verdict}")
     for item in displayed:
         print(f"[{item.code}] {item.prompt_id or 'suite'}: {item.evidence}")
         print(f"  Try: {item.suggestion}")
     if omitted:
         print(f"{omitted} additional findings omitted.")
+    if advice:
+        print(f"Local AI suggestion: {advice}")
+    if error is not None:
+        print(f"Local AI unavailable: {error}", file=sys.stderr)
+        return 2
     return 0
 
 
@@ -636,6 +651,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
     diagnosis = subparsers.add_parser("diagnose", help="Explain a saved engine report.")
     diagnosis.add_argument("-i", "--input", required=True, help="Saved engine report JSON.")
+    diagnosis.add_argument("--ai-model", type=Path, help="Directory of a local OpenVINO model.")
+    diagnosis.add_argument("--device", choices=("CPU", "GPU", "NPU"), help="Defaults to CPU.")
     diagnosis.add_argument("--limit", type=int, help="Maximum findings to display.")
     diagnosis.add_argument("--format", choices=("text", "json"), default="text")
     _add_run_subparser(subparsers)
