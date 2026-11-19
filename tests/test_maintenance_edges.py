@@ -16,3 +16,11 @@ def test_percentile_rejects_nonfinite_input():
     for values, rank in (([float("nan")], 0), ([], float("inf"))):
         with pytest.raises(ValueError):
             compute_percentile(values, rank)
+
+
+def test_insert_inside_long_shared_context():
+    from llm_drift_bench import normalized_levenshtein_similarity
+
+    a = "a" * 5000 + "z" * 5000
+    b = "a" * 5000 + "x" + "z" * 5000
+    assert normalized_levenshtein_similarity(a, b) == 1 - 1 / len(b)

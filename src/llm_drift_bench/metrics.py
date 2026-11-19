@@ -81,6 +81,19 @@ def normalized_levenshtein_similarity(text_a: str, text_b: str) -> float:
     if not text_a or not text_b:
         return 0.0
 
+    # Equal prefixes and suffixes contribute zero edits. Normalize by the original length.
+    common = min(len(text_a), len(text_b))
+    start = 0
+    while start < common and text_a[start] == text_b[start]:
+        start += 1
+    end = 0
+    while end < common - start and text_a[-end - 1] == text_b[-end - 1]:
+        end += 1
+    text_a = text_a[start:len(text_a) - end]
+    text_b = text_b[start:len(text_b) - end]
+    if not text_a or not text_b:
+        return 1.0 - max(len(text_a), len(text_b)) / max_len
+
     # The shorter input is the pattern, keeping each bit vector small.
     if len(text_a) > len(text_b):
         text_a, text_b = text_b, text_a
