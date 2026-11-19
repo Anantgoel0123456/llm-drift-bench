@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from llm_drift_bench.diagnostics import Finding, diagnose_report
 from llm_drift_bench.engine import (
     DriftBenchmarkEngine,
     evaluate_sample_pair,
@@ -76,6 +77,8 @@ __all__ = [
     "DriftMetrics",
     "DriftThresholds",
     "EvidenceScore",
+    "Finding",
+    "diagnose_report",
     "ModelSample",
     "PromptCase",
     "SampleDriftResult",
