@@ -7,6 +7,7 @@ import json
 import os
 import sys
 from collections.abc import Sequence
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -600,6 +601,9 @@ def _handle_diagnose(args: argparse.Namespace) -> int:
         raise ValueError("Diagnosis requires a saved engine report from 'run --output'.")
     findings = diagnose_report(report)
     verdict = "PASSED" if report.passed else "FAILED"
+    if args.format == "json":
+        print(json.dumps({"verdict": verdict, "findings": [asdict(item) for item in findings]}))
+        return 0
     print(f"Benchmark {verdict}")
     for item in findings:
         print(f"[{item.code}] {item.prompt_id or 'suite'}: {item.evidence}")
@@ -625,6 +629,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
     diagnosis = subparsers.add_parser("diagnose", help="Explain a saved engine report.")
     diagnosis.add_argument("-i", "--input", required=True, help="Saved engine report JSON.")
+    diagnosis.add_argument("--format", choices=("text", "json"), default="text")
     _add_run_subparser(subparsers)
     _add_report_subparser(subparsers)
     _add_validate_subparser(subparsers)
