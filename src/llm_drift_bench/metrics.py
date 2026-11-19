@@ -286,7 +286,10 @@ def compute_percentile(values: list[float], percentile: float) -> float | None:
     floor_idx = int(k)
     ceil_idx = min(floor_idx + 1, len(sorted_vals) - 1)
     fraction = k - floor_idx
-    return sorted_vals[floor_idx] + fraction * (sorted_vals[ceil_idx] - sorted_vals[floor_idx])
+    lower, upper = sorted_vals[floor_idx], sorted_vals[ceil_idx]
+    if lower < 0 < upper:
+        return (1 - fraction) * lower + fraction * upper
+    return lower + fraction * (upper - lower)
 
 
 
