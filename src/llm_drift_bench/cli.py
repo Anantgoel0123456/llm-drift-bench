@@ -13,6 +13,7 @@ from typing import Any
 from llm_drift_bench import __version__
 from llm_drift_bench._file_io import parse_json, read_utf8
 from llm_drift_bench._matching import require_same_ids
+from llm_drift_bench.diagnostics import diagnose_report
 from llm_drift_bench.engine import (
     DriftBenchmarkEngine,
     format_report_table,
@@ -593,6 +594,19 @@ def _handle_init_sample(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_diagnose(args: argparse.Namespace) -> int:
+    report = load_report(args.input)
+    if not isinstance(report, DriftBenchmarkReport):
+        raise ValueError("Diagnosis requires a saved engine report from 'run --output'.")
+    findings = diagnose_report(report)
+    verdict = "PASSED" if report.passed else "FAILED"
+    print(f"Benchmark {verdict}")
+    for item in findings:
+        print(f"[{item.code}] {item.prompt_id or 'suite'}: {item.evidence}")
+        print(f"  Try: {item.suggestion}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build and return the top-level CLI ArgumentParser."""
     parser = argparse.ArgumentParser(
@@ -609,6 +623,8 @@ def build_parser() -> argparse.ArgumentParser:
         version=f"%(prog)s {__version__}",
     )
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
+    diagnosis = subparsers.add_parser("diagnose", help="Explain a saved engine report.")
+    diagnosis.add_argument("-i", "--input", required=True, help="Saved engine report JSON.")
     _add_run_subparser(subparsers)
     _add_report_subparser(subparsers)
     _add_validate_subparser(subparsers)
@@ -625,6 +641,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help()
         return 0
     try:
+        if args.command == "diagnose":
+            return _handle_diagnose(args)
         if args.command == "run":
             return _handle_run(args)
         if args.command == "report":
