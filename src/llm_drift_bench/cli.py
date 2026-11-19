@@ -600,14 +600,21 @@ def _handle_diagnose(args: argparse.Namespace) -> int:
     if not isinstance(report, DriftBenchmarkReport):
         raise ValueError("Diagnosis requires a saved engine report from 'run --output'.")
     findings = diagnose_report(report)
+    if args.limit is not None and args.limit < 1:
+        raise ValueError("--limit must be positive.")
+    displayed = findings[:args.limit]
+    omitted = len(findings) - len(displayed)
     verdict = "PASSED" if report.passed else "FAILED"
     if args.format == "json":
-        print(json.dumps({"verdict": verdict, "findings": [asdict(item) for item in findings]}))
+        print(json.dumps({"verdict": verdict, "findings": [asdict(item) for item in displayed],
+                          "omitted": omitted}))
         return 0
     print(f"Benchmark {verdict}")
-    for item in findings:
+    for item in displayed:
         print(f"[{item.code}] {item.prompt_id or 'suite'}: {item.evidence}")
         print(f"  Try: {item.suggestion}")
+    if omitted:
+        print(f"{omitted} additional findings omitted.")
     return 0
 
 
@@ -629,6 +636,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
     diagnosis = subparsers.add_parser("diagnose", help="Explain a saved engine report.")
     diagnosis.add_argument("-i", "--input", required=True, help="Saved engine report JSON.")
+    diagnosis.add_argument("--limit", type=int, help="Maximum findings to display.")
     diagnosis.add_argument("--format", choices=("text", "json"), default="text")
     _add_run_subparser(subparsers)
     _add_report_subparser(subparsers)
