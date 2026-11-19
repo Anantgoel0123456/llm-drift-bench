@@ -31,6 +31,8 @@ def test_discovery_uses_runtime_device_list() -> None:
 
 
 def test_missing_sdk_explains_installation(tmp_path: Path) -> None:
-    with patch("llm_drift_bench.local_advisor.importlib.import_module", side_effect=ImportError):
-        with pytest.raises(ValueError, match="ai extra"):
-            generate_advice([], tmp_path, "GPU")
+    with (
+        patch("llm_drift_bench.local_advisor.importlib.import_module", side_effect=ImportError),
+        pytest.raises(ValueError, match="ai extra"),
+    ):
+        generate_advice([], tmp_path, "GPU")

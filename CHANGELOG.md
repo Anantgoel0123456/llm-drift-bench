@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- Explain saved comparisons with `diagnose` or the Python `diagnose_report` API.
+  Output includes evidence, suggested checks and missing timing measurements.
+- Opt in to local model suggestions with the `ai` extra. Use `ai-devices` to
+  inspect OpenVINO devices before choosing CPU, GPU or NPU.
+
 - Suite files accept the `suite` wrapper across both evaluation APIs. Files with
   conflicting ID aliases or multiple dataset containers now raise an input error.
 - Exact edit distance skips shared character spans. Invalid n-gram widths and
