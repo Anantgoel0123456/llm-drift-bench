@@ -22,7 +22,7 @@ from llm_drift_bench.engine import (
     load_prompt_cases,
 )
 from llm_drift_bench.junit import export_junit_report
-from llm_drift_bench.local_advisor import generate_advice
+from llm_drift_bench.local_advisor import available_devices, generate_advice
 from llm_drift_bench.models import DriftBenchmarkReport, DriftThresholds
 from llm_drift_bench.report_io import load_report
 from llm_drift_bench.reporter import (
@@ -649,6 +649,7 @@ def build_parser() -> argparse.ArgumentParser:
         version=f"%(prog)s {__version__}",
     )
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
+    subparsers.add_parser("ai-devices", help="List devices visible to OpenVINO.")
     diagnosis = subparsers.add_parser("diagnose", help="Explain a saved engine report.")
     diagnosis.add_argument("-i", "--input", required=True, help="Saved engine report JSON.")
     diagnosis.add_argument("--ai-model", type=Path, help="Directory of a local OpenVINO model.")
@@ -671,6 +672,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help()
         return 0
     try:
+        if args.command == "ai-devices":
+            print("\n".join(available_devices()) or "No OpenVINO devices detected.")
+            return 0
         if args.command == "diagnose":
             return _handle_diagnose(args)
         if args.command == "run":

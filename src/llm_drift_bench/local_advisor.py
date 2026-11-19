@@ -37,3 +37,12 @@ def generate_advice(findings: Sequence[Finding], model: Path, device: str) -> st
     if not isinstance(response, str) or not response.strip():
         raise ValueError("The local model produced no usable advice.")
     return response.strip()
+
+
+def available_devices() -> list[str]:
+    """List device identifiers reported by the installed OpenVINO runtime."""
+    try:
+        runtime = importlib.import_module("openvino")
+    except ImportError as exc:
+        raise ValueError("Install the ai extra to list OpenVINO devices.") from exc
+    return sorted(str(name) for name in runtime.Core().available_devices)
