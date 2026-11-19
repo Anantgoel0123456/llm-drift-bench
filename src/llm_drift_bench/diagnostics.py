@@ -29,7 +29,8 @@ _RULE_ADVICE = {
 def diagnose_report(report: DriftBenchmarkReport) -> list[Finding]:
     """Return actionable observations without recomputing the benchmark verdict."""
     findings: list[Finding] = []
-    for result in report.results:
+    ordered = sorted(report.results, key=lambda row: (-row.composite_drift_score, row.prompt_id))
+    for result in ordered:
         if not result.drifted:
             continue
         validation = result.candidate_validation
