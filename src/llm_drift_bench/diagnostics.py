@@ -18,6 +18,7 @@ class Finding:
 
 
 _RULE_ADVICE = {
+    "enum": "Compare the generated label with the allowed labels and their casing.",
     "type": "Check serialization of the field against its declared JSON type.",
     "required": "Restore the required field in the extraction prompt or output mapping.",
 }
