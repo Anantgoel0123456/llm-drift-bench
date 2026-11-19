@@ -24,3 +24,11 @@ def test_insert_inside_long_shared_context():
     a = "a" * 5000 + "z" * 5000
     b = "a" * 5000 + "x" + "z" * 5000
     assert normalized_levenshtein_similarity(a, b) == 1 - 1 / len(b)
+
+
+def test_suite_wrapper(tmp_path):
+    from llm_drift_bench import load_prompt_cases
+
+    path = tmp_path / "suite.json"
+    path.write_text('{"suite":[{"id":"abc","prompt":"test"}]}')
+    assert load_prompt_cases(path)[0].prompt_id == "abc"
