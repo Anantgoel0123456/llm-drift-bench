@@ -18,6 +18,7 @@ class Finding:
 
 
 _RULE_ADVICE = {
+    "type": "Check serialization of the field against its declared JSON type.",
     "required": "Restore the required field in the extraction prompt or output mapping.",
 }
 
