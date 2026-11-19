@@ -313,3 +313,37 @@ format. `run --format junit` writes XML to stdout; its `-o` still saves JSON.
 In GitHub Actions, add `--github-summary` to a `run` command to append the verdict,
 drifted prompt count, mean drift and candidate conformity to the job summary.
 The usual drift exit code still applies.
+
+## Explain a saved comparison
+
+Run these commands from the repository root to inspect the two shipped examples.
+
+```powershell
+python -m llm_drift_bench diagnose -i examples/expected-drift.json
+python -m llm_drift_bench diagnose -i examples/expected-pass.json --format json
+```
+
+The failing example identifies the missing priority field on `ticket-01` and a
+numeric change on `invoice-01`. Each finding suggests a check you can perform.
+Missing timings also appear on a passing report. Use `--limit 5` to shorten the
+output. Diagnosis exits 0 when it renders successfully, including for a failed
+comparison. Use the benchmark run command for CI gating.
+
+### Optional local AI suggestions
+
+From a source checkout, install the AI extra in an environment supported by
+OpenVINO GenAI. Supply a compatible, already exported OpenVINO language model
+directory containing its model and tokenizer. Device availability depends on the
+model, installed runtime, hardware and drivers. Run device discovery first.
+
+```powershell
+python -m pip install ".[ai]"
+python -m llm_drift_bench ai-devices
+python -m llm_drift_bench diagnose -i examples/expected-drift.json --ai-model "D:\Models\my-openvino-model" --device NPU
+```
+
+Choose CPU (default), GPU or NPU. The GPU and NPU paths use OpenVINO-supported
+hardware. The model receives counts by finding category. Captured responses,
+prompt IDs and field values stay out of its input. Generated advice can be wrong.
+It cannot change the verdict or edit files. If inference fails, the command
+returns 2 and still shows the deterministic findings.
