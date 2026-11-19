@@ -60,7 +60,7 @@ def parse_tool_events(text: str) -> list[ToolEvent]:
     Unknown fields, duplicate keys, nonfinite numbers and non-integer offsets are
     rejected instead of ignored.
     """
-    stripped = text.strip()
+    stripped = text.strip(" \t\r\n")
     if not stripped:
         raise ValueError("Tool trace contains no events.")
     records: list[tuple[str, Any]]
@@ -69,8 +69,8 @@ def parse_tool_events(text: str) -> list[ToolEvent]:
         records = [(f"event {index + 1}", item) for index, item in enumerate(loaded)]
     else:
         records = []
-        for number, line in enumerate(text.splitlines(), start=1):
-            if line.strip():
+        for number, line in enumerate(text.split("\n"), start=1):
+            if line.strip(" \t\r"):
                 try:
                     records.append((f"line {number}", parse_json(line)))
                 except ValueError as exc:

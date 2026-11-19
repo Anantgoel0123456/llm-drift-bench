@@ -187,3 +187,8 @@ def test_every_checker_verdict_is_a_valid_saved_record(seed: int) -> None:
         trace_complete=rng.random() < 0.8,
     )
     assert ToolCheckRecord.from_dict(record.to_dict()) == record
+
+def test_jsonl_resource_can_contain_unicode_paragraph_separator() -> None:
+    resource = "guide\u2029revision"
+    text = json.dumps({"kind": "edit", "resource": resource}, ensure_ascii=False)
+    assert parse_tool_events(text)[0].resource == resource
