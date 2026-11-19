@@ -60,4 +60,7 @@ def diagnose_report(report: DriftBenchmarkReport) -> list[Finding]:
     if not report.passed:
         for reason in report.failure_reasons:
             findings.append(Finding("suite", None, reason, "Review this gate against the captures."))
+    if (report.baseline_p95_latency_ms is None or report.candidate_p95_latency_ms is None):
+        findings.append(Finding("missing_latency", None, "P95 latency comparison unavailable.",
+                                "Capture latency for every baseline and candidate response."))
     return findings
