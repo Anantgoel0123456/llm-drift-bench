@@ -574,13 +574,17 @@ def _handle_init_sample(args: argparse.Namespace) -> int:
     baseline_path = target_dir / "baseline_fp16.jsonl"
     candidate_path = target_dir / "candidate_int4.jsonl"
 
-    prompts_path.write_text(json.dumps(prompts_data, indent=2), encoding="utf-8")
-    baseline_path.write_text(
-        "\n".join(json.dumps(r) for r in baseline_rows) + "\n", encoding="utf-8"
-    )
-    candidate_path.write_text(
-        "\n".join(json.dumps(r) for r in candidate_rows) + "\n", encoding="utf-8"
-    )
+    outputs = {
+        prompts_path: json.dumps(prompts_data, indent=2),
+        baseline_path: "\n".join(json.dumps(row) for row in baseline_rows) + "\n",
+        candidate_path: "\n".join(json.dumps(row) for row in candidate_rows) + "\n",
+    }
+    for path in outputs:
+        if path.exists() or path.is_symlink():
+            raise ValueError(f"Sample file already exists: {path}. Choose a new --dir.")
+    for path, content in outputs.items():
+        with path.open("x", encoding="utf-8") as stream:
+            stream.write(content)
 
     print(f"Created sample benchmark suite in {target_dir.resolve()}:")
     print(f"  - {prompts_path.name}")

@@ -321,3 +321,10 @@ class TestCLI(unittest.TestCase):
                         self.assertIn("existing outputs file", stderr.getvalue())
                         self.assertFalse(result_path.exists())
 
+
+def test_init_sample_preserves_existing_candidate(tmp_path: Path) -> None:
+    target = tmp_path / "candidate_int4.jsonl"
+    target.write_text("user capture")
+    assert main(["init-sample", "--dir", str(tmp_path)]) == 2
+    assert target.read_text() == "user capture"
+    assert list(tmp_path.iterdir()) == [target]
