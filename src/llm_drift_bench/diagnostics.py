@@ -57,4 +57,7 @@ def diagnose_report(report: DriftBenchmarkReport) -> list[Finding]:
             "drift", result.prompt_id, f"Composite drift {result.composite_drift_score:.4f}",
             "Compare the saved baseline and candidate responses for this prompt.",
         ))
+    if not report.passed:
+        for reason in report.failure_reasons:
+            findings.append(Finding("suite", None, reason, "Review this gate against the captures."))
     return findings
