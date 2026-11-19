@@ -44,6 +44,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ai = ["openvino-genai"]
 opik = ["opik>=1.10.24,<3"]
 dev = [
     "pytest>=8.0.0",
