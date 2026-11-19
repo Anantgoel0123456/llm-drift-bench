@@ -32,3 +32,12 @@ def test_suite_wrapper(tmp_path):
     path = tmp_path / "suite.json"
     path.write_text('{"suite":[{"id":"abc","prompt":"test"}]}')
     assert load_prompt_cases(path)[0].prompt_id == "abc"
+
+
+def test_two_output_containers(tmp_path):
+    from llm_drift_bench import load_model_samples
+
+    path = tmp_path / "samples.json"
+    path.write_text('{"samples":[],"outputs":[{"id":"abc","output":"x"}]}')
+    with pytest.raises(ValueError, match="Ambiguous dataset containers"):
+        load_model_samples(path)

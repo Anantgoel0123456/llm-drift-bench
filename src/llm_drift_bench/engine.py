@@ -308,6 +308,9 @@ def _load_records(
     if isinstance(parsed, dict):
         top_model = parsed.get("model_name") or parsed.get("model")
         model_str = str(top_model) if top_model is not None else None
+        present = [key for key in container_keys if key in parsed]
+        if len(present) > 1:
+            raise ValueError(f"Ambiguous dataset containers in {file_path}: {present!r}.")
         for key in container_keys:
             if key in parsed and isinstance(parsed[key], list):
                 if any(not isinstance(item, dict) for item in parsed[key]):
