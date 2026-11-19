@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+- Suite files accept the `suite` wrapper across both evaluation APIs. Files with
+  conflicting ID aliases or multiple dataset containers now raise an input error.
+- Exact edit distance skips shared character spans. Invalid n-gram widths and
+  nonfinite percentile inputs raise a validation error.
+- Large prompt-set mismatches display the first five missing and extra IDs plus
+  omitted counts. Deeply nested input gets a JSON decoder diagnostic.
+- Opik exports copy nested metadata so SDK-side edits preserve the source score.
+
 Target: 0.3.0 (development version 0.3.0.dev0).
 
 ### Added
