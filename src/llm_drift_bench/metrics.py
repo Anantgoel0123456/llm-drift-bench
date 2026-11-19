@@ -37,8 +37,8 @@ def jaccard_similarity(text_a: str, text_b: str) -> float:
 
 def ngram_overlap_similarity(text_a: str, text_b: str, n: int = 2) -> float:
     """Compute token n-gram Dice overlap similarity in [0.0, 1.0]."""
-    if n < 1:
-        raise ValueError("n must be >= 1")
+    if isinstance(n, bool) or not isinstance(n, int) or n < 1:
+        raise ValueError("n must be a positive integer")
     if text_a == text_b:
         return 1.0
     tokens_a = tokenize_text(text_a)
