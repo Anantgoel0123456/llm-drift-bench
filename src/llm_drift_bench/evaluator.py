@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -99,10 +98,11 @@ def compute_tokens_per_sec(
     )
     if latency_ms is None or latency_ms == 0 or explicit_tokens is None:
         return None
-    throughput = (explicit_tokens / latency_ms) * 1000.0
-    if not math.isfinite(throughput):
-        raise ValueError("Computed throughput must be finite.")
-    return throughput
+    numerator, denominator = latency_ms.as_integer_ratio()
+    try:
+        return (explicit_tokens * 1000 * denominator) / numerator
+    except OverflowError as exc:
+        raise ValueError("Computed throughput must be finite.") from exc
 
 
 def _optional_delta(candidate: float | None, baseline: float | None) -> float | None:

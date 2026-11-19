@@ -23,6 +23,11 @@ from llm_drift_bench.models import ModelSample, TestPrompt
 class TestEvaluator(unittest.TestCase):
     """Test suite for evaluator helpers, evaluate_response_pair, and evaluate_suite."""
 
+    def test_throughput_handles_large_counts_before_conversion(self) -> None:
+        self.assertAlmostEqual(compute_tokens_per_sec("", 1e308, 10**309), 10000)
+        with self.assertRaisesRegex(ValueError, "finite"):
+            compute_tokens_per_sec("", 1.0, 10**400)
+
     def test_check_json_adherence_and_token_diff_math(self) -> None:
         valid_json, adheres, payload = check_json_adherence(
             '{"status": "ok"}',
