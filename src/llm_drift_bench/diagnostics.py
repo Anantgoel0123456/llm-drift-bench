@@ -45,6 +45,14 @@ def diagnose_report(report: DriftBenchmarkReport) -> list[Finding]:
                 findings.append(Finding("schema", result.prompt_id,
                                         f"{issue.path}: {issue.rule}", suggestion))
             continue
+        if (report.thresholds is not None and result.json_numeric_drift is not None
+                and result.json_numeric_drift > report.thresholds.max_numeric_relative_drift):
+            findings.append(Finding(
+                "numeric_change", result.prompt_id,
+                f"Shared numeric fields have relative drift {result.json_numeric_drift:.4f}.",
+                "Compare units, decimal placement and rounding against the source record.",
+            ))
+            continue
         findings.append(Finding(
             "drift", result.prompt_id, f"Composite drift {result.composite_drift_score:.4f}",
             "Compare the saved baseline and candidate responses for this prompt.",
