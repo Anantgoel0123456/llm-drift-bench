@@ -23,6 +23,13 @@ def diagnose_report(report: DriftBenchmarkReport) -> list[Finding]:
     for result in report.results:
         if not result.drifted:
             continue
+        validation = result.candidate_validation
+        if result.baseline_validation.is_valid_json and not validation.is_valid_json:
+            findings.append(Finding(
+                "invalid_json", result.prompt_id, "Baseline parsed as JSON and candidate did not.",
+                "Inspect the captured response for truncation, malformed JSON or duplicate keys.",
+            ))
+            continue
         findings.append(Finding(
             "drift", result.prompt_id, f"Composite drift {result.composite_drift_score:.4f}",
             "Compare the saved baseline and candidate responses for this prompt.",
