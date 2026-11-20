@@ -606,6 +606,10 @@ def _handle_init_sample(args: argparse.Namespace) -> int:
 
 def _handle_compare_reports(args: argparse.Namespace) -> int:
     reports = [load_engine_report(path) for path in args.reports]
+    return _render_comparison(reports, args)
+
+
+def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.Namespace) -> int:
     rows = compare_reports(reports)
     status = int(args.fail_on_drift and any(not row.passed for row in rows))
     if args.format == "json":
