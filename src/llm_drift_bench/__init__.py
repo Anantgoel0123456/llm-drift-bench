@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from llm_drift_bench.batch import evaluate_many
 from llm_drift_bench.comparison import CandidateSummary, compare_reports
 from llm_drift_bench.diagnostics import Finding, diagnose_report
 from llm_drift_bench.engine import (
@@ -105,6 +106,7 @@ __all__ = [
     "evaluate_response_pair",
     "evaluate_sample_pair",
     "evaluate_suite",
+    "evaluate_many",
     "export_html_report",
     "export_junit_report",
     "export_markdown_report",

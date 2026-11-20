@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from llm_drift_bench.batch import evaluate_many
+from llm_drift_bench import evaluate_many
 from llm_drift_bench.models import ModelSample
 
 BASE = [ModelSample("item", '{"price":1}', "reference")]
