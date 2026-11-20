@@ -68,6 +68,8 @@ class PromptChange:
     prompt_id: str
     category: str
     state: str
+    reference_drift: float
+    candidate_drift: float
 
 
 def prompt_changes(
@@ -87,5 +89,7 @@ def prompt_changes(
             if reference[row.prompt_id].drifted == row.drifted:
                 continue
             state = "regressed" if row.drifted else "recovered"
-            changes.append(PromptChange(name, row.prompt_id, row.category, state))
+            changes.append(PromptChange(name, row.prompt_id, row.category, state,
+                                        reference[row.prompt_id].composite_drift_score,
+                                        row.composite_drift_score))
     return changes

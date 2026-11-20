@@ -26,3 +26,9 @@ def test_direction_and_order() -> None:
 def test_unknown_reference_is_an_input_error() -> None:
     with pytest.raises(ValueError, match="Unknown reference"):
         prompt_changes(reports(), "unknown")
+
+
+def test_flips_include_both_recorded_scores() -> None:
+    row = prompt_changes(reports(), "demo-candidate-pass")[0]
+    assert row.reference_drift == 0.0
+    assert row.candidate_drift == pytest.approx(0.3791)
