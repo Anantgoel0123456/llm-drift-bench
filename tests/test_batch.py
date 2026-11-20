@@ -29,3 +29,8 @@ def test_require_multiple_captures() -> None:
 def test_rejects_ambiguous_labels(label: str) -> None:
     with pytest.raises(ValueError, match="labels"):
         evaluate_many(BASE, [("Q8", BASE), (label, BASE)])
+
+
+def test_alignment_error_names_candidate_and_prompt() -> None:
+    with pytest.raises(ValueError, match="Q4.*missing=.*item"):
+        evaluate_many(BASE, [("Q8", BASE), ("Q4", [replace(BASE[0], prompt_id="other")])])

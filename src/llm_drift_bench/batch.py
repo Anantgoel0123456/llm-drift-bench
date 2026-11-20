@@ -23,7 +23,10 @@ def evaluate_many(
         if not label.strip() or label in labels:
             raise ValueError(f"Candidate labels must be non-empty and unique: {label!r}.")
         labels.add(label)
-        report = engine.evaluate(baseline, samples, suite)
+        try:
+            report = engine.evaluate(baseline, samples, suite)
+        except ValueError as exc:
+            raise ValueError(f"Candidate {label!r}: {exc}") from exc
         reports.append(replace(report, candidate_model=label))
     if len(reports) < 2:
         raise ValueError("Provide at least two labeled candidate captures.")
