@@ -71,3 +71,9 @@ def test_distinguishes_tied_candidates_and_rejects_duplicate_labels() -> None:
 def test_comparison_preserves_candidate_conformity() -> None:
     rows = compare_reports([fixture("pass"), fixture("drift")])
     assert [row.conformity for row in rows] == [1.0, 0.5]
+
+
+def test_p95_retains_missing_and_measured_values() -> None:
+    report = replace(fixture("drift"), candidate_p95_latency_ms=12.5)
+    rows = compare_reports([fixture("pass"), report])
+    assert [row.p95_ms for row in rows] == [None, 12.5]

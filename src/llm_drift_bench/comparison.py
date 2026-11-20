@@ -18,6 +18,7 @@ class CandidateSummary:
     samples: int
     drifted: int
     mean_drift: float
+    p95_ms: float | None
     conformity: float
 
 
@@ -47,6 +48,7 @@ def compare_reports(reports: Sequence[DriftBenchmarkReport]) -> list[CandidateSu
         rows.append(CandidateSummary(
             report.candidate_model, report.passed, report.total_samples, report.drifted_samples,
             report.mean_composite_drift,
+            report.candidate_p95_latency_ms,
             report.candidate_json_conformity_rate,
         ))
     return sorted(rows, key=lambda row: (row.mean_drift, row.candidate))
