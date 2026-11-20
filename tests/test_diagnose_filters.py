@@ -32,3 +32,8 @@ def test_suite_scope_includes_gate_and_missing_measurements(capsys) -> None:
     findings = json.loads(capsys.readouterr().out)["findings"]
     assert {f["code"] for f in findings} == {"suite", "missing_latency"}
     assert all(f["prompt_id"] is None for f in findings)
+
+
+def test_no_matches_is_an_explicit_successful_query(capsys) -> None:
+    assert main([*ARGS, "--format", "text", "--prompt-id", "invoice-01", "--kind", "schema"]) == 0
+    assert "No matching findings." in capsys.readouterr().out

@@ -650,6 +650,8 @@ def _handle_diagnose(args: argparse.Namespace) -> int:
                           "omitted": omitted, "ai_advice": advice, "ai_error": error}))
         return 2 if error is not None else 0
     print(f"Benchmark {verdict}")
+    if not displayed:
+        print("No matching findings.")
     for item in displayed:
         print(f"[{item.code}] {item.prompt_id or 'suite'}: {item.evidence}")
         print(f"  Try: {item.suggestion}")
