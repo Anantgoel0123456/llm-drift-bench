@@ -14,6 +14,7 @@ from typing import Any
 from llm_drift_bench import __version__
 from llm_drift_bench._file_io import parse_json, read_utf8
 from llm_drift_bench._matching import require_same_ids
+from llm_drift_bench.comparison import compare_reports
 from llm_drift_bench.diagnostics import diagnose_report
 from llm_drift_bench.engine import (
     DriftBenchmarkEngine,
@@ -596,6 +597,19 @@ def _handle_init_sample(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_compare_reports(args: argparse.Namespace) -> int:
+    reports = [load_engine_report(path) for path in args.reports]
+    rows = compare_reports(reports)
+    print(f"Baseline {ascii(reports[0].baseline_model)}")
+    for row in rows:
+        verdict = "PASS" if row.passed else "FAIL"
+        latency = "n/a" if row.p95_ms is None else f"{row.p95_ms:.2f} ms"
+        print(f"{ascii(row.candidate)} {verdict} | drifted {row.drifted}/{row.samples} | "
+              f"mean {row.mean_drift:.4f} | max {row.max_drift:.4f} | "
+              f"JSON {row.conformity:.1%} | P95 {latency}")
+    return 0
+
+
 def _handle_diagnose(args: argparse.Namespace) -> int:
     report = load_engine_report(args.input)
     findings = diagnose_report(report)
@@ -648,6 +662,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
     subparsers.add_parser("ai-devices", help="List devices visible to OpenVINO.")
+    comparison = subparsers.add_parser("compare-reports", help="Rank saved candidate reports.")
+    comparison.add_argument("reports", nargs="+", metavar="REPORT", help="Saved engine report.")
     diagnosis = subparsers.add_parser("diagnose", help="Explain a saved engine report.")
     diagnosis.add_argument("-i", "--input", required=True, help="Saved engine report JSON.")
     diagnosis.add_argument("--ai-model", type=Path, help="Directory of a local OpenVINO model.")
@@ -673,6 +689,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "ai-devices":
             print("\n".join(available_devices()) or "No OpenVINO devices detected.")
             return 0
+        if args.command == "compare-reports":
+            return _handle_compare_reports(args)
         if args.command == "diagnose":
             return _handle_diagnose(args)
         if args.command == "run":
