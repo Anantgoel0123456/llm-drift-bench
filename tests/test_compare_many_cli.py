@@ -31,3 +31,9 @@ def test_many_uses_saved_report_json_contract(capsys) -> None:
 def test_informational_mode_preserves_failed_verdict(capsys) -> None:
     assert main([*ARGS, "--no-fail-on-drift"]) == 0
     assert "'Q4' FAIL" in capsys.readouterr().out
+
+
+def test_late_missing_capture_produces_no_partial_output(tmp_path, capsys) -> None:
+    assert main([*ARGS, "-c", "missing-run", str(tmp_path / "missing.json")]) == 2
+    output = capsys.readouterr()
+    assert not output.out and "missing-run" in output.err and "missing.json" in output.err

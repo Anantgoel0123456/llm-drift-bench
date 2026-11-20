@@ -6,7 +6,7 @@ import argparse
 import json
 import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -25,7 +25,7 @@ from llm_drift_bench.engine import (
 )
 from llm_drift_bench.junit import export_junit_report
 from llm_drift_bench.local_advisor import available_devices, generate_advice
-from llm_drift_bench.models import DriftBenchmarkReport, DriftThresholds
+from llm_drift_bench.models import DriftBenchmarkReport, DriftThresholds, ModelSample
 from llm_drift_bench.report_io import load_engine_report, load_report
 from llm_drift_bench.reporter import (
     export_html_report,
@@ -617,9 +617,18 @@ def _add_many_subparser(subparsers: argparse._SubParsersAction[argparse.Argument
     _add_threshold_options(parser)
 
 
+def _candidate_captures(pairs: Sequence[tuple[str, str]]) -> Iterator[tuple[str, list[ModelSample]]]:
+    for label, path in pairs:
+        try:
+            samples = load_model_samples(path)
+        except (ValueError, OSError) as exc:
+            raise ValueError(f"Cannot load candidate {label!r} from {path!r}: {exc}") from exc
+        yield label, samples
+
+
 def _handle_many(args: argparse.Namespace) -> int:
     baseline = load_model_samples(args.baseline)
-    candidates = ((label, load_model_samples(path)) for label, path in args.candidate)
+    candidates = _candidate_captures(args.candidate)
     suite = load_prompt_cases(args.suite) if args.suite else None
     reports = evaluate_many(baseline, candidates, suite, _thresholds(args))
     return _render_comparison(reports, args)
