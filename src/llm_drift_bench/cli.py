@@ -14,6 +14,7 @@ from typing import Any
 from llm_drift_bench import __version__
 from llm_drift_bench._file_io import parse_json, read_utf8
 from llm_drift_bench._matching import require_same_ids
+from llm_drift_bench.batch import evaluate_many
 from llm_drift_bench.comparison import compare_reports
 from llm_drift_bench.diagnostics import diagnose_report
 from llm_drift_bench.engine import (
@@ -604,6 +605,23 @@ def _handle_init_sample(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_many_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    parser = subparsers.add_parser("compare-many", help="Evaluate multiple candidate captures.")
+    parser.add_argument("-b", "--baseline", required=True, help="Common captured baseline.")
+    parser.add_argument("-c", "--candidate", nargs=2, metavar=("LABEL", "FILE"), required=True,
+                        action="append", help="Candidate label and capture path. Repeat per model.")
+    parser.set_defaults(format="text", fail_on_drift=True, suite=None)
+    _add_threshold_options(parser)
+
+
+def _handle_many(args: argparse.Namespace) -> int:
+    baseline = load_model_samples(args.baseline)
+    candidates = ((label, load_model_samples(path)) for label, path in args.candidate)
+    suite = load_prompt_cases(args.suite) if args.suite else None
+    reports = evaluate_many(baseline, candidates, suite, _thresholds(args))
+    return _render_comparison(reports, args)
+
+
 def _handle_compare_reports(args: argparse.Namespace) -> int:
     reports = [load_engine_report(path) for path in args.reports]
     return _render_comparison(reports, args)
@@ -711,6 +729,7 @@ def build_parser() -> argparse.ArgumentParser:
     diagnosis.add_argument("--prompt-id", action="append", help="Focus on a prompt (repeatable).")
     diagnosis.add_argument("--limit", type=int, help="Maximum findings to display.")
     diagnosis.add_argument("--format", choices=("text", "json"), default="text")
+    _add_many_subparser(subparsers)
     _add_run_subparser(subparsers)
     _add_report_subparser(subparsers)
     _add_validate_subparser(subparsers)
@@ -730,6 +749,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "ai-devices":
             print("\n".join(available_devices()) or "No OpenVINO devices detected.")
             return 0
+        if args.command == "compare-many":
+            return _handle_many(args)
         if args.command == "compare-reports":
             return _handle_compare_reports(args)
         if args.command == "diagnose":
