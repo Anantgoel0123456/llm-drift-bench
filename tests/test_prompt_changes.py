@@ -1,5 +1,6 @@
 """Direction and evidence for comparisons between candidate verdicts."""
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -32,3 +33,11 @@ def test_flips_include_both_recorded_scores() -> None:
     row = prompt_changes(reports(), "demo-candidate-pass")[0]
     assert row.reference_drift == 0.0
     assert row.candidate_drift == pytest.approx(0.3791)
+
+
+def test_three_candidates_omit_unchanged_verdicts() -> None:
+    drifting, passing = reports()
+    identical = replace(passing, candidate_model="same-output")
+    rows = prompt_changes([identical, passing, drifting], passing.candidate_model)
+    assert len(rows) == 2
+    assert all(row.candidate == drifting.candidate_model for row in rows)
