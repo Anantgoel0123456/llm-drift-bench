@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from llm_drift_bench._matching import index_records, require_same_ids
 from llm_drift_bench.models import DriftBenchmarkReport
 
 
@@ -24,10 +25,13 @@ def compare_reports(reports: Sequence[DriftBenchmarkReport]) -> list[CandidateSu
     if len(reports) < 2:
         raise ValueError("Provide at least two engine reports.")
     reference = reports[0]
+    expected = index_records(reference.results, "reference report")
     rows = []
     for report in reports:
         if report.baseline_model != reference.baseline_model:
             raise ValueError("The baseline model must match across reports.")
+        actual = index_records(report.results, report.candidate_model)
+        require_same_ids(set(expected), set(actual), report.candidate_model)
         rows.append(CandidateSummary(
             report.candidate_model, report.passed, report.total_samples, report.drifted_samples,
             report.mean_composite_drift,

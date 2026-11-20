@@ -29,3 +29,9 @@ def test_require_two_reports_with_common_baseline() -> None:
         compare_reports([report])
     with pytest.raises(ValueError, match="baseline"):
         compare_reports([report, replace(report, baseline_model="other")])
+
+
+def test_rejects_different_prompt_sets() -> None:
+    report = fixture("drift")
+    with pytest.raises(ValueError, match="prompt IDs"):
+        compare_reports([fixture("pass"), replace(report, results=report.results[:1])])
