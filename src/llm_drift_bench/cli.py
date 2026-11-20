@@ -606,6 +606,8 @@ def _handle_init_sample(args: argparse.Namespace) -> int:
 
 
 def _add_comparison_output_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--fail-on-regression", action="store_true",
+                        help="Exit 1 for any new prompt failure relative to --against.")
     parser.add_argument("--change-limit", type=int, help="Maximum changed prompts to display.")
     parser.add_argument("--change-category", action="append", metavar="CATEGORY",
                         help="Filter changed prompts by category (repeatable, requires --against).")
@@ -658,6 +660,11 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
     rows = compare_reports(reports)
     status = int(args.fail_on_drift and any(not row.passed for row in rows))
     changes = prompt_changes(reports, args.against) if args.against is not None else []
+    if args.fail_on_regression:
+        if args.against is None:
+            raise ValueError("--fail-on-regression requires --against.")
+        if any(change.state == "regressed" for change in changes):
+            status = 1
     if args.change_category:
         if args.against is None:
             raise ValueError("--change-category requires --against.")

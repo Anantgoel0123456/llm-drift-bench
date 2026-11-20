@@ -69,3 +69,10 @@ def test_change_limit_records_how_many_were_hidden(capsys) -> None:
     assert main([*ARGS, "--against", "Q8", "--change-limit", "1", "--format", "json"]) == 1
     data = json.loads(capsys.readouterr().out)
     assert len(data["changes"]) == 1 and data["changes_omitted"] == 1
+
+
+def test_regression_gate_ignores_display_filters() -> None:
+    flags = ["--no-fail-on-drift", "--fail-on-regression"]
+    assert main([*ARGS, *flags, "--against", "Q8", "--change-type", "recovered"]) == 1
+    assert main([*ARGS, *flags, "--against", "Q4"]) == 0
+    assert main([*ARGS, *flags]) == 2
