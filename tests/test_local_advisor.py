@@ -57,3 +57,24 @@ def test_demo_rejects_ungrounded_model_advice(tmp_path: Path, reply: str) -> Non
     assert advice.startswith("Model selection unavailable.")
     assert "required field" in advice and "decimal placement" in advice
     assert reply not in advice
+
+
+@pytest.mark.parametrize("code", ["schema", "numeric_change"])
+@pytest.mark.parametrize(
+    ("reply", "heading"),
+    [
+        ('["CODE","suite"]', "Model-selected checks:"),
+        ('["CODE","unknown"]', "Model selection unavailable. Showing report checks:"),
+        ("An unrelated recommendation.", "Model selection unavailable. Showing report checks:"),
+    ],
+)
+def test_selection_or_fallback_for_suite_first_input(
+    tmp_path: Path, code: str, reply: str, heading: str
+) -> None:
+    findings = [Finding("suite", None, "", "Check gate."), Finding(code, "id", "", "Check field.")]
+    sdk = Mock()
+    sdk.LLMPipeline.return_value.generate.return_value = reply.replace("CODE", code)
+    with patch("llm_drift_bench.local_advisor.importlib.import_module", return_value=sdk):
+        assert generate_advice(findings, tmp_path, "CPU").splitlines() == [
+            heading, "- Check field.", "- Check gate."
+        ]

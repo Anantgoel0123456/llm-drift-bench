@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
@@ -25,8 +26,24 @@ def build_advisor_prompt(findings: Sequence[Finding]) -> str:
     menu = "\n".join(f"{code}={counts[code]}: {_CHECKS[code]}" for code in counts)
     return (
         "Select up to three checks in priority order. Start with prompt-specific failures. "
-        "Reply with only the selected category names, separated by commas.\n" + menu
+        "Reply with a JSON array of category names from this menu.\n" + menu + "\nAnswer:"
     )
+
+
+def _parse_selection(response: object) -> list[str]:
+    """Accept a complete JSON string array or the original comma-separated format."""
+    if not isinstance(response, str):
+        return []
+    reply = response.strip()
+    if reply.startswith("["):
+        try:
+            items = json.loads(reply)
+        except (ValueError, RecursionError):
+            return []
+        if isinstance(items, list) and all(isinstance(item, str) for item in items):
+            return [item.strip() for item in items]
+        return []
+    return [item.strip() for item in reply.split(",")]
 
 
 def generate_advice(findings: Sequence[Finding], model: Path, device: str) -> str:
@@ -49,14 +66,14 @@ def generate_advice(findings: Sequence[Finding], model: Path, device: str) -> st
     response = pipeline.generate(
         build_advisor_prompt(findings), max_new_tokens=32, do_sample=False
     )
-    selected = [code.strip() for code in response.split(",")] if isinstance(response, str) else []
+    selected = _parse_selection(response)
     if 1 <= len(selected) <= 3 and len(set(selected)) == len(selected) and all(
         code in checks for code in selected
     ):
         label = "Model-selected checks"
     else:
         label = "Model selection unavailable. Showing report checks"
-        selected = list(checks)[:3]
+        selected = sorted(checks, key=lambda code: code in {"suite", "missing_latency"})[:3]
     return label + ":\n" + "\n".join(f"- {checks[code]}" for code in selected)
 
 
