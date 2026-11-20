@@ -76,7 +76,15 @@ def prompt_changes(
     reports: Sequence[DriftBenchmarkReport], against: str,
 ) -> list[PromptChange]:
     """Return regressions and recoveries relative to a named candidate."""
-    compare_reports(reports)
+    _, changes = compare_with_changes(reports, against)
+    return changes
+
+
+def compare_with_changes(
+    reports: Sequence[DriftBenchmarkReport], against: str,
+) -> tuple[list[CandidateSummary], list[PromptChange]]:
+    """Compute rankings and prompt transitions with a single compatibility check."""
+    ranking = compare_reports(reports)
     by_name = {report.candidate_model: report for report in reports}
     if against not in by_name:
         raise ValueError(f"Unknown reference candidate: {against!r}.")
@@ -92,4 +100,4 @@ def prompt_changes(
             changes.append(PromptChange(name, row.prompt_id, row.category, state,
                                         reference[row.prompt_id].composite_drift_score,
                                         row.composite_drift_score))
-    return changes
+    return ranking, changes

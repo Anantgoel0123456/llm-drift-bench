@@ -15,7 +15,7 @@ from llm_drift_bench import __version__
 from llm_drift_bench._file_io import parse_json, read_utf8
 from llm_drift_bench._matching import require_same_ids
 from llm_drift_bench.batch import evaluate_many
-from llm_drift_bench.comparison import compare_reports, prompt_changes
+from llm_drift_bench.comparison import compare_reports, compare_with_changes
 from llm_drift_bench.diagnostics import diagnose_report
 from llm_drift_bench.engine import (
     DriftBenchmarkEngine,
@@ -613,7 +613,7 @@ def _add_comparison_output_options(parser: argparse.ArgumentParser) -> None:
                         help="Filter changed prompts by category (repeatable, requires --against).")
     parser.add_argument("--change-type", choices=("regressed", "recovered"),
                         help="Show one direction of change (requires --against).")
-    parser.add_argument("--against", metavar="LABEL", help="Show prompt flips relative to a candidate.")
+    parser.add_argument("--against", metavar="LABEL", help="Show changes relative to a candidate.")
     parser.add_argument("--format", choices=("text", "json"), default="text")
 
 
@@ -629,7 +629,9 @@ def _add_many_subparser(subparsers: argparse._SubParsersAction[argparse.Argument
     _add_threshold_options(parser)
 
 
-def _candidate_captures(pairs: Sequence[tuple[str, str]]) -> Iterator[tuple[str, list[ModelSample]]]:
+def _candidate_captures(
+    pairs: Sequence[tuple[str, str]],
+) -> Iterator[tuple[str, list[ModelSample]]]:
     for label, path in pairs:
         try:
             samples = load_model_samples(path)
@@ -657,9 +659,12 @@ def _handle_compare_reports(args: argparse.Namespace) -> int:
 
 
 def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.Namespace) -> int:
-    rows = compare_reports(reports)
+    if args.against is None:
+        rows = compare_reports(reports)
+        changes = []
+    else:
+        rows, changes = compare_with_changes(reports, args.against)
     status = int(args.fail_on_drift and any(not row.passed for row in rows))
-    changes = prompt_changes(reports, args.against) if args.against is not None else []
     if args.fail_on_regression:
         if args.against is None:
             raise ValueError("--fail-on-regression requires --against.")

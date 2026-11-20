@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from llm_drift_bench.batch import evaluate_many
-from llm_drift_bench.comparison import CandidateSummary, PromptChange, compare_reports, prompt_changes
+from llm_drift_bench.comparison import (
+    CandidateSummary,
+    PromptChange,
+    compare_reports,
+    prompt_changes,
+)
 from llm_drift_bench.diagnostics import Finding, diagnose_report
 from llm_drift_bench.engine import (
     DriftBenchmarkEngine,
