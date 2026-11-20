@@ -35,3 +35,10 @@ def test_rejects_different_prompt_sets() -> None:
     report = fixture("drift")
     with pytest.raises(ValueError, match="prompt IDs"):
         compare_reports([fixture("pass"), replace(report, results=report.results[:1])])
+
+
+def test_rejects_changed_prompt_categories() -> None:
+    report = fixture("drift")
+    rows = tuple(replace(row, category="other") for row in report.results)
+    with pytest.raises(ValueError, match="categories"):
+        compare_reports([fixture("pass"), replace(report, results=rows)])

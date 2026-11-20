@@ -32,6 +32,8 @@ def compare_reports(reports: Sequence[DriftBenchmarkReport]) -> list[CandidateSu
             raise ValueError("The baseline model must match across reports.")
         actual = index_records(report.results, report.candidate_model)
         require_same_ids(set(expected), set(actual), report.candidate_model)
+        if any(row.category != expected[pid].category for pid, row in actual.items()):
+            raise ValueError("Prompt categories differ across reports.")
         rows.append(CandidateSummary(
             report.candidate_model, report.passed, report.total_samples, report.drifted_samples,
             report.mean_composite_drift,
