@@ -49,3 +49,9 @@ def test_against_uses_candidate_alias_for_direction(capsys) -> None:
     data = json.loads(capsys.readouterr().out)
     assert data["against"] == "Q8"
     assert {row["state"] for row in data["changes"]} == {"regressed"}
+
+
+def test_filter_direction(capsys) -> None:
+    assert main([*ARGS, "--against", "Q8", "--change-type", "recovered"]) == 1
+    assert "relative to 'Q8': 0" in capsys.readouterr().out
+    assert main([*ARGS, "--change-type", "recovered"]) == 2

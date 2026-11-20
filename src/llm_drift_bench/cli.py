@@ -606,6 +606,8 @@ def _handle_init_sample(args: argparse.Namespace) -> int:
 
 
 def _add_comparison_output_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--change-type", choices=("regressed", "recovered"),
+                        help="Show one direction of change (requires --against).")
     parser.add_argument("--against", metavar="LABEL", help="Show prompt flips relative to a candidate.")
     parser.add_argument("--format", choices=("text", "json"), default="text")
 
@@ -653,6 +655,10 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
     rows = compare_reports(reports)
     status = int(args.fail_on_drift and any(not row.passed for row in rows))
     changes = prompt_changes(reports, args.against) if args.against is not None else []
+    if args.change_type:
+        if args.against is None:
+            raise ValueError("--change-type requires --against.")
+        changes = [change for change in changes if change.state == args.change_type]
     if args.format == "json":
         payload: dict[str, Any] = {"baseline": reports[0].baseline_model,
                                    "candidates": [asdict(row) for row in rows]}
