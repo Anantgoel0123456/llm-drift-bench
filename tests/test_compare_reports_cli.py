@@ -25,3 +25,9 @@ def test_comparison_json_is_sorted_and_keeps_missing_latency(capsys) -> None:
     passing, failing = data["candidates"]
     assert passing["mean_drift"] < failing["mean_drift"]
     assert passing["p95_ms"] is None
+
+
+def test_comparison_ci_exit_codes() -> None:
+    assert main([*ARGS, "--fail-on-drift"]) == 1
+    assert main([*ARGS, "--fail-on-drift", "--format", "json"]) == 1
+    assert main(ARGS[:2]) == 2

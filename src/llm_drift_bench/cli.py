@@ -600,10 +600,11 @@ def _handle_init_sample(args: argparse.Namespace) -> int:
 def _handle_compare_reports(args: argparse.Namespace) -> int:
     reports = [load_engine_report(path) for path in args.reports]
     rows = compare_reports(reports)
+    status = int(args.fail_on_drift and any(not row.passed for row in rows))
     if args.format == "json":
         print(json.dumps({"baseline": reports[0].baseline_model,
                           "candidates": [asdict(row) for row in rows]}))
-        return 0
+        return status
     print(f"Baseline {ascii(reports[0].baseline_model)}")
     for row in rows:
         verdict = "PASS" if row.passed else "FAIL"
@@ -611,7 +612,7 @@ def _handle_compare_reports(args: argparse.Namespace) -> int:
         print(f"{ascii(row.candidate)} {verdict} | drifted {row.drifted}/{row.samples} | "
               f"mean {row.mean_drift:.4f} | max {row.max_drift:.4f} | "
               f"JSON {row.conformity:.1%} | P95 {latency}")
-    return 0
+    return status
 
 
 def _handle_diagnose(args: argparse.Namespace) -> int:
@@ -667,6 +668,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
     subparsers.add_parser("ai-devices", help="List devices visible to OpenVINO.")
     comparison = subparsers.add_parser("compare-reports", help="Rank saved candidate reports.")
+    comparison.add_argument("--fail-on-drift", action="store_true", help="Exit 1 for any failure.")
     comparison.add_argument("--format", choices=("text", "json"), default="text")
     comparison.add_argument("reports", nargs="+", metavar="REPORT", help="Saved engine report.")
     diagnosis = subparsers.add_parser("diagnose", help="Explain a saved engine report.")
