@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- Evaluate multiple candidate captures against one baseline and suite with
+  `compare-many` or `evaluate_many()`.
+- Track newly drifted and recovered prompts with `--against` or
+  `prompt_changes()`. Filter and limit details, or fail CI on new regressions.
+- Comparisons accept equivalent baseline evidence when the candidates produce
+  JSON on different subsets of an optional-schema suite.
+
 - Compare candidates from saved engine reports with `compare-reports` and
   `compare_reports()`. Rank by mean drift and inspect the worst prompt,
   candidate conformity and P95 latency. Use `--fail-on-drift` for CI.
