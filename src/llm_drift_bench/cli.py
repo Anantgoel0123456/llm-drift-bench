@@ -159,6 +159,15 @@ def _protect_inputs(output: str | None, *inputs: str | None) -> None:
                 raise ValueError(f"Choose a different --output path. {source!r} is an input file.")
 
 
+def _thresholds(args: argparse.Namespace) -> DriftThresholds:
+    return DriftThresholds(
+        max_composite_drift=args.max_drift,
+        min_json_conformity_rate=args.min_conformity,
+        max_numeric_relative_drift=args.max_numeric_drift,
+        max_latency_regression_pct=args.max_latency_regression,
+    )
+
+
 def _handle_run(args: argparse.Namespace) -> int:
     """Execute the 'run' subcommand."""
     for label, target in (("baseline", args.baseline), ("candidate", args.candidate)):
@@ -187,13 +196,7 @@ def _handle_run(args: argparse.Namespace) -> int:
     prompt_cases = load_prompt_cases(args.suite) if args.suite else None
     tool_checks = _load_tool_checks(args.tool_check, args.format)
 
-    thresholds = DriftThresholds(
-        max_composite_drift=args.max_drift,
-        min_json_conformity_rate=args.min_conformity,
-        max_numeric_relative_drift=args.max_numeric_drift,
-        max_latency_regression_pct=args.max_latency_regression,
-    )
-    engine = DriftBenchmarkEngine(thresholds=thresholds)
+    engine = DriftBenchmarkEngine(thresholds=_thresholds(args))
     report = engine.evaluate(
         baseline_samples=baseline_samples,
         candidate_samples=candidate_samples,
