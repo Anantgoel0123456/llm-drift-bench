@@ -21,6 +21,7 @@ class CandidateSummary:
     max_drift: float
     p95_ms: float | None
     conformity: float
+    worst_prompt_id: str | None
 
 
 def compare_reports(reports: Sequence[DriftBenchmarkReport]) -> list[CandidateSummary]:
@@ -46,11 +47,14 @@ def compare_reports(reports: Sequence[DriftBenchmarkReport]) -> list[CandidateSu
         if report.candidate_model in names:
             raise ValueError(f"Duplicate candidate name: {report.candidate_model!r}.")
         names.add(report.candidate_model)
+        worst = min(actual.values(), key=lambda item: (-item.composite_drift_score, item.prompt_id),
+                    default=None)
         rows.append(CandidateSummary(
             report.candidate_model, report.passed, report.total_samples, report.drifted_samples,
             report.mean_composite_drift,
             report.max_composite_drift,
             report.candidate_p95_latency_ms,
             report.candidate_json_conformity_rate,
+            worst.prompt_id if worst is not None else None,
         ))
     return sorted(rows, key=lambda row: (row.mean_drift, row.candidate))

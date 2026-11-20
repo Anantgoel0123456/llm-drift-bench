@@ -611,7 +611,8 @@ def _handle_compare_reports(args: argparse.Namespace) -> int:
         latency = "n/a" if row.p95_ms is None else f"{row.p95_ms:.2f} ms"
         print(f"{ascii(row.candidate)} {verdict} | drifted {row.drifted}/{row.samples} | "
               f"mean {row.mean_drift:.4f} | max {row.max_drift:.4f} | "
-              f"JSON {row.conformity:.1%} | P95 {latency}")
+              f"JSON {row.conformity:.1%} | P95 {latency}"
+              f" | worst prompt {ascii(row.worst_prompt_id)}")
     return status
 
 

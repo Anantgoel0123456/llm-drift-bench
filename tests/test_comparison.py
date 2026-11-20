@@ -83,3 +83,9 @@ def test_comparison_exposes_worst_case_drift() -> None:
     report = fixture("drift")
     row = compare_reports([fixture("pass"), report])[1]
     assert row.max_drift == report.max_composite_drift > row.mean_drift
+
+
+def test_worst_prompt_uses_prompt_id_to_break_ties() -> None:
+    passing, failing = compare_reports([fixture("pass"), fixture("drift")])
+    assert passing.worst_prompt_id == "invoice-01"
+    assert failing.worst_prompt_id == "ticket-01"
