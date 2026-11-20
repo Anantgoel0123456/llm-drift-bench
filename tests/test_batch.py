@@ -1,0 +1,25 @@
+"""Multi-candidate evaluation and prompt-level verdict changes."""
+
+from dataclasses import replace
+
+import pytest
+
+from llm_drift_bench.batch import evaluate_many
+from llm_drift_bench.models import ModelSample
+
+BASE = [ModelSample("item", '{"price":1}', "reference")]
+CHANGED = [replace(BASE[0], output='{"price":8}')]
+
+
+def test_batch_reuses_single_run_scoring_with_labels() -> None:
+    from llm_drift_bench import DriftBenchmarkEngine
+
+    reports = evaluate_many(BASE, [("Q8", BASE), ("Q4", CHANGED)])
+    assert reports[0].passed
+    expected = DriftBenchmarkEngine().evaluate(BASE, CHANGED)
+    assert reports[1] == replace(expected, candidate_model="Q4")
+
+
+def test_require_multiple_captures() -> None:
+    with pytest.raises(ValueError, match="two"):
+        evaluate_many(BASE, [("Q8", BASE)])
