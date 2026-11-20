@@ -659,11 +659,11 @@ def _handle_compare_reports(args: argparse.Namespace) -> int:
 
 
 def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.Namespace) -> int:
-    if args.against is None:
+    if args.against is not None:
+        rows, changes = compare_with_changes(reports, args.against)
+    else:
         rows = compare_reports(reports)
         changes = []
-    else:
-        rows, changes = compare_with_changes(reports, args.against)
     status = int(args.fail_on_drift and any(not row.passed for row in rows))
     if args.fail_on_regression:
         if args.against is None:
