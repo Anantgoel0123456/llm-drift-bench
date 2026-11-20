@@ -77,3 +77,9 @@ def test_p95_retains_missing_and_measured_values() -> None:
     report = replace(fixture("drift"), candidate_p95_latency_ms=12.5)
     rows = compare_reports([fixture("pass"), report])
     assert [row.p95_ms for row in rows] == [None, 12.5]
+
+
+def test_comparison_exposes_worst_case_drift() -> None:
+    report = fixture("drift")
+    row = compare_reports([fixture("pass"), report])[1]
+    assert row.max_drift == report.max_composite_drift > row.mean_drift
