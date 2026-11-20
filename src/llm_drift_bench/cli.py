@@ -618,6 +618,12 @@ def _handle_compare_reports(args: argparse.Namespace) -> int:
 def _handle_diagnose(args: argparse.Namespace) -> int:
     report = load_engine_report(args.input)
     findings = diagnose_report(report)
+    if args.prompt_id:
+        requested = set(args.prompt_id)
+        unknown = requested.difference(row.prompt_id for row in report.results)
+        if unknown:
+            raise ValueError(f"Unknown prompt IDs: {sorted(unknown)!r}.")
+        findings = [item for item in findings if item.prompt_id in requested]
     if args.limit is not None and args.limit < 1:
         raise ValueError("--limit must be positive.")
     displayed = findings[:args.limit]
@@ -675,6 +681,7 @@ def build_parser() -> argparse.ArgumentParser:
     diagnosis.add_argument("-i", "--input", required=True, help="Saved engine report JSON.")
     diagnosis.add_argument("--ai-model", type=Path, help="Directory of a local OpenVINO model.")
     diagnosis.add_argument("--device", choices=("CPU", "GPU", "NPU"), help="Defaults to CPU.")
+    diagnosis.add_argument("--prompt-id", action="append", help="Focus on a prompt (repeatable).")
     diagnosis.add_argument("--limit", type=int, help="Maximum findings to display.")
     diagnosis.add_argument("--format", choices=("text", "json"), default="text")
     _add_run_subparser(subparsers)
