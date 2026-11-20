@@ -606,6 +606,8 @@ def _handle_init_sample(args: argparse.Namespace) -> int:
 
 
 def _add_comparison_output_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--change-category", action="append", metavar="CATEGORY",
+                        help="Filter changed prompts by category (repeatable, requires --against).")
     parser.add_argument("--change-type", choices=("regressed", "recovered"),
                         help="Show one direction of change (requires --against).")
     parser.add_argument("--against", metavar="LABEL", help="Show prompt flips relative to a candidate.")
@@ -655,6 +657,11 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
     rows = compare_reports(reports)
     status = int(args.fail_on_drift and any(not row.passed for row in rows))
     changes = prompt_changes(reports, args.against) if args.against is not None else []
+    if args.change_category:
+        if args.against is None:
+            raise ValueError("--change-category requires --against.")
+        categories = set(args.change_category)
+        changes = [change for change in changes if change.category in categories]
     if args.change_type:
         if args.against is None:
             raise ValueError("--change-type requires --against.")

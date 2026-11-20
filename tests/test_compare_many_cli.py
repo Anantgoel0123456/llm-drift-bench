@@ -55,3 +55,11 @@ def test_filter_direction(capsys) -> None:
     assert main([*ARGS, "--against", "Q8", "--change-type", "recovered"]) == 1
     assert "relative to 'Q8': 0" in capsys.readouterr().out
     assert main([*ARGS, "--change-type", "recovered"]) == 2
+
+
+def test_category_filter_preserves_candidate_verdict(capsys) -> None:
+    assert main([*ARGS, "-s", str(EXAMPLES / "extraction-suite.json"), "--against", "Q8",
+                 "--change-category", "classification", "--format", "json"]) == 1
+    data = json.loads(capsys.readouterr().out)
+    assert [item["prompt_id"] for item in data["changes"]] == ["ticket-01"]
+    assert len(data["candidates"]) == 2
