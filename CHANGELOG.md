@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- Compare candidates from saved engine reports with `compare-reports` and
+  `compare_reports()`. Rank by mean drift and inspect the worst prompt,
+  candidate conformity and P95 latency. Use `--fail-on-drift` for CI.
+- Filter diagnosis with repeatable `--prompt-id` and `--kind` options or
+  select suite or prompt observations with `--scope`.
+
 - Explain saved comparisons with `diagnose` or the Python `diagnose_report` API.
   Output includes evidence, suggested checks and missing timing measurements.
 - Opt in to local model suggestions with the `ai` extra. Use `ai-devices` to
