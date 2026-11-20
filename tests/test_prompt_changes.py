@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from llm_drift_bench.comparison import prompt_changes
+from llm_drift_bench import prompt_changes
 from llm_drift_bench.report_io import load_engine_report
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
