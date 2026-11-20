@@ -42,3 +42,14 @@ def test_mixed_model_names_are_reported_on_either_side() -> None:
         evaluate_many(mixed, [])
     with pytest.raises(ValueError, match="Q4.*multiple"):
         evaluate_many(BASE, [("Q8", BASE), ("Q4", mixed)])
+
+
+def test_custom_thresholds_apply_to_all_candidates() -> None:
+    from llm_drift_bench import DriftBenchmarkEngine, DriftThresholds
+
+    thresholds = DriftThresholds(max_composite_drift=1.0, max_numeric_relative_drift=1.0)
+    samples = [("first", CHANGED), ("second", BASE)]
+    reports = evaluate_many(BASE, iter(samples), thresholds=thresholds)
+    for report, (label, candidate) in zip(reports, samples, strict=True):
+        expected = DriftBenchmarkEngine(thresholds).evaluate(BASE, candidate)
+        assert report == replace(expected, candidate_model=label)
