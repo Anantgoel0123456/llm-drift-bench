@@ -600,6 +600,10 @@ def _handle_init_sample(args: argparse.Namespace) -> int:
 def _handle_compare_reports(args: argparse.Namespace) -> int:
     reports = [load_engine_report(path) for path in args.reports]
     rows = compare_reports(reports)
+    if args.format == "json":
+        print(json.dumps({"baseline": reports[0].baseline_model,
+                          "candidates": [asdict(row) for row in rows]}))
+        return 0
     print(f"Baseline {ascii(reports[0].baseline_model)}")
     for row in rows:
         verdict = "PASS" if row.passed else "FAIL"
@@ -663,6 +667,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
     subparsers.add_parser("ai-devices", help="List devices visible to OpenVINO.")
     comparison = subparsers.add_parser("compare-reports", help="Rank saved candidate reports.")
+    comparison.add_argument("--format", choices=("text", "json"), default="text")
     comparison.add_argument("reports", nargs="+", metavar="REPORT", help="Saved engine report.")
     diagnosis = subparsers.add_parser("diagnose", help="Explain a saved engine report.")
     diagnosis.add_argument("-i", "--input", required=True, help="Saved engine report JSON.")
