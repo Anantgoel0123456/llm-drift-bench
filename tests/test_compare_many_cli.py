@@ -14,3 +14,8 @@ def test_named_candidates_rank_from_captures(capsys) -> None:
     assert main(ARGS) == 1
     text = capsys.readouterr().out
     assert text.index("'Q8' PASS") < text.index("'Q4' FAIL")
+
+
+def test_many_checks_candidate_schema_with_one_suite(capsys) -> None:
+    assert main([*ARGS, "-s", str(EXAMPLES / "extraction-suite.json")]) == 1
+    assert "JSON 50.0%" in capsys.readouterr().out
