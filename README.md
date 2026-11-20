@@ -347,6 +347,18 @@ Missing timings also appear on a passing report. Use `--limit 5` to shorten the
 output. Diagnosis exits 0 when it renders successfully, including for a failed
 comparison. Use the benchmark run command for CI gating.
 
+For a single prompt or a class of observations:
+
+```powershell
+python -m llm_drift_bench diagnose -i examples/expected-drift.json --prompt-id invoice-01
+python -m llm_drift_bench diagnose -i examples/expected-drift.json --scope suite --kind missing_latency --format json
+```
+
+Repeat `--prompt-id` or `--kind` to include several values. Different filters
+intersect. The advisor receives the matching findings before the display limit.
+JSON output includes the matching count and the number omitted by the limit.
+The verdict always describes the complete benchmark.
+
 ### Optional local AI suggestions
 
 From a source checkout, install the AI extra in an environment supported by
