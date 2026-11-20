@@ -63,3 +63,9 @@ def test_category_filter_preserves_candidate_verdict(capsys) -> None:
     data = json.loads(capsys.readouterr().out)
     assert [item["prompt_id"] for item in data["changes"]] == ["ticket-01"]
     assert len(data["candidates"]) == 2
+
+
+def test_change_limit_records_how_many_were_hidden(capsys) -> None:
+    assert main([*ARGS, "--against", "Q8", "--change-limit", "1", "--format", "json"]) == 1
+    data = json.loads(capsys.readouterr().out)
+    assert len(data["changes"]) == 1 and data["changes_omitted"] == 1

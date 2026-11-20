@@ -606,6 +606,7 @@ def _handle_init_sample(args: argparse.Namespace) -> int:
 
 
 def _add_comparison_output_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--change-limit", type=int, help="Maximum changed prompts to display.")
     parser.add_argument("--change-category", action="append", metavar="CATEGORY",
                         help="Filter changed prompts by category (repeatable, requires --against).")
     parser.add_argument("--change-type", choices=("regressed", "recovered"),
@@ -666,11 +667,17 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
         if args.against is None:
             raise ValueError("--change-type requires --against.")
         changes = [change for change in changes if change.state == args.change_type]
+    matched = len(changes)
+    if args.change_limit is not None:
+        if args.against is None or args.change_limit < 1:
+            raise ValueError("--change-limit requires --against and a positive integer.")
+        changes = changes[:args.change_limit]
     if args.format == "json":
         payload: dict[str, Any] = {"baseline": reports[0].baseline_model,
                                    "candidates": [asdict(row) for row in rows]}
         if args.against is not None:
-            payload.update(against=args.against, changes=[asdict(change) for change in changes])
+            payload.update(against=args.against, changes=[asdict(change) for change in changes],
+                           changes_matched=matched, changes_omitted=matched - len(changes))
         print(json.dumps(payload))
         return status
     print(f"Baseline {ascii(reports[0].baseline_model)}")
@@ -682,10 +689,12 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
               f"JSON {row.conformity:.1%} | P95 {latency}"
               f" | worst prompt {ascii(row.worst_prompt_id)}")
     if args.against is not None:
-        print(f"Prompt changes relative to {ascii(args.against)}: {len(changes)}")
+        print(f"Prompt changes relative to {ascii(args.against)}: {matched}")
         for change in changes:
             print(f"{ascii(change.candidate)} {ascii(change.prompt_id)} {change.state} "
                   f"({change.reference_drift:.4f} -> {change.candidate_drift:.4f})")
+        if matched > len(changes):
+            print(f"{matched - len(changes)} additional changes omitted.")
     return status
 
 
