@@ -24,7 +24,7 @@ from llm_drift_bench.engine import (
 from llm_drift_bench.junit import export_junit_report
 from llm_drift_bench.local_advisor import available_devices, generate_advice
 from llm_drift_bench.models import DriftBenchmarkReport, DriftThresholds
-from llm_drift_bench.report_io import load_report
+from llm_drift_bench.report_io import load_engine_report, load_report
 from llm_drift_bench.reporter import (
     export_html_report,
     export_markdown_report,
@@ -597,9 +597,7 @@ def _handle_init_sample(args: argparse.Namespace) -> int:
 
 
 def _handle_diagnose(args: argparse.Namespace) -> int:
-    report = load_report(args.input)
-    if not isinstance(report, DriftBenchmarkReport):
-        raise ValueError("Diagnosis requires a saved engine report from 'run --output'.")
+    report = load_engine_report(args.input)
     findings = diagnose_report(report)
     if args.limit is not None and args.limit < 1:
         raise ValueError("--limit must be positive.")

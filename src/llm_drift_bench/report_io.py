@@ -325,3 +325,11 @@ def load_report(path: str | Path) -> DriftBenchmarkReport | BenchmarkResult:
     report = adapter.validate_json(text, strict=True)
     _validate_engine_report(report, raw)
     return report
+
+
+def load_engine_report(path: str | Path) -> DriftBenchmarkReport:
+    """Require a validated engine report for commands using per-prompt drift."""
+    report = load_report(path)
+    if not isinstance(report, DriftBenchmarkReport):
+        raise ValueError(f"{path}: expected a saved engine report from 'run --output'.")
+    return report
