@@ -61,6 +61,33 @@ def _load_tool_checks(paths: Sequence[str], output_format: str) -> list[ToolChec
     return [load_tool_check(path) for path in paths]
 
 
+def _add_threshold_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--max-drift",
+        type=float,
+        default=0.25,
+        help="Maximum allowed composite drift score (default: 0.25).",
+    )
+    parser.add_argument(
+        "--min-conformity",
+        type=float,
+        default=0.95,
+        help="Minimum required candidate JSON schema conformity rate (default: 0.95).",
+    )
+    parser.add_argument(
+        "--max-numeric-drift",
+        type=float,
+        default=0.15,
+        help="Maximum allowed relative drift on numeric JSON fields (default: 0.15).",
+    )
+    parser.add_argument(
+        "--max-latency-regression",
+        type=float,
+        default=50.0,
+        help="Maximum allowed P95 latency regression percentage (default: 50.0).",
+    )
+
+
 def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Register the 'run' subcommand and its CLI flags."""
     run_parser = subparsers.add_parser(
@@ -88,30 +115,7 @@ def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         required=True,
         help="Path to captured candidate outputs (.json/.jsonl).",
     )
-    run_parser.add_argument(
-        "--max-drift",
-        type=float,
-        default=0.25,
-        help="Maximum allowed composite drift score (default: 0.25).",
-    )
-    run_parser.add_argument(
-        "--min-conformity",
-        type=float,
-        default=0.95,
-        help="Minimum required candidate JSON schema conformity rate (default: 0.95).",
-    )
-    run_parser.add_argument(
-        "--max-numeric-drift",
-        type=float,
-        default=0.15,
-        help="Maximum allowed relative drift on numeric JSON fields (default: 0.15).",
-    )
-    run_parser.add_argument(
-        "--max-latency-regression",
-        type=float,
-        default=50.0,
-        help="Maximum allowed P95 latency regression percentage (default: 50.0).",
-    )
+    _add_threshold_options(run_parser)
     run_parser.add_argument(
         "-o",
         "--output",
