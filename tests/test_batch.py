@@ -34,3 +34,11 @@ def test_rejects_ambiguous_labels(label: str) -> None:
 def test_alignment_error_names_candidate_and_prompt() -> None:
     with pytest.raises(ValueError, match="Q4.*missing=.*item"):
         evaluate_many(BASE, [("Q8", BASE), ("Q4", [replace(BASE[0], prompt_id="other")])])
+
+
+def test_mixed_model_names_are_reported_on_either_side() -> None:
+    mixed = [*BASE, replace(BASE[0], prompt_id="next", model_name="alien")]
+    with pytest.raises(ValueError, match="Baseline.*multiple"):
+        evaluate_many(mixed, [])
+    with pytest.raises(ValueError, match="Q4.*multiple"):
+        evaluate_many(BASE, [("Q8", BASE), ("Q4", mixed)])

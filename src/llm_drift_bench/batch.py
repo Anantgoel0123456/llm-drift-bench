@@ -16,6 +16,8 @@ def evaluate_many(
     thresholds: DriftThresholds | None = None,
 ) -> list[DriftBenchmarkReport]:
     """Evaluate each capture once, preserving its caller-supplied comparison label."""
+    if len({sample.model_name for sample in baseline}) > 1:
+        raise ValueError("Baseline capture contains multiple model names.")
     engine = DriftBenchmarkEngine(thresholds)
     labels: set[str] = set()
     reports = []
@@ -23,6 +25,8 @@ def evaluate_many(
         if not label.strip() or label in labels:
             raise ValueError(f"Candidate labels must be non-empty and unique: {label!r}.")
         labels.add(label)
+        if len({sample.model_name for sample in samples}) > 1:
+            raise ValueError(f"Candidate {label!r} contains multiple model names.")
         try:
             report = engine.evaluate(baseline, samples, suite)
         except ValueError as exc:
