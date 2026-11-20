@@ -36,6 +36,9 @@ def compare_reports(reports: Sequence[DriftBenchmarkReport]) -> list[CandidateSu
             raise ValueError("Prompt categories differ across reports.")
         if report.thresholds is None or report.thresholds != reference.thresholds:
             raise ValueError("Reports must record identical drift thresholds.")
+        if any(row.baseline_validation != expected[pid].baseline_validation
+               for pid, row in actual.items()):
+            raise ValueError("Baseline validation differs for a shared prompt.")
         rows.append(CandidateSummary(
             report.candidate_model, report.passed, report.total_samples, report.drifted_samples,
             report.mean_composite_drift,

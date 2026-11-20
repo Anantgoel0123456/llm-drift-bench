@@ -50,3 +50,11 @@ def test_rejects_unknown_and_different_gates() -> None:
     for gate in (None, replace(report.thresholds, max_composite_drift=0.9)):
         with pytest.raises(ValueError, match="thresholds"):
             compare_reports([fixture("pass"), replace(report, thresholds=gate)])
+
+
+def test_detects_changed_baseline_evidence() -> None:
+    report = fixture("drift")
+    rows = tuple(replace(row, baseline_validation=row.candidate_validation)
+                 for row in report.results)
+    with pytest.raises(ValueError, match="Baseline validation"):
+        compare_reports([fixture("pass"), replace(report, results=rows)])
