@@ -314,6 +314,24 @@ In GitHub Actions, add `--github-summary` to a `run` command to append the verdi
 drifted prompt count, mean drift and candidate conformity to the job summary.
 The usual drift exit code still applies.
 
+## Compare saved candidate reports
+
+Use one saved engine report per model or quantization. The command ranks candidates
+by increasing mean composite drift, breaking ties by candidate name. Each row also
+shows the recorded verdict, conformity, P95 latency and the highest-drift prompt.
+
+```powershell
+python -m llm_drift_bench compare-reports examples/expected-pass.json examples/expected-drift.json
+python -m llm_drift_bench compare-reports examples/expected-pass.json examples/expected-drift.json --format json --fail-on-drift
+```
+
+The first command exits 0 after rendering. The second exits 1 because a candidate
+failed its gates. Invalid inputs exit 2. Supply distinct candidate names, matching
+baseline names, known and identical thresholds, and the same prompt IDs, categories
+and baseline validation evidence. Use the same baseline capture and suite for every
+run. Saved reports do not include the original response or schema content needed
+to verify byte-for-byte identity. Agreement with a baseline does not measure accuracy.
+
 ## Explain a saved comparison
 
 Run these commands from the repository root to inspect the two shipped examples.
