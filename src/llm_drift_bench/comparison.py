@@ -58,3 +58,34 @@ def compare_reports(reports: Sequence[DriftBenchmarkReport]) -> list[CandidateSu
             worst.prompt_id if worst is not None else None,
         ))
     return sorted(rows, key=lambda row: (row.mean_drift, row.candidate))
+
+
+@dataclass(frozen=True)
+class PromptChange:
+    """A prompt whose individual drift verdict flipped between two candidates."""
+
+    candidate: str
+    prompt_id: str
+    category: str
+    state: str
+
+
+def prompt_changes(
+    reports: Sequence[DriftBenchmarkReport], against: str,
+) -> list[PromptChange]:
+    """Return regressions and recoveries relative to a named candidate."""
+    compare_reports(reports)
+    by_name = {report.candidate_model: report for report in reports}
+    if against not in by_name:
+        raise ValueError(f"Unknown reference candidate: {against!r}.")
+    reference = index_records(by_name[against].results, against)
+    changes = []
+    for name, report in sorted(by_name.items()):
+        if name == against:
+            continue
+        for row in sorted(report.results, key=lambda item: item.prompt_id):
+            if reference[row.prompt_id].drifted == row.drifted:
+                continue
+            state = "regressed" if row.drifted else "recovered"
+            changes.append(PromptChange(name, row.prompt_id, row.category, state))
+    return changes
