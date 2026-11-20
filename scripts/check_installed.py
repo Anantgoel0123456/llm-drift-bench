@@ -90,6 +90,17 @@ else:
         passing, failing = json.loads(comparison.stdout)["candidates"]
         assert passing["passed"] and not failing["passed"]
         assert failing["worst_prompt_id"] == "ticket-01"
+        batch = subprocess.run(
+            [str(cli), "compare-many", "-b", str(examples / "baseline.jsonl"),
+             "-s", str(examples / "extraction-suite.json"),
+             "-c", "pass", str(examples / "candidate-pass.jsonl"),
+             "-c", "drift", str(examples / "candidate-drift.jsonl"),
+             "--against", "pass", "--format", "json", "--no-fail-on-drift"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        changes = json.loads(batch.stdout)["changes"]
+        assert [item["prompt_id"] for item in changes] == ["invoice-01", "ticket-01"]
+        assert all(item["state"] == "regressed" for item in changes)
         # The installed CLI must map PASS, FAIL and UNKNOWN to distinct exit codes.
         trace = root / "trace.jsonl"
         trace.write_text(
