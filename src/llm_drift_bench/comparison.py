@@ -34,6 +34,8 @@ def compare_reports(reports: Sequence[DriftBenchmarkReport]) -> list[CandidateSu
         require_same_ids(set(expected), set(actual), report.candidate_model)
         if any(row.category != expected[pid].category for pid, row in actual.items()):
             raise ValueError("Prompt categories differ across reports.")
+        if report.thresholds is None or report.thresholds != reference.thresholds:
+            raise ValueError("Reports must record identical drift thresholds.")
         rows.append(CandidateSummary(
             report.candidate_model, report.passed, report.total_samples, report.drifted_samples,
             report.mean_composite_drift,

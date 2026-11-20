@@ -42,3 +42,11 @@ def test_rejects_changed_prompt_categories() -> None:
     rows = tuple(replace(row, category="other") for row in report.results)
     with pytest.raises(ValueError, match="categories"):
         compare_reports([fixture("pass"), replace(report, results=rows)])
+
+
+def test_rejects_unknown_and_different_gates() -> None:
+    report = fixture("drift")
+    assert report.thresholds is not None
+    for gate in (None, replace(report.thresholds, max_composite_drift=0.9)):
+        with pytest.raises(ValueError, match="thresholds"):
+            compare_reports([fixture("pass"), replace(report, thresholds=gate)])
