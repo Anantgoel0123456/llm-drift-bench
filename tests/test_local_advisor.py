@@ -16,12 +16,15 @@ def test_local_inference_routes_only_summarized_findings(tmp_path: Path, device:
     pipeline.generate.return_value = " numeric_change "
     finding = Finding("numeric_change", "secret-id", "secret-fields", "secret-suggestion")
     with patch("llm_drift_bench.local_advisor.importlib.import_module", return_value=sdk):
-        assert generate_advice([finding], tmp_path, device) == (
+        assert generate_advice([finding, Finding("schema", None, "", "")], tmp_path, device) == (
             "Model-selected checks:\n- secret-suggestion"
         )
     sdk.LLMPipeline.assert_called_once_with(str(tmp_path.resolve()), device)
     args, kwargs = pipeline.generate.call_args
     assert "numeric_change=1" in args[0] and "secret" not in args[0]
+    if device == "CPU":
+        sdk.StructuredOutputConfig.assert_called_once_with(regex="(numeric_change|schema)")
+        assert kwargs.pop("structured_output_config") is sdk.StructuredOutputConfig.return_value
     assert kwargs == {"max_new_tokens": 32, "do_sample": False}
 
 
@@ -37,7 +40,9 @@ def test_missing_sdk_explains_installation(tmp_path: Path) -> None:
         patch("llm_drift_bench.local_advisor.importlib.import_module", side_effect=ImportError),
         pytest.raises(ValueError, match="ai extra"),
     ):
-        generate_advice([Finding("schema", None, "", "Check the schema.")], tmp_path, "GPU")
+        generate_advice(
+            [Finding("schema", None, "", ""), Finding("drift", None, "", "")], tmp_path, "GPU"
+        )
 
 
 @pytest.mark.parametrize(
@@ -59,11 +64,21 @@ def test_demo_rejects_ungrounded_model_advice(tmp_path: Path, reply: str) -> Non
     assert reply not in advice
 
 
+@pytest.mark.parametrize("code", ["schema", "numeric_change", "missing_latency"])
+def test_kaggle_cases_have_one_actionable_choice(tmp_path: Path, code: str) -> None:
+    findings = [Finding(code, None, "", "Check this.")]
+    if code != "missing_latency":
+        findings.insert(0, Finding("suite", None, "", "Check gate."))
+    with patch("llm_drift_bench.local_advisor.importlib.import_module") as load:
+        assert generate_advice(findings, tmp_path, "CPU") == "Report-selected check:\n- Check this."
+    load.assert_not_called()
+
+
 @pytest.mark.parametrize("code", ["schema", "numeric_change"])
 @pytest.mark.parametrize(
     ("reply", "heading"),
     [
-        ('["CODE","suite"]', "Model-selected checks:"),
+        ('["CODE","drift"]', "Model-selected checks:"),
         ('["CODE","unknown"]', "Model selection unavailable. Showing report checks:"),
         ("An unrelated recommendation.", "Model selection unavailable. Showing report checks:"),
     ],
@@ -72,9 +87,11 @@ def test_selection_or_fallback_for_suite_first_input(
     tmp_path: Path, code: str, reply: str, heading: str
 ) -> None:
     findings = [Finding("suite", None, "", "Check gate."), Finding(code, "id", "", "Check field.")]
+    findings.append(Finding("drift", "second", "", "Compare responses."))
     sdk = Mock()
     sdk.LLMPipeline.return_value.generate.return_value = reply.replace("CODE", code)
     with patch("llm_drift_bench.local_advisor.importlib.import_module", return_value=sdk):
-        assert generate_advice(findings, tmp_path, "CPU").splitlines() == [
-            heading, "- Check field.", "- Check gate."
-        ]
+        expected = [heading, "- Check field.", "- Compare responses."]
+        if heading.startswith("Model selection unavailable"):
+            expected.append("- Check gate.")
+        assert generate_advice(findings, tmp_path, "GPU").splitlines() == expected

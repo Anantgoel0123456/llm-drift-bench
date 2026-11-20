@@ -20,10 +20,12 @@ _CHECKS = {
 }
 
 
-def build_advisor_prompt(findings: Sequence[Finding]) -> str:
+def build_advisor_prompt(findings: Sequence[Finding], *, single: bool = False) -> str:
     """Supply a closed menu without sending prompt IDs, field values or free text."""
     counts = Counter(item.code for item in findings if item.code in _CHECKS)
     menu = "\n".join(f"{code}={counts[code]}: {_CHECKS[code]}" for code in counts)
+    if single:
+        return "Choose one category for the most useful next check.\n" + menu + "\nAnswer:"
     return (
         "Select up to three checks in priority order. Start with prompt-specific failures. "
         "Reply with a JSON array of category names from this menu.\n" + menu + "\nAnswer:"
@@ -58,17 +60,33 @@ def generate_advice(findings: Sequence[Finding], model: Path, device: str) -> st
             checks.setdefault(item.code, item.suggestion)
     if not checks:
         return "No diagnostic checks to prioritize."
+    specific = {code for code in checks if code not in {"suite", "missing_latency"}}
+    eligible = [code for code in checks if not specific or code in specific]
+    if len(eligible) == 1:
+        return "Report-selected check:\n- " + checks[eligible[0]]
     try:
         sdk = importlib.import_module("openvino_genai")
     except ImportError as exc:
         raise ValueError("Install the ai extra to enable OpenVINO GenAI.") from exc
     pipeline = sdk.LLMPipeline(str(model.resolve()), device)
-    response = pipeline.generate(
-        build_advisor_prompt(findings), max_new_tokens=32, do_sample=False
-    )
+    candidates = [item for item in findings if item.code in eligible]
+    if device == "CPU" and hasattr(sdk, "StructuredOutputConfig"):
+        constraint = sdk.StructuredOutputConfig(regex="(" + "|".join(eligible) + ")")
+        response = pipeline.generate(
+            build_advisor_prompt(candidates, single=True),
+            max_new_tokens=32,
+            do_sample=False,
+            structured_output_config=constraint,
+        )
+    else:
+        response = pipeline.generate(
+            build_advisor_prompt(candidates), max_new_tokens=32, do_sample=False
+        )
     selected = _parse_selection(response)
-    if 1 <= len(selected) <= 3 and len(set(selected)) == len(selected) and all(
-        code in checks for code in selected
+    if (
+        1 <= len(selected) <= 3
+        and len(set(selected)) == len(selected)
+        and all(code in eligible for code in selected)
     ):
         label = "Model-selected checks"
     else:

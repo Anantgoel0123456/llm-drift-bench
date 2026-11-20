@@ -343,8 +343,9 @@ python -m llm_drift_bench diagnose -i examples/expected-drift.json --ai-model "D
 ```
 
 Choose CPU (default), GPU or NPU. The GPU and NPU paths use OpenVINO-supported
-hardware. The model receives category counts and a fixed menu of checks. It can
-prioritize up to three. If it returns an invalid selection, the CLI shows checks
+hardware. The model receives category counts and a fixed menu of checks. Prompt-specific checks take priority. A single eligible check is returned directly.
+For competing checks, CPU runtimes with structured output select one allowed category.
+Other runtimes can prioritize up to three. If it returns an invalid selection, the CLI shows checks
 for individual prompts first, followed by suite and timing checks. Captured
 responses, prompt IDs and field values stay out of its input.
 It cannot change the verdict or edit files. If inference fails, the command
