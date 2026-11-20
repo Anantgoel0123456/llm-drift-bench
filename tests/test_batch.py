@@ -23,3 +23,9 @@ def test_batch_reuses_single_run_scoring_with_labels() -> None:
 def test_require_multiple_captures() -> None:
     with pytest.raises(ValueError, match="two"):
         evaluate_many(BASE, [("Q8", BASE)])
+
+
+@pytest.mark.parametrize("label", ["Q8", "  "])
+def test_rejects_ambiguous_labels(label: str) -> None:
+    with pytest.raises(ValueError, match="labels"):
+        evaluate_many(BASE, [("Q8", BASE), (label, BASE)])
