@@ -1,5 +1,6 @@
 """Install a distribution in a fresh venv and exercise it outside the checkout."""
 
+import json
 import os
 import subprocess
 import sys
@@ -80,6 +81,15 @@ else:
     raise AssertionError("structured output must be rejected")
 '''
         subprocess.run([str(python), "-c", code], cwd=root, env=env, check=True)
+        examples = Path(__file__).resolve().parents[1] / "examples"
+        comparison = subprocess.run(
+            [str(cli), "compare-reports", str(examples / "expected-drift.json"),
+             str(examples / "expected-pass.json"), "--format", "json"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        passing, failing = json.loads(comparison.stdout)["candidates"]
+        assert passing["passed"] and not failing["passed"]
+        assert failing["worst_prompt_id"] == "ticket-01"
         # The installed CLI must map PASS, FAIL and UNKNOWN to distinct exit codes.
         trace = root / "trace.jsonl"
         trace.write_text(
