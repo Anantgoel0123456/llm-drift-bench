@@ -66,3 +66,8 @@ def test_distinguishes_tied_candidates_and_rejects_duplicate_labels() -> None:
     assert compare_reports([report, tied])[0].candidate == "a"
     with pytest.raises(ValueError, match="Duplicate candidate"):
         compare_reports([report, report])
+
+
+def test_comparison_preserves_candidate_conformity() -> None:
+    rows = compare_reports([fixture("pass"), fixture("drift")])
+    assert [row.conformity for row in rows] == [1.0, 0.5]
