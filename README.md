@@ -351,6 +351,17 @@ and baseline validation evidence. Use the same baseline capture and suite for ev
 run. Saved reports do not include the original response or schema content needed
 to verify byte-for-byte identity. Agreement with a baseline does not measure accuracy.
 
+### Gate on new prompt failures
+
+Both comparison commands support `--against LABEL`. For a gate focused on
+new regressions, use `--fail-on-regression --against LABEL` with
+`compare-reports`, or add `--no-fail-on-drift` with `compare-many`.
+Unchanged prompt failures and aggregate-only failures do not trip this
+specific gate. `--change-type regressed`, repeatable `--change-category`,
+and `--change-limit N` control the displayed details. The gate still checks
+all prompt transitions. JSON conformity rates use each run's set of relevant
+JSON prompts, which can vary if the suite does not require JSON everywhere.
+
 ## Explain a saved comparison
 
 Run these commands from the repository root to inspect the two shipped examples.
