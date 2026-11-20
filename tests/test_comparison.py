@@ -89,3 +89,9 @@ def test_worst_prompt_uses_prompt_id_to_break_ties() -> None:
     passing, failing = compare_reports([fixture("pass"), fixture("drift")])
     assert passing.worst_prompt_id == "invoice-01"
     assert failing.worst_prompt_id == "ticket-01"
+
+
+def test_detects_inconsistent_baseline_conformity_rates() -> None:
+    changed = replace(fixture("drift"), baseline_json_conformity_rate=0.5)
+    with pytest.raises(ValueError, match="conformity rates"):
+        compare_reports([fixture("pass"), changed])
