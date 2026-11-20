@@ -37,3 +37,9 @@ def test_suite_scope_includes_gate_and_missing_measurements(capsys) -> None:
 def test_no_matches_is_an_explicit_successful_query(capsys) -> None:
     assert main([*ARGS, "--format", "text", "--prompt-id", "invoice-01", "--kind", "schema"]) == 0
     assert "No matching findings." in capsys.readouterr().out
+
+
+def test_diagnostic_counts_apply_after_selection_before_limit(capsys) -> None:
+    assert main([*ARGS, "--scope", "prompt", "--limit", "1"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["matched"] == 2 and data["omitted"] == 1 and len(data["findings"]) == 1

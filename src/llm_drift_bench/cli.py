@@ -646,7 +646,8 @@ def _handle_diagnose(args: argparse.Namespace) -> int:
         except (ValueError, RuntimeError, OSError) as exc:
             error = str(exc)
     if args.format == "json":
-        print(json.dumps({"verdict": verdict, "findings": [asdict(item) for item in displayed],
+        print(json.dumps({"verdict": verdict, "matched": len(findings),
+                          "findings": [asdict(item) for item in displayed],
                           "omitted": omitted, "ai_advice": advice, "ai_error": error}))
         return 2 if error is not None else 0
     print(f"Benchmark {verdict}")
