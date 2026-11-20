@@ -76,3 +76,15 @@ def test_regression_gate_ignores_display_filters() -> None:
     assert main([*ARGS, *flags, "--against", "Q8", "--change-type", "recovered"]) == 1
     assert main([*ARGS, *flags, "--against", "Q4"]) == 0
     assert main([*ARGS, *flags]) == 2
+
+
+def test_batch_matches_separately_saved_rankings(capsys) -> None:
+    assert main([*ARGS, "-s", str(EXAMPLES / "extraction-suite.json"), "--format", "json"]) == 1
+    fresh = json.loads(capsys.readouterr().out)["candidates"]
+    assert main(["compare-reports", str(EXAMPLES / "expected-pass.json"),
+                 str(EXAMPLES / "expected-drift.json"), "--format", "json"]) == 0
+    saved = json.loads(capsys.readouterr().out)["candidates"]
+    for current, recorded in zip(fresh, saved, strict=True):
+        for field in ("passed", "samples", "drifted", "worst_prompt_id", "conformity", "p95_ms"):
+            assert current[field] == recorded[field]
+        assert round(current["mean_drift"], 4) == recorded["mean_drift"]
