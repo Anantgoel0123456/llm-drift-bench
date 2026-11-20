@@ -42,3 +42,10 @@ def test_late_missing_capture_produces_no_partial_output(tmp_path, capsys) -> No
 def test_cli_checks_labels_before_opening_captures(capsys) -> None:
     assert main(["compare-many", "-b", "missing", "-c", "A", "a", "-c", "A", "b"]) == 2
     assert "unique" in capsys.readouterr().err
+
+
+def test_against_uses_candidate_alias_for_direction(capsys) -> None:
+    assert main([*ARGS, "--against", "Q8", "--format", "json"]) == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["against"] == "Q8"
+    assert {row["state"] for row in data["changes"]} == {"regressed"}

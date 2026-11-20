@@ -15,7 +15,7 @@ from llm_drift_bench import __version__
 from llm_drift_bench._file_io import parse_json, read_utf8
 from llm_drift_bench._matching import require_same_ids
 from llm_drift_bench.batch import evaluate_many
-from llm_drift_bench.comparison import compare_reports
+from llm_drift_bench.comparison import compare_reports, prompt_changes
 from llm_drift_bench.diagnostics import diagnose_report
 from llm_drift_bench.engine import (
     DriftBenchmarkEngine,
@@ -606,6 +606,7 @@ def _handle_init_sample(args: argparse.Namespace) -> int:
 
 
 def _add_comparison_output_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--against", metavar="LABEL", help="Show prompt flips relative to a candidate.")
     parser.add_argument("--format", choices=("text", "json"), default="text")
 
 
@@ -651,9 +652,13 @@ def _handle_compare_reports(args: argparse.Namespace) -> int:
 def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.Namespace) -> int:
     rows = compare_reports(reports)
     status = int(args.fail_on_drift and any(not row.passed for row in rows))
+    changes = prompt_changes(reports, args.against) if args.against is not None else []
     if args.format == "json":
-        print(json.dumps({"baseline": reports[0].baseline_model,
-                          "candidates": [asdict(row) for row in rows]}))
+        payload: dict[str, Any] = {"baseline": reports[0].baseline_model,
+                                   "candidates": [asdict(row) for row in rows]}
+        if args.against is not None:
+            payload.update(against=args.against, changes=[asdict(change) for change in changes])
+        print(json.dumps(payload))
         return status
     print(f"Baseline {ascii(reports[0].baseline_model)}")
     for row in rows:
@@ -663,6 +668,11 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
               f"mean {row.mean_drift:.4f} | max {row.max_drift:.4f} | "
               f"JSON {row.conformity:.1%} | P95 {latency}"
               f" | worst prompt {ascii(row.worst_prompt_id)}")
+    if args.against is not None:
+        print(f"Prompt changes relative to {ascii(args.against)}: {len(changes)}")
+        for change in changes:
+            print(f"{ascii(change.candidate)} {ascii(change.prompt_id)} {change.state} "
+                  f"({change.reference_drift:.4f} -> {change.candidate_drift:.4f})")
     return status
 
 
