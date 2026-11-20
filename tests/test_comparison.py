@@ -58,3 +58,11 @@ def test_detects_changed_baseline_evidence() -> None:
                  for row in report.results)
     with pytest.raises(ValueError, match="Baseline validation"):
         compare_reports([fixture("pass"), replace(report, results=rows)])
+
+
+def test_distinguishes_tied_candidates_and_rejects_duplicate_labels() -> None:
+    report = fixture("pass")
+    tied = replace(report, candidate_model="a")
+    assert compare_reports([report, tied])[0].candidate == "a"
+    with pytest.raises(ValueError, match="Duplicate candidate"):
+        compare_reports([report, report])

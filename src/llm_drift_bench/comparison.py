@@ -26,6 +26,7 @@ def compare_reports(reports: Sequence[DriftBenchmarkReport]) -> list[CandidateSu
         raise ValueError("Provide at least two engine reports.")
     reference = reports[0]
     expected = index_records(reference.results, "reference report")
+    names: set[str] = set()
     rows = []
     for report in reports:
         if report.baseline_model != reference.baseline_model:
@@ -39,6 +40,9 @@ def compare_reports(reports: Sequence[DriftBenchmarkReport]) -> list[CandidateSu
         if any(row.baseline_validation != expected[pid].baseline_validation
                for pid, row in actual.items()):
             raise ValueError("Baseline validation differs for a shared prompt.")
+        if report.candidate_model in names:
+            raise ValueError(f"Duplicate candidate name: {report.candidate_model!r}.")
+        names.add(report.candidate_model)
         rows.append(CandidateSummary(
             report.candidate_model, report.passed, report.total_samples, report.drifted_samples,
             report.mean_composite_drift,
