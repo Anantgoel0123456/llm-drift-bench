@@ -612,7 +612,8 @@ def _add_many_subparser(subparsers: argparse._SubParsersAction[argparse.Argument
                         action="append", help="Candidate label and capture path. Repeat per model.")
     parser.add_argument("-s", "--suite", help="Shared prompt suite and schemas.")
     parser.add_argument("--format", choices=("text", "json"), default="text")
-    parser.set_defaults(fail_on_drift=True)
+    parser.add_argument("--fail-on-drift", action=argparse.BooleanOptionalAction, default=True,
+                        help="Exit 1 if any candidate fails (default).")
     _add_threshold_options(parser)
 
 

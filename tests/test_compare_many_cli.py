@@ -26,3 +26,8 @@ def test_many_uses_saved_report_json_contract(capsys) -> None:
     assert main([*ARGS, "--format", "json"]) == 1
     data = json.loads(capsys.readouterr().out)
     assert [row["candidate"] for row in data["candidates"]] == ["Q8", "Q4"]
+
+
+def test_informational_mode_preserves_failed_verdict(capsys) -> None:
+    assert main([*ARGS, "--no-fail-on-drift"]) == 0
+    assert "'Q4' FAIL" in capsys.readouterr().out
