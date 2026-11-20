@@ -49,8 +49,6 @@ def compare_reports(reports: Sequence[DriftBenchmarkReport]) -> list[CandidateSu
         names.add(report.candidate_model)
         worst = min(actual.values(), key=lambda item: (-item.composite_drift_score, item.prompt_id),
                     default=None)
-        if report.baseline_json_conformity_rate != reference.baseline_json_conformity_rate:
-            raise ValueError("Baseline conformity rates differ across reports.")
         rows.append(CandidateSummary(
             report.candidate_model, report.passed, report.total_samples, report.drifted_samples,
             report.mean_composite_drift,

@@ -91,7 +91,12 @@ def test_worst_prompt_uses_prompt_id_to_break_ties() -> None:
     assert failing.worst_prompt_id == "ticket-01"
 
 
-def test_detects_inconsistent_baseline_conformity_rates() -> None:
-    changed = replace(fixture("drift"), baseline_json_conformity_rate=0.5)
-    with pytest.raises(ValueError, match="conformity rates"):
-        compare_reports([fixture("pass"), changed])
+def test_same_baseline_can_have_different_json_denominators() -> None:
+    from llm_drift_bench import DriftBenchmarkEngine, ModelSample
+
+    base = [ModelSample("p", "free text")]
+    engine = DriftBenchmarkEngine()
+    plain = engine.evaluate(base, [ModelSample("p", "free text", "plain")])
+    structured = engine.evaluate(base, [ModelSample("p", '{"v":1}', "structured")])
+    assert plain.baseline_json_conformity_rate != structured.baseline_json_conformity_rate
+    assert len(compare_reports([plain, structured])) == 2
