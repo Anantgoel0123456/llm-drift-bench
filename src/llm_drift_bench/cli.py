@@ -627,6 +627,11 @@ def _candidate_captures(pairs: Sequence[tuple[str, str]]) -> Iterator[tuple[str,
 
 
 def _handle_many(args: argparse.Namespace) -> int:
+    labels = [label for label, _ in args.candidate]
+    if len(labels) < 2:
+        raise ValueError("Provide at least two labeled candidate captures.")
+    if len(set(labels)) != len(labels) or any(not label.strip() for label in labels):
+        raise ValueError("Candidate labels must be non-empty and unique.")
     baseline = load_model_samples(args.baseline)
     candidates = _candidate_captures(args.candidate)
     suite = load_prompt_cases(args.suite) if args.suite else None

@@ -37,3 +37,8 @@ def test_late_missing_capture_produces_no_partial_output(tmp_path, capsys) -> No
     assert main([*ARGS, "-c", "missing-run", str(tmp_path / "missing.json")]) == 2
     output = capsys.readouterr()
     assert not output.out and "missing-run" in output.err and "missing.json" in output.err
+
+
+def test_cli_checks_labels_before_opening_captures(capsys) -> None:
+    assert main(["compare-many", "-b", "missing", "-c", "A", "a", "-c", "A", "b"]) == 2
+    assert "unique" in capsys.readouterr().err
