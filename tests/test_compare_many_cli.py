@@ -1,5 +1,6 @@
 """End-to-end checks for comparisons from raw captures."""
 
+import json
 from pathlib import Path
 
 from llm_drift_bench.cli import main
@@ -19,3 +20,9 @@ def test_named_candidates_rank_from_captures(capsys) -> None:
 def test_many_checks_candidate_schema_with_one_suite(capsys) -> None:
     assert main([*ARGS, "-s", str(EXAMPLES / "extraction-suite.json")]) == 1
     assert "JSON 50.0%" in capsys.readouterr().out
+
+
+def test_many_uses_saved_report_json_contract(capsys) -> None:
+    assert main([*ARGS, "--format", "json"]) == 1
+    data = json.loads(capsys.readouterr().out)
+    assert [row["candidate"] for row in data["candidates"]] == ["Q8", "Q4"]

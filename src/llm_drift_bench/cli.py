@@ -611,7 +611,8 @@ def _add_many_subparser(subparsers: argparse._SubParsersAction[argparse.Argument
     parser.add_argument("-c", "--candidate", nargs=2, metavar=("LABEL", "FILE"), required=True,
                         action="append", help="Candidate label and capture path. Repeat per model.")
     parser.add_argument("-s", "--suite", help="Shared prompt suite and schemas.")
-    parser.set_defaults(format="text", fail_on_drift=True)
+    parser.add_argument("--format", choices=("text", "json"), default="text")
+    parser.set_defaults(fail_on_drift=True)
     _add_threshold_options(parser)
 
 
