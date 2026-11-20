@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from llm_drift_bench.comparison import CandidateSummary, compare_reports
 from llm_drift_bench.diagnostics import Finding, diagnose_report
 from llm_drift_bench.engine import (
     DriftBenchmarkEngine,
@@ -72,6 +73,8 @@ __version__ = "0.3.0.dev0"
 
 __all__ = [
     "BenchmarkResult",
+    "CandidateSummary",
+    "compare_reports",
     "DriftBenchmarkEngine",
     "DriftBenchmarkReport",
     "DriftMetrics",

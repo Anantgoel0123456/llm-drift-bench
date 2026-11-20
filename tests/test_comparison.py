@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from llm_drift_bench.comparison import compare_reports
+from llm_drift_bench import compare_reports
 from llm_drift_bench.models import DriftBenchmarkReport
 from llm_drift_bench.report_io import load_report
 
