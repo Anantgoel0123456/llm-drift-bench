@@ -618,6 +618,10 @@ def _handle_compare_reports(args: argparse.Namespace) -> int:
 def _handle_diagnose(args: argparse.Namespace) -> int:
     report = load_engine_report(args.input)
     findings = diagnose_report(report)
+    if args.scope == "suite":
+        findings = [item for item in findings if item.prompt_id is None]
+    elif args.scope == "prompt":
+        findings = [item for item in findings if item.prompt_id is not None]
     if args.prompt_id:
         requested = set(args.prompt_id)
         unknown = requested.difference(row.prompt_id for row in report.results)
@@ -684,6 +688,8 @@ def build_parser() -> argparse.ArgumentParser:
     diagnosis.add_argument("-i", "--input", required=True, help="Saved engine report JSON.")
     diagnosis.add_argument("--ai-model", type=Path, help="Directory of a local OpenVINO model.")
     diagnosis.add_argument("--device", choices=("CPU", "GPU", "NPU"), help="Defaults to CPU.")
+    diagnosis.add_argument("--scope", choices=("all", "suite", "prompt"), default="all",
+                           help="Show aggregate or per-prompt observations.")
     diagnosis.add_argument("--kind", action="append", help="Include a finding type (repeatable).",
                            choices=("schema", "invalid_json", "numeric_change", "drift",
                                     "suite", "missing_latency"))

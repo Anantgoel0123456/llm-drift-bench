@@ -25,3 +25,10 @@ def test_repeatable_finding_types_intersect_prompt_filter(capsys) -> None:
     assert main([*ARGS, "--kind", "schema", "--kind", "numeric_change",
                  "--prompt-id", "ticket-01"]) == 0
     assert [f["code"] for f in json.loads(capsys.readouterr().out)["findings"]] == ["schema"]
+
+
+def test_suite_scope_includes_gate_and_missing_measurements(capsys) -> None:
+    assert main([*ARGS, "--scope", "suite"]) == 0
+    findings = json.loads(capsys.readouterr().out)["findings"]
+    assert {f["code"] for f in findings} == {"suite", "missing_latency"}
+    assert all(f["prompt_id"] is None for f in findings)
