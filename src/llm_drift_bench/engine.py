@@ -309,7 +309,10 @@ def _load_records(
         if len(present) > 1:
             raise ValueError(f"Ambiguous dataset containers in {file_path}: {present!r}.")
         if present:
-            parsed = parsed[present[0]]
+            key = present[0]
+            parsed = parsed[key]
+            if not isinstance(parsed, list):
+                raise ValueError(f"{file_path}: dataset container '{key}' must be a JSON array.")
     if isinstance(parsed, list):
         records = []
         for idx, item in enumerate(parsed, start=1):

@@ -100,3 +100,13 @@ def test_nonobject_rows_identify_array_position(tmp_path: Path, data: str) -> No
     path.write_text(data, encoding="utf-8")
     with pytest.raises(ValueError, match="record 2.*JSON objects"):
         load_model_samples(path)
+
+
+def test_invalid_container_names_field_and_expected_shape(tmp_path: Path) -> None:
+    from llm_drift_bench.engine import load_model_samples
+
+    path = tmp_path / "samples.json"
+    path.write_text('{"outputs":"private value"}', encoding="utf-8")
+    with pytest.raises(ValueError, match="outputs.*JSON array") as error:
+        load_model_samples(path)
+    assert "private value" not in str(error.value)
