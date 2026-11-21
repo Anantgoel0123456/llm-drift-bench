@@ -12,7 +12,12 @@ from pathlib import Path
 from typing import Any
 
 from llm_drift_bench import __version__
-from llm_drift_bench._breakdowns import category_summary, latency_increases, numeric_changes, rule_counts
+from llm_drift_bench._breakdowns import (
+    category_summary,
+    latency_increases,
+    numeric_changes,
+    rule_counts,
+)
 from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench._matching import require_same_ids
 from llm_drift_bench.batch import evaluate_many
@@ -691,8 +696,8 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
     if args.change_category:
         if args.against is None:
             raise ValueError("--change-category requires --against.")
-        categories = set(args.change_category)
-        changes = [change for change in changes if change.category in categories]
+        selected_categories = set(args.change_category)
+        changes = [change for change in changes if change.category in selected_categories]
     if args.change_type:
         if args.against is None:
             raise ValueError("--change-type requires --against.")
@@ -700,7 +705,8 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
     categories = category_summary(reports) if args.by_category else []
     validation_rules = rule_counts(reports) if args.rule_summary else []
     slowdowns = latency_increases(reports, args.slowdowns) if args.slowdowns is not None else []
-    numeric_rows = numeric_changes(reports, args.numeric_changes) if args.numeric_changes is not None else []
+    numeric_rows = (numeric_changes(reports, args.numeric_changes)
+                    if args.numeric_changes is not None else [])
     inspections = _inspect_prompts(reports, args.inspect_prompt) if args.inspect_prompt else []
     hotspots = _hotspots(reports, args.hotspots) if args.hotspots is not None else []
     matched = len(changes)

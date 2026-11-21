@@ -24,7 +24,8 @@ def test_rule_counts_distinguish_repeated_issues_from_affected_prompts() -> None
     report = load_engine_report(FILES[1])
     ticket = next(row for row in report.results if row.prompt_id == "ticket-01")
     validation = ticket.candidate_validation
-    doubled = replace(ticket, candidate_validation=replace(validation, issues=validation.issues * 2))
+    repeated = replace(validation, issues=validation.issues * 2)
+    doubled = replace(ticket, candidate_validation=repeated)
     result, = rule_counts([replace(report, results=(doubled,))])
     assert (result.rule, result.affected_prompts, result.occurrences) == ("required", 1, 2)
 
