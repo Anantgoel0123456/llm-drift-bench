@@ -5,18 +5,20 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
-
-from pydantic import TypeAdapter
+from typing import TYPE_CHECKING, Any
 
 from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench.models import (
-    BenchmarkResult,
     DriftBenchmarkReport,
     DriftThresholds,
     SampleDriftResult,
     SchemaValidationResult,
 )
+
+if TYPE_CHECKING:
+    from llm_drift_bench.models import BenchmarkResult
+
+_ENGINE_ADAPTER: Any = None
 
 # Saved scores are rounded to four decimals, so recomputed aggregates can differ slightly.
 _TOLERANCE = 5e-4
@@ -318,11 +320,17 @@ def load_report(path: str | Path) -> DriftBenchmarkReport | BenchmarkResult:
     if engine == legacy:
         raise ValueError("Unrecognized or ambiguous saved report format.")
     if legacy:
+        from llm_drift_bench._legacy_models import BenchmarkResult
+
         legacy_result = BenchmarkResult.model_validate_json(text, strict=True)
         _validate_legacy_report(legacy_result)
         return legacy_result
-    adapter = TypeAdapter(DriftBenchmarkReport)
-    report = adapter.validate_json(text, strict=True)
+    global _ENGINE_ADAPTER
+    if _ENGINE_ADAPTER is None:
+        from pydantic import TypeAdapter
+
+        _ENGINE_ADAPTER = TypeAdapter(DriftBenchmarkReport)
+    report: DriftBenchmarkReport = _ENGINE_ADAPTER.validate_json(text, strict=True)
     _validate_engine_report(report, raw)
     return report
 

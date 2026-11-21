@@ -5,11 +5,7 @@ from __future__ import annotations
 import io
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
+from typing import TYPE_CHECKING
 
 from llm_drift_bench._report_views import (
     DETAIL_HEADERS,
@@ -25,8 +21,13 @@ from llm_drift_bench._visuals import (
     render_html_diffs_section,
 )
 from llm_drift_bench.comparison import SortKey
-from llm_drift_bench.models import BenchmarkResult, DriftBenchmarkReport
+from llm_drift_bench.models import DriftBenchmarkReport
 from llm_drift_bench.tool_log import ToolCheckRecord
+
+if TYPE_CHECKING:
+    from rich.console import Console
+
+    from llm_drift_bench.models import BenchmarkResult
 
 
 def _measurement(value: float | None, spec: str = ".2f") -> str:
@@ -39,6 +40,10 @@ def _render_legacy_console_report(
     console: Console | None = None,
 ) -> str:
     """Render a BenchmarkResult as a Rich tabular report to the console and return text."""
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+
     buffer = io.StringIO()
     capture_console = Console(file=buffer, width=100, force_terminal=False, color_system=None)
     active_console = console or Console()
@@ -197,8 +202,13 @@ def render_console_report(
     console: Console | None = None,
 ) -> str:
     """Render existing scores, keeping legacy evaluator reports separate."""
-    if isinstance(result, BenchmarkResult):
+    if not isinstance(result, DriftBenchmarkReport):
         return _render_legacy_console_report(result, console)
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
     buffer = io.StringIO()
     targets = (console or Console(), Console(file=buffer, width=100, color_system=None))
     state = "PASSED" if result.passed else "FAILED"
@@ -234,7 +244,7 @@ def _save_text(text: str, path: str | Path | None) -> str:
 def _require_engine_report(
     result: DriftBenchmarkReport | BenchmarkResult, tool_checks: Sequence[ToolCheckRecord] | None,
 ) -> None:
-    if tool_checks and isinstance(result, BenchmarkResult):
+    if tool_checks and not isinstance(result, DriftBenchmarkReport):
         raise ValueError(
             "Tool evidence can only be attached to engine reports. "
             "Rerun with 'run --output report.json'."
@@ -251,7 +261,7 @@ def export_markdown_report(
     tool_checks adds a separate evidence section; it never changes the drift verdict.
     """
     _require_engine_report(result, tool_checks)
-    if isinstance(result, BenchmarkResult):
+    if not isinstance(result, DriftBenchmarkReport):
         text = _export_legacy_markdown_report(result)
         text += "\nLegacy evaluator scores; not interchangeable with engine scores.\n"
     else:
@@ -271,7 +281,7 @@ def export_html_report(
     tool_checks adds a separate evidence section; it never changes the drift verdict.
     diffs optionally embeds opt-in collapsible JSON/text diffs for changed prompts.
     """
-    if isinstance(result, BenchmarkResult):
+    if not isinstance(result, DriftBenchmarkReport):
         raise ValueError("HTML requires an engine report. Rerun with 'run --output report.json'.")
     extra = render_html_diffs_section(result, diffs) if diffs else ""
     return _save_text(
@@ -288,7 +298,7 @@ def export_pr_comment(
     tool_checks: Sequence[ToolCheckRecord] | None = None,
 ) -> str:
     """Format a compact GitHub PR comment with status badge, deltas, and collapsible breakdown."""
-    if isinstance(result, BenchmarkResult):
+    if not isinstance(result, DriftBenchmarkReport):
         raise ValueError("PR comment export requires a canonical engine report.")
     text = canonical_pr_comment(result, previous=previous, tool_checks=tuple(tool_checks or ()))
     return _save_text(text, output_path)

@@ -2,125 +2,261 @@
 
 from __future__ import annotations
 
-from llm_drift_bench.adapters import (
-    from_anthropic_transcript,
-    from_openai_tool_calls,
-    from_otel_genai_spans,
-)
-from llm_drift_bench.batch import evaluate_many
-from llm_drift_bench.capture import (
-    CaptureConfig,
-    capture_suite,
-    serialize_samples_jsonl,
-)
-from llm_drift_bench.comparison import (
-    CandidateSummary,
-    PromptChange,
-    compare_reports,
-    prompt_changes,
-)
-from llm_drift_bench.diagnostics import Finding, diagnose_report
-from llm_drift_bench.engine import (
-    DriftBenchmarkEngine,
-    evaluate_sample_pair,
-    format_report_table,
-    load_model_samples,
-    load_prompt_cases,
-)
-from llm_drift_bench.evaluator import (
-    check_json_adherence,
-    compute_semantic_similarity,
-    compute_token_diff_ratio,
-    compute_tokens_per_sec,
-    evaluate_response_pair,
-    evaluate_suite,
-    load_benchmark_result,
-    load_test_prompts,
-)
-from llm_drift_bench.history import (
-    HistoryEntry,
-    export_history_html,
-    format_history_text,
-    load_history,
-    record_report,
-    sparkline,
-)
-from llm_drift_bench.junit import export_junit_report
-from llm_drift_bench.metrics import (
-    compute_composite_drift_score,
-    compute_percentile,
-    flatten_json_paths,
-    jaccard_similarity,
-    json_exact_field_match,
-    json_numeric_drift,
-    json_structural_similarity,
-    ngram_overlap_similarity,
-    normalized_levenshtein_similarity,
-    tokenize_text,
-)
-from llm_drift_bench.models import (
-    BenchmarkResult,
-    DriftBenchmarkReport,
-    DriftMetrics,
-    DriftThresholds,
-    ModelSample,
-    PromptCase,
-    SampleDriftResult,
-    SchemaValidationResult,
-    TestPrompt,
-    ValidationIssue,
-)
-from llm_drift_bench.policy import (
-    DriftPolicy,
-    FieldRule,
-    MetricWeights,
-    load_policy,
-)
-from llm_drift_bench.report_io import load_report
-from llm_drift_bench.reporter import (
-    export_comparison_html,
-    export_html_report,
-    export_markdown_report,
-    export_pr_comment,
-    render_console_report,
-)
-from llm_drift_bench.scores import EvidenceScore
-from llm_drift_bench.stats import (
-    BootstrapCI,
-    MultiRunSummary,
-    PairedSignificance,
-    PromptStability,
-    bootstrap_mean_ci,
-    paired_permutation_test,
-    summarize_multi_run,
-)
-from llm_drift_bench.testing import assert_no_drift
-from llm_drift_bench.tool_events import (
-    ToolCheckResult,
-    ToolEvent,
-    check_max_tool_retries,
-    check_no_secret_in_tool_args,
-    check_read_before_edit,
-)
-from llm_drift_bench.tool_log import (
-    ToolCheckRecord,
-    check_trace,
-    check_trace_file,
-    load_tool_check,
-    load_tool_events,
-    parse_tool_events,
-)
-from llm_drift_bench.validator import (
-    extract_json_payload,
-    validate_against_schema,
-    validate_output,
-)
+import importlib
+from typing import TYPE_CHECKING, Any
 
 __version__ = "0.3.0.dev0"
+
+if TYPE_CHECKING:
+    from llm_drift_bench.adapters import (
+        from_anthropic_transcript,
+        from_openai_tool_calls,
+        from_otel_genai_spans,
+        load_adapted_tool_events,
+    )
+    from llm_drift_bench.batch import evaluate_many
+    from llm_drift_bench.calibrate import (
+        CalibrationResult,
+        calibrate_from_reports,
+        detect_volatile_fields,
+        render_calibrated_toml,
+    )
+    from llm_drift_bench.capture import (
+        CaptureConfig,
+        capture_suite,
+        serialize_samples_jsonl,
+    )
+    from llm_drift_bench.comparison import (
+        CandidateSummary,
+        PromptChange,
+        compare_reports,
+        prompt_changes,
+    )
+    from llm_drift_bench.diagnostics import Finding, diagnose_report
+    from llm_drift_bench.engine import (
+        DriftBenchmarkEngine,
+        evaluate_sample_pair,
+        format_report_table,
+        load_model_samples,
+        load_prompt_cases,
+    )
+    from llm_drift_bench.evaluator import (
+        check_json_adherence,
+        compute_semantic_similarity,
+        compute_token_diff_ratio,
+        compute_tokens_per_sec,
+        evaluate_response_pair,
+        evaluate_suite,
+        load_benchmark_result,
+        load_test_prompts,
+    )
+    from llm_drift_bench.history import (
+        HistoryEntry,
+        export_history_html,
+        format_history_text,
+        load_history,
+        record_report,
+        sparkline,
+    )
+    from llm_drift_bench.junit import export_junit_report
+    from llm_drift_bench.metrics import (
+        compute_composite_drift_score,
+        compute_percentile,
+        flatten_json_paths,
+        jaccard_similarity,
+        json_exact_field_match,
+        json_numeric_drift,
+        json_structural_similarity,
+        ngram_overlap_similarity,
+        normalized_levenshtein_similarity,
+        tokenize_text,
+    )
+    from llm_drift_bench.models import (
+        BenchmarkResult,
+        DriftBenchmarkReport,
+        DriftMetrics,
+        DriftThresholds,
+        ModelSample,
+        PromptCase,
+        SampleDriftResult,
+        SchemaValidationResult,
+        TestPrompt,
+        ValidationIssue,
+    )
+    from llm_drift_bench.policy import (
+        DriftPolicy,
+        FieldRule,
+        MetricWeights,
+        load_policy,
+    )
+    from llm_drift_bench.report_io import load_report
+    from llm_drift_bench.reporter import (
+        export_comparison_html,
+        export_html_report,
+        export_markdown_report,
+        export_pr_comment,
+        render_console_report,
+    )
+    from llm_drift_bench.schema_infer import (
+        infer_prompt_suite,
+        infer_schema_from_value,
+        merge_schemas,
+    )
+    from llm_drift_bench.scorers import (
+        Scorer,
+        ScorerResult,
+        char_ngram_cosine_similarity,
+        get_scorer,
+        list_scorers,
+        python_ast_similarity,
+        register_scorer,
+        tfidf_cosine_similarity,
+    )
+    from llm_drift_bench.scores import EvidenceScore
+    from llm_drift_bench.stats import (
+        BootstrapCI,
+        McNemarResult,
+        MultiRunSummary,
+        PairedSignificance,
+        PromptStability,
+        bootstrap_mean_ci,
+        mcnemar_exact_test,
+        paired_permutation_test,
+        summarize_multi_run,
+    )
+    from llm_drift_bench.testing import assert_no_drift
+    from llm_drift_bench.tool_events import (
+        ToolCheckResult,
+        ToolEvent,
+        check_max_tool_retries,
+        check_no_secret_in_tool_args,
+        check_read_before_edit,
+    )
+    from llm_drift_bench.tool_log import (
+        ToolCheckRecord,
+        check_trace,
+        check_trace_file,
+        load_tool_check,
+        load_tool_events,
+        parse_tool_events,
+    )
+    from llm_drift_bench.validator import (
+        extract_json_payload,
+        validate_against_schema,
+        validate_output,
+    )
+
+_EXPORTS: dict[str, str] = {
+    "BenchmarkResult": "models",
+    "BootstrapCI": "stats",
+    "CalibrationResult": "calibrate",
+    "CandidateSummary": "comparison",
+    "CaptureConfig": "capture",
+    "DriftBenchmarkEngine": "engine",
+    "DriftBenchmarkReport": "models",
+    "DriftMetrics": "models",
+    "DriftPolicy": "policy",
+    "DriftThresholds": "models",
+    "EvidenceScore": "scores",
+    "FieldRule": "policy",
+    "Finding": "diagnostics",
+    "HistoryEntry": "history",
+    "McNemarResult": "stats",
+    "MetricWeights": "policy",
+    "ModelSample": "models",
+    "MultiRunSummary": "stats",
+    "PairedSignificance": "stats",
+    "PromptCase": "models",
+    "PromptChange": "comparison",
+    "PromptStability": "stats",
+    "SampleDriftResult": "models",
+    "SchemaValidationResult": "models",
+    "Scorer": "scorers",
+    "ScorerResult": "scorers",
+    "TestPrompt": "models",
+    "ToolCheckRecord": "tool_log",
+    "ToolCheckResult": "tool_events",
+    "ToolEvent": "tool_events",
+    "ValidationIssue": "models",
+    "assert_no_drift": "testing",
+    "bootstrap_mean_ci": "stats",
+    "calibrate_from_reports": "calibrate",
+    "capture_suite": "capture",
+    "char_ngram_cosine_similarity": "scorers",
+    "check_json_adherence": "evaluator",
+    "check_max_tool_retries": "tool_events",
+    "check_no_secret_in_tool_args": "tool_events",
+    "check_read_before_edit": "tool_events",
+    "check_trace": "tool_log",
+    "check_trace_file": "tool_log",
+    "compare_reports": "comparison",
+    "compute_composite_drift_score": "metrics",
+    "compute_percentile": "metrics",
+    "compute_semantic_similarity": "evaluator",
+    "compute_token_diff_ratio": "evaluator",
+    "compute_tokens_per_sec": "evaluator",
+    "detect_volatile_fields": "calibrate",
+    "diagnose_report": "diagnostics",
+    "evaluate_many": "batch",
+    "evaluate_response_pair": "evaluator",
+    "evaluate_sample_pair": "engine",
+    "evaluate_suite": "evaluator",
+    "export_comparison_html": "reporter",
+    "export_history_html": "history",
+    "export_html_report": "reporter",
+    "export_junit_report": "junit",
+    "export_markdown_report": "reporter",
+    "export_pr_comment": "reporter",
+    "extract_json_payload": "validator",
+    "flatten_json_paths": "metrics",
+    "format_history_text": "history",
+    "format_report_table": "engine",
+    "from_anthropic_transcript": "adapters",
+    "from_openai_tool_calls": "adapters",
+    "from_otel_genai_spans": "adapters",
+    "get_scorer": "scorers",
+    "infer_prompt_suite": "schema_infer",
+    "infer_schema_from_value": "schema_infer",
+    "jaccard_similarity": "metrics",
+    "json_exact_field_match": "metrics",
+    "json_numeric_drift": "metrics",
+    "json_structural_similarity": "metrics",
+    "list_scorers": "scorers",
+    "load_adapted_tool_events": "adapters",
+    "load_benchmark_result": "evaluator",
+    "load_history": "history",
+    "load_model_samples": "engine",
+    "load_policy": "policy",
+    "load_prompt_cases": "engine",
+    "load_report": "report_io",
+    "load_test_prompts": "evaluator",
+    "load_tool_check": "tool_log",
+    "load_tool_events": "tool_log",
+    "mcnemar_exact_test": "stats",
+    "merge_schemas": "schema_infer",
+    "ngram_overlap_similarity": "metrics",
+    "normalized_levenshtein_similarity": "metrics",
+    "paired_permutation_test": "stats",
+    "parse_tool_events": "tool_log",
+    "prompt_changes": "comparison",
+    "python_ast_similarity": "scorers",
+    "record_report": "history",
+    "register_scorer": "scorers",
+    "render_calibrated_toml": "calibrate",
+    "render_console_report": "reporter",
+    "serialize_samples_jsonl": "capture",
+    "sparkline": "history",
+    "summarize_multi_run": "stats",
+    "tfidf_cosine_similarity": "scorers",
+    "tokenize_text": "metrics",
+    "validate_against_schema": "validator",
+    "validate_output": "validator",
+}
 
 __all__ = [
     "BenchmarkResult",
     "BootstrapCI",
+    "CalibrationResult",
     "CandidateSummary",
     "CaptureConfig",
     "DriftBenchmarkEngine",
@@ -132,6 +268,7 @@ __all__ = [
     "FieldRule",
     "Finding",
     "HistoryEntry",
+    "McNemarResult",
     "MetricWeights",
     "ModelSample",
     "MultiRunSummary",
@@ -141,6 +278,8 @@ __all__ = [
     "PromptStability",
     "SampleDriftResult",
     "SchemaValidationResult",
+    "Scorer",
+    "ScorerResult",
     "TestPrompt",
     "ToolCheckRecord",
     "ToolCheckResult",
@@ -149,7 +288,9 @@ __all__ = [
     "__version__",
     "assert_no_drift",
     "bootstrap_mean_ci",
+    "calibrate_from_reports",
     "capture_suite",
+    "char_ngram_cosine_similarity",
     "check_json_adherence",
     "check_max_tool_retries",
     "check_no_secret_in_tool_args",
@@ -162,6 +303,7 @@ __all__ = [
     "compute_semantic_similarity",
     "compute_token_diff_ratio",
     "compute_tokens_per_sec",
+    "detect_volatile_fields",
     "diagnose_report",
     "evaluate_many",
     "evaluate_response_pair",
@@ -180,10 +322,15 @@ __all__ = [
     "from_anthropic_transcript",
     "from_openai_tool_calls",
     "from_otel_genai_spans",
+    "get_scorer",
+    "infer_prompt_suite",
+    "infer_schema_from_value",
     "jaccard_similarity",
     "json_exact_field_match",
     "json_numeric_drift",
     "json_structural_similarity",
+    "list_scorers",
+    "load_adapted_tool_events",
     "load_benchmark_result",
     "load_history",
     "load_model_samples",
@@ -193,17 +340,37 @@ __all__ = [
     "load_test_prompts",
     "load_tool_check",
     "load_tool_events",
+    "mcnemar_exact_test",
+    "merge_schemas",
     "ngram_overlap_similarity",
     "normalized_levenshtein_similarity",
     "paired_permutation_test",
     "parse_tool_events",
     "prompt_changes",
+    "python_ast_similarity",
     "record_report",
+    "register_scorer",
+    "render_calibrated_toml",
     "render_console_report",
     "serialize_samples_jsonl",
     "sparkline",
     "summarize_multi_run",
+    "tfidf_cosine_similarity",
     "tokenize_text",
     "validate_against_schema",
     "validate_output",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    submodule_name = _EXPORTS.get(name)
+    if submodule_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = importlib.import_module(f"llm_drift_bench.{submodule_name}")
+    value = getattr(module, name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))

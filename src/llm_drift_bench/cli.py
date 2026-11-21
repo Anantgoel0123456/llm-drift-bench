@@ -10,58 +10,15 @@ from collections.abc import Iterator, Sequence
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from llm_drift_bench import __version__
-from llm_drift_bench._breakdowns import (
-    category_summary,
-    latency_increases,
-    numeric_changes,
-    rule_counts,
-)
-from llm_drift_bench._file_io import parse_source_json, read_utf8
-from llm_drift_bench._matching import require_same_ids
-from llm_drift_bench.batch import evaluate_many
-from llm_drift_bench.capture import CaptureConfig, capture_suite, serialize_samples_jsonl
-from llm_drift_bench.comparison import (
-    SortKey,
-    _hotspots,
-    _inspect_prompts,
-    compare_reports,
-    compare_with_changes,
-)
-from llm_drift_bench.diagnostics import diagnose_report
-from llm_drift_bench.engine import (
-    DriftBenchmarkEngine,
-    format_report_table,
-    load_model_samples,
-    load_prompt_cases,
-)
-from llm_drift_bench.history import (
-    export_history_html,
-    format_history_text,
-    load_history,
-    record_report,
-)
-from llm_drift_bench.junit import export_junit_report
-from llm_drift_bench.local_advisor import available_devices, generate_advice
-from llm_drift_bench.models import DriftBenchmarkReport, DriftThresholds, ModelSample
-from llm_drift_bench.policy import DriftPolicy, load_policy
-from llm_drift_bench.report_io import load_engine_report, load_report
-from llm_drift_bench.reporter import (
-    export_comparison_html,
-    export_html_report,
-    export_markdown_report,
-    export_pr_comment,
-    render_console_report,
-)
-from llm_drift_bench.stats import mcnemar_exact_test, paired_permutation_test, summarize_multi_run
-from llm_drift_bench.tool_log import (
-    ToolCheckRecord,
-    check_trace_file,
-    load_tool_check,
-)
-from llm_drift_bench.validator import validate_output
+
+if TYPE_CHECKING:
+    from llm_drift_bench.comparison import SortKey
+    from llm_drift_bench.models import DriftBenchmarkReport, DriftThresholds, ModelSample
+    from llm_drift_bench.policy import DriftPolicy
+    from llm_drift_bench.tool_log import ToolCheckRecord
 
 # UNKNOWN is neither success nor an error: scripts must decide what it means.
 EXIT_TOOL_UNKNOWN = 3
@@ -81,8 +38,12 @@ def _add_tool_check_option(parser: argparse.ArgumentParser) -> None:
 
 
 def _load_tool_checks(paths: Sequence[str], output_format: str) -> list[ToolCheckRecord]:
-    if paths and output_format not in ("markdown", "html", "pr-comment"):
+    if not paths:
+        return []
+    if output_format not in ("markdown", "html", "pr-comment"):
         raise ValueError("--tool-check requires markdown or html (or pr-comment) output.")
+    from llm_drift_bench.tool_log import load_tool_check
+
     return [load_tool_check(path) for path in paths]
 
 
@@ -204,6 +165,9 @@ def _protect_inputs(output: str | None, *inputs: str | None) -> None:
 def _resolve_policy_and_thresholds(
     args: argparse.Namespace,
 ) -> tuple[DriftThresholds, DriftPolicy | None]:
+    from llm_drift_bench.models import DriftThresholds
+    from llm_drift_bench.policy import DriftPolicy, load_policy
+
     policy: DriftPolicy | None = load_policy(args.config) if args.config else None
     base_thresholds = policy.thresholds if policy is not None else DriftThresholds()
     thresholds = DriftThresholds(
@@ -272,6 +236,13 @@ def _handle_run(args: argparse.Namespace) -> int:
                         args.output, args.junit_output, *args.tool_check)
         summary_path = Path(destination)
     thresholds, policy = _resolve_policy_and_thresholds(args)
+    from llm_drift_bench.engine import (
+        DriftBenchmarkEngine,
+        format_report_table,
+        load_model_samples,
+        load_prompt_cases,
+    )
+
     baseline_samples = load_model_samples(args.baseline)
     candidate_samples = load_model_samples(args.candidate)
     prompt_cases = load_prompt_cases(args.suite) if args.suite else None
@@ -288,17 +259,27 @@ def _handle_run(args: argparse.Namespace) -> int:
         _atomic_write_text(Path(args.output), report.to_json(indent=2))
 
     if args.junit_output:
+        from llm_drift_bench.junit import export_junit_report
+
         _atomic_write_text(Path(args.junit_output), export_junit_report(report))
 
     if args.format == "junit":
+        from llm_drift_bench.junit import export_junit_report
+
         print(export_junit_report(report), end="")
     elif args.format == "json":
         print(report.to_json(indent=2))
     elif args.format == "markdown":
+        from llm_drift_bench.reporter import export_markdown_report
+
         print(export_markdown_report(report, tool_checks=tool_checks), end="")
     elif args.format == "pr-comment":
+        from llm_drift_bench.reporter import export_pr_comment
+
         print(export_pr_comment(report, tool_checks=tool_checks), end="")
     elif args.format == "html":
+        from llm_drift_bench.reporter import export_html_report
+
         diffs_map: dict[str, tuple[str, str]] | None = None
         if args.include_diffs:
             base_by_id = {s.prompt_id: s.output for s in baseline_samples}
@@ -306,6 +287,8 @@ def _handle_run(args: argparse.Namespace) -> int:
             diffs_map = {pid: (base_by_id[pid], cand_by_id[pid]) for pid in base_by_id}
         print(export_html_report(report, tool_checks=tool_checks, diffs=diffs_map), end="")
     elif args.format == "rich":
+        from llm_drift_bench.reporter import render_console_report
+
         render_console_report(report)
     else:
         print(format_report_table(report))
@@ -371,19 +354,28 @@ def _handle_report(args: argparse.Namespace) -> int:
             "from the repository root."
         )
     _protect_inputs(args.output, args.input, args.previous, *args.tool_check)
+    from llm_drift_bench.models import DriftBenchmarkReport
+    from llm_drift_bench.report_io import load_engine_report, load_report
+
     result = load_report(args.input)
     previous_report = load_engine_report(args.previous) if args.previous else None
     if args.format == "junit":
         if not isinstance(result, DriftBenchmarkReport):
             raise ValueError("JUnit export requires a canonical engine report.")
+        from llm_drift_bench.junit import export_junit_report
+
         xml = export_junit_report(result)
         if args.output:
             _atomic_write_text(Path(args.output), xml)
         print(xml, end="")
     elif args.format == "markdown":
+        from llm_drift_bench.reporter import export_markdown_report
+
         md = export_markdown_report(result, output_path=args.output, tool_checks=tool_checks)
         print(md, end="")
     elif args.format == "pr-comment":
+        from llm_drift_bench.reporter import export_pr_comment
+
         comment = export_pr_comment(
             result,
             output_path=args.output,
@@ -398,10 +390,14 @@ def _handle_report(args: argparse.Namespace) -> int:
             _atomic_write_text(Path(args.output), payload)
         print(payload)
     elif args.format == "html":
+        from llm_drift_bench.reporter import export_html_report
+
         print(
             export_html_report(result, output_path=args.output, tool_checks=tool_checks), end=""
         )
     else:
+        from llm_drift_bench.reporter import render_console_report
+
         rendered = render_console_report(result)
         if args.output:
             _atomic_write_text(Path(args.output), rendered)
@@ -449,6 +445,11 @@ def _add_validate_subparser(
 
 def _handle_validate(args: argparse.Namespace) -> int:
     """Execute the 'validate' subcommand."""
+    from llm_drift_bench._file_io import parse_source_json, read_utf8
+    from llm_drift_bench._matching import require_same_ids
+    from llm_drift_bench.engine import load_model_samples, load_prompt_cases
+    from llm_drift_bench.validator import validate_output
+
     samples = load_model_samples(args.input)
     if not samples:
         raise ValueError("Validation requires at least one output sample.")
@@ -569,6 +570,8 @@ def _handle_check_tools(args: argparse.Namespace) -> int:
     """Execute the 'check-tools' subcommand."""
     _protect_inputs(args.output, args.input)
     if args.adapter == "normalized":
+        from llm_drift_bench.tool_log import check_trace_file
+
         record = check_trace_file(
             args.input, resource=args.resource, required_start=args.start,
             required_end=args.end, trace_complete=args.trace_complete,
@@ -765,6 +768,8 @@ def _add_many_subparser(subparsers: argparse._SubParsersAction[argparse.Argument
 def _candidate_captures(
     pairs: Sequence[tuple[str, str]],
 ) -> Iterator[tuple[str, list[ModelSample]]]:
+    from llm_drift_bench.engine import load_model_samples
+
     for label, path in pairs:
         try:
             samples = load_model_samples(path)
@@ -786,6 +791,9 @@ def _handle_many(args: argparse.Namespace) -> int:
         raise ValueError("Provide at least two labeled candidate captures.")
     if len(set(labels)) != len(labels) or any(not label.strip() for label in labels):
         raise ValueError("Candidate labels must be non-empty and unique.")
+    from llm_drift_bench.batch import evaluate_many
+    from llm_drift_bench.engine import load_model_samples, load_prompt_cases
+
     thresholds, policy = _resolve_policy_and_thresholds(args)
     baseline = load_model_samples(args.baseline)
     candidates = _candidate_captures(args.candidate)
@@ -797,6 +805,8 @@ def _handle_many(args: argparse.Namespace) -> int:
 def _handle_compare_reports(args: argparse.Namespace) -> int:
     _protect_inputs(args.json_output, *args.reports)
     _protect_inputs(args.html_output, args.json_output, *args.reports)
+    from llm_drift_bench.report_io import load_engine_report
+
     reports = [load_engine_report(path) for path in args.reports]
     return _render_comparison(reports, args)
 
@@ -856,7 +866,20 @@ def _render_comparison_rich(
 
 
 def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.Namespace) -> int:
-    sort_by = cast(SortKey, getattr(args, "sort_by", "drift"))
+    from llm_drift_bench._breakdowns import (
+        category_summary,
+        latency_increases,
+        numeric_changes,
+        rule_counts,
+    )
+    from llm_drift_bench.comparison import (
+        _hotspots,
+        _inspect_prompts,
+        compare_reports,
+        compare_with_changes,
+    )
+
+    sort_by = cast("SortKey", getattr(args, "sort_by", "drift"))
     if args.against is not None:
         rows, changes = compare_with_changes(reports, args.against, sort_by=sort_by)
     else:
@@ -911,6 +934,8 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
         if args.json_output is not None:
             _write_comparison_json(Path(args.json_output), serialized)
         if getattr(args, "html_output", None) is not None:
+            from llm_drift_bench.reporter import export_comparison_html
+
             _atomic_write_text(
                 Path(args.html_output), export_comparison_html(reports, sort_by=sort_by)
             )
@@ -918,6 +943,8 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
             print(serialized)
             return status
     elif getattr(args, "html_output", None) is not None:
+        from llm_drift_bench.reporter import export_comparison_html
+
         _atomic_write_text(
             Path(args.html_output), export_comparison_html(reports, sort_by=sort_by)
         )
@@ -976,6 +1003,9 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
 
 
 def _handle_diagnose(args: argparse.Namespace) -> int:
+    from llm_drift_bench.diagnostics import diagnose_report
+    from llm_drift_bench.report_io import load_engine_report
+
     report = load_engine_report(args.input)
     findings = diagnose_report(report)
     if args.scope == "suite":
@@ -1001,6 +1031,8 @@ def _handle_diagnose(args: argparse.Namespace) -> int:
     advice = None
     error = None
     if args.ai_model is not None:
+        from llm_drift_bench.local_advisor import generate_advice
+
         try:
             advice = generate_advice(findings, args.ai_model, args.device or "CPU")
         except (ValueError, RuntimeError, OSError) as exc:
@@ -1072,6 +1104,14 @@ def _add_stats_subparser(
 
 
 def _handle_stats(args: argparse.Namespace) -> int:
+    from llm_drift_bench._matching import require_same_ids
+    from llm_drift_bench.report_io import load_engine_report
+    from llm_drift_bench.stats import (
+        mcnemar_exact_test,
+        paired_permutation_test,
+        summarize_multi_run,
+    )
+
     reports = [load_engine_report(path) for path in args.reports]
     summary = summarize_multi_run(
         reports,
@@ -1175,6 +1215,9 @@ def _handle_history(args: argparse.Namespace) -> int:
         raise ValueError("Specify a history action: 'record' or 'show'.")
     if action == "record":
         _protect_inputs(args.ledger, args.input)
+        from llm_drift_bench.history import record_report
+        from llm_drift_bench.report_io import load_engine_report
+
         report = load_engine_report(args.input)
         entry = record_report(args.ledger, report, tag=args.tag, git_sha=args.git_sha)
         print(
@@ -1184,6 +1227,8 @@ def _handle_history(args: argparse.Namespace) -> int:
         return 0
     if action == "show":
         _protect_inputs(args.output, args.ledger)
+        from llm_drift_bench.history import export_history_html, format_history_text, load_history
+
         entries = load_history(args.ledger)
         if args.candidate is not None:
             entries = [e for e in entries if e.candidate_model == args.candidate]
@@ -1283,6 +1328,9 @@ def _handle_capture(args: argparse.Namespace) -> int:
     if args.runs < 1 or args.runs > 20:
         raise ValueError("--runs must be between 1 and 20.")
     _protect_inputs(args.output, args.suite)
+    from llm_drift_bench.capture import CaptureConfig, capture_suite, serialize_samples_jsonl
+    from llm_drift_bench.engine import load_prompt_cases
+
     prompts = load_prompt_cases(args.suite)
     config = CaptureConfig(
         endpoint=args.endpoint,
@@ -1348,6 +1396,7 @@ def _add_infer_schema_subparser(
 
 
 def _handle_infer_schema(args: argparse.Namespace) -> int:
+    from llm_drift_bench.engine import load_model_samples
     from llm_drift_bench.schema_infer import infer_prompt_suite
 
     _protect_inputs(args.output, *args.input)
@@ -1438,6 +1487,12 @@ def _handle_calibrate(args: argparse.Namespace) -> int:
         detect_volatile_fields,
         render_calibrated_toml,
     )
+    from llm_drift_bench.engine import (
+        DriftBenchmarkEngine,
+        load_model_samples,
+        load_prompt_cases,
+    )
+    from llm_drift_bench.report_io import load_engine_report
 
     if bool(args.baseline_a) != bool(args.baseline_b):
         raise ValueError("--baseline-a and --baseline-b must be provided together.")
@@ -1541,6 +1596,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     try:
         if args.command == "ai-devices":
+            from llm_drift_bench.local_advisor import available_devices
+
             print("\n".join(available_devices()) or "No OpenVINO devices detected.")
             return 0
         if args.command == "compare-many":
