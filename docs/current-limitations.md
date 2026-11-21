@@ -46,7 +46,10 @@ which prompts had schemas, so the exact denominator cannot be recomputed.
 
 Dataset, schema and saved-report files must be UTF-8; an initial UTF-8 BOM and
 Windows line endings are accepted. Each file has a 16 MiB byte limit, enforced
-during reading. JSONL errors identify the line. Duplicate JSON keys and nonfinite
+during reading. There is no separate record-count limit. The file byte cap bounds
+the number of records that can fit. For JSONL, record errors identify the physical
+line, including blank lines in the count. For JSON arrays and wrappers, record
+numbers start at one. Syntax errors include the decoder line and column. Duplicate JSON keys and nonfinite
 numbers in these files are rejected rather than silently overwritten or accepted.
 
 Supported schema keywords are checked for valid shapes before evaluating data,
