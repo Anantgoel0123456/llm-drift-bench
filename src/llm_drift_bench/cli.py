@@ -1372,6 +1372,119 @@ def _handle_infer_schema(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_calibrate_subparser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    parser = subparsers.add_parser(
+        "calibrate",
+        help="Auto-calibrate drift.toml thresholds and detect volatile fields from baseline runs.",
+    )
+    parser.add_argument(
+        "reports",
+        nargs="*",
+        metavar="REPORT",
+        help="Optional saved engine report(s) from repeated/noise baseline runs.",
+    )
+    parser.add_argument(
+        "--baseline-a",
+        default=None,
+        metavar="FILE",
+        help="First baseline capture (.json/.jsonl) for self-drift & volatile field detection.",
+    )
+    parser.add_argument(
+        "--baseline-b",
+        default=None,
+        metavar="FILE",
+        help="Second repeat capture (.json/.jsonl) of the same baseline model.",
+    )
+    parser.add_argument(
+        "-s",
+        "--suite",
+        "-p",
+        "--prompts",
+        dest="suite",
+        default=None,
+        help="Optional prompt suite file used when calibrating directly from baseline captures.",
+    )
+    parser.add_argument(
+        "--headroom",
+        type=float,
+        default=1.25,
+        help="Safety multiplier >= 1.0 applied above observed baseline noise (default: 1.25).",
+    )
+    parser.add_argument(
+        "--min-drift-floor",
+        type=float,
+        default=0.05,
+        help="Minimum floor for recommended max_composite_drift in [0, 1] (default: 0.05).",
+    )
+    parser.add_argument(
+        "--format",
+        choices=("toml", "json"),
+        default="toml",
+        help="Output format: toml (default, ready-to-use drift.toml) or json.",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Optional file path to write the calibrated drift.toml or JSON summary.",
+    )
+
+
+def _handle_calibrate(args: argparse.Namespace) -> int:
+    from llm_drift_bench.calibrate import (
+        calibrate_from_reports,
+        detect_volatile_fields,
+        render_calibrated_toml,
+    )
+
+    if bool(args.baseline_a) != bool(args.baseline_b):
+        raise ValueError("--baseline-a and --baseline-b must be provided together.")
+    if not args.reports and not args.baseline_a:
+        raise ValueError(
+            "Provide at least one saved REPORT or both --baseline-a and --baseline-b."
+        )
+    _protect_inputs(args.output, *args.reports, args.baseline_a, args.baseline_b, args.suite)
+
+    reports = [load_engine_report(path) for path in args.reports]
+    volatile_fields: list[str] = []
+    if args.baseline_a and args.baseline_b:
+        samples_a = load_model_samples(args.baseline_a)
+        samples_b = load_model_samples(args.baseline_b)
+        volatile_fields = detect_volatile_fields(samples_a, samples_b)
+        if not reports:
+            prompt_cases = load_prompt_cases(args.suite) if args.suite else None
+            reports = [
+                DriftBenchmarkEngine().evaluate(
+                    baseline_samples=samples_a,
+                    candidate_samples=samples_b,
+                    prompt_cases=prompt_cases,
+                )
+            ]
+
+    result = calibrate_from_reports(
+        reports,
+        headroom=args.headroom,
+        min_floor_drift=args.min_drift_floor,
+        volatile_fields=volatile_fields,
+    )
+    if args.format == "json":
+        rendered = json.dumps(result.to_dict(), indent=2) + "\n"
+    else:
+        rendered = render_calibrated_toml(result)
+
+    if args.output:
+        _atomic_write_text(Path(args.output), rendered)
+        print(
+            f"Calibrated policy from {result.runs_analyzed} run(s) "
+            f"({len(result.volatile_fields)} volatile field(s)) -> {args.output}"
+        )
+    else:
+        print(rendered, end="")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build and return the top-level CLI ArgumentParser."""
     parser = argparse.ArgumentParser(
@@ -1413,6 +1526,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_history_subparser(subparsers)
     _add_capture_subparser(subparsers)
     _add_infer_schema_subparser(subparsers)
+    _add_calibrate_subparser(subparsers)
     _add_init_sample_subparser(subparsers)
     subparsers.add_parser("ai-devices", help="List devices visible to OpenVINO.")
     return parser
@@ -1451,6 +1565,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _handle_capture(args)
         if args.command == "infer-schema":
             return _handle_infer_schema(args)
+        if args.command == "calibrate":
+            return _handle_calibrate(args)
         if args.command == "init-sample":
             return _handle_init_sample(args)
     except Exception as exc:
