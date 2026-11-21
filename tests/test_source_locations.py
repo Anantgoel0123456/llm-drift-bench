@@ -13,3 +13,11 @@ def test_invalid_byte_offset_includes_bom(tmp_path: Path, prefix: bytes) -> None
     path.write_bytes(prefix + b"abc\xff")
     with pytest.raises(ValueError, match=rf"offset {len(prefix) + 3}"):
         read_utf8(path)
+
+
+def test_duplicate_keys_do_not_echo_capture_content() -> None:
+    from llm_drift_bench._file_io import parse_json
+
+    with pytest.raises(ValueError, match="Duplicate JSON object key") as error:
+        parse_json('{"private value":1,"private value":2}')
+    assert "private value" not in str(error.value)
