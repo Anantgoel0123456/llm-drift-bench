@@ -38,3 +38,11 @@ def test_slowdowns_require_positive_paired_measurements() -> None:
                   for i, d in enumerate((None, 0, -5, 8, 16)))
     results = latency_increases([replace(report, results=timed)], 1)
     assert [(item.prompt_id, item.delta_ms) for item in results] == [("4", 16)]
+
+
+def test_numeric_ranking_includes_measured_changes_only() -> None:
+    from llm_drift_bench._breakdowns import numeric_changes
+
+    reports = [load_engine_report(path) for path in FILES]
+    changed, = numeric_changes(reports, 4)
+    assert (changed.prompt_id, changed.numeric_drift) == ("invoice-01", 0.4444)

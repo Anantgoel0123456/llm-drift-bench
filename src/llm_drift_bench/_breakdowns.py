@@ -67,3 +67,21 @@ def latency_increases(reports: Sequence[DriftBenchmarkReport], limit: int) -> li
             for report in reports for row in report.results
             if row.latency_delta_ms is not None and row.latency_delta_ms > 0]
     return sorted(rows, key=lambda item: (-item.delta_ms, item.candidate, item.prompt_id))[:limit]
+
+
+@dataclass(frozen=True)
+class NumericChange:
+    candidate: str
+    prompt_id: str
+    numeric_drift: float
+
+
+def numeric_changes(reports: Sequence[DriftBenchmarkReport], limit: int) -> list[NumericChange]:
+    if limit < 1:
+        raise ValueError("--numeric-changes must be positive.")
+    rows = [NumericChange(report.candidate_model, row.prompt_id, row.json_numeric_drift)
+            for report in reports for row in report.results
+            if row.json_numeric_drift is not None and row.json_numeric_drift > 0]
+    return sorted(rows, key=lambda item: (-item.numeric_drift, item.candidate, item.prompt_id))[
+        :limit
+    ]
