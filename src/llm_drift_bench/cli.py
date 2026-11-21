@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from llm_drift_bench import __version__
-from llm_drift_bench._file_io import parse_json, read_utf8
+from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench._matching import require_same_ids
 from llm_drift_bench.batch import evaluate_many
 from llm_drift_bench.comparison import compare_reports, compare_with_changes
@@ -362,9 +362,9 @@ def _handle_validate(args: argparse.Namespace) -> int:
         raise ValueError("Validation requires at least one output sample.")
     global_schema: dict[str, Any] | None = None
     if args.schema:
-        loaded = parse_json(read_utf8(args.schema))
+        loaded = parse_source_json(read_utf8(args.schema), args.schema)
         if not isinstance(loaded, dict):
-            raise ValueError("Global schema file must contain a JSON object.")
+            raise ValueError(f"Global schema file must contain a JSON object: {args.schema}")
         global_schema = loaded
 
     prompt_map = (

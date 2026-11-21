@@ -110,3 +110,14 @@ def test_invalid_container_names_field_and_expected_shape(tmp_path: Path) -> Non
     with pytest.raises(ValueError, match="outputs.*JSON array") as error:
         load_model_samples(path)
     assert "private value" not in str(error.value)
+
+
+def test_schema_errors_identify_the_schema_file(tmp_path: Path, capsys) -> None:
+    from llm_drift_bench.cli import main
+
+    capture = tmp_path / "sample.jsonl"
+    capture.write_text('{"id":"p","output":"valid"}', encoding="utf-8")
+    schema = tmp_path / "rules.json"
+    schema.write_text("{", encoding="utf-8")
+    assert main(["validate", "-i", str(capture), "-s", str(schema)]) == 2
+    assert str(schema) in capsys.readouterr().err
