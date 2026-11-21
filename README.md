@@ -365,8 +365,8 @@ drift. The latency list is empty because these captures have no paired timings.
 Category rows show the prompt count, drifted count, and mean composite drift for each
 candidate. Rule summaries count both individual issues and distinct affected prompts.
 Both rankings take the top N positive measurements across all candidates. You can use
-the same flags with `compare-many` on raw captures. The JSON export follows the console
-verdict, so a failing comparison can still produce an artifact and exit with code 1.
+the same flags with `compare-many` on raw captures. With `compare-reports`, add `--fail-on-drift` to exit with code 1 when a candidate
+fails. The JSON file is written in either mode.
 
 ### Find repeated failures and inspect one prompt
 

@@ -55,9 +55,9 @@ def test_saved_comparison_export_matches_json_stdout(tmp_path, capsys) -> None:
     output = tmp_path / "comparison result.json"
     args = ["compare-reports", *FILES, "--by-category", "--rule-summary",
             "--slowdowns", "3", "--numeric-changes", "2", "--json-output", str(output)]
-    assert main(args) == 1
+    assert main(args) == 0
     assert "invoice-01" in capsys.readouterr().out
-    assert main([*args, "--format", "json"]) == 1
+    assert main([*args, "--fail-on-drift", "--format", "json"]) == 1
     data = json.loads(capsys.readouterr().out)
     assert data == json.loads(output.read_text(encoding="utf-8"))
     assert len(data["categories"]) == 4
