@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Both comparison commands support per-category drift, validation rule counts,
+  ranked latency increases and numeric changes, and a separate JSON output file.
+
 - Inspect selected prompts across candidates with `--inspect-prompt` and rank
   recurring individual failures with `--hotspots N` in both comparison commands.
 

@@ -351,6 +351,23 @@ and baseline validation evidence. Use the same baseline capture and suite for ev
 run. Saved reports do not include the original response or schema content needed
 to verify byte-for-byte identity. Agreement with a baseline does not measure accuracy.
 
+### See where candidates regress
+
+Compare two saved reports from PowerShell and keep a JSON copy for CI.
+
+```powershell
+python -m llm_drift_bench compare-reports examples/expected-pass.json examples/expected-drift.json `
+    --by-category --rule-summary --slowdowns 5 --numeric-changes 5 --json-output comparison.json
+```
+
+The example reports one missing required field and ranks `invoice-01` first for numeric
+drift. The latency list is empty because these captures have no paired timings.
+Category rows show the prompt count, drifted count, and mean composite drift for each
+candidate. Rule summaries count both individual issues and distinct affected prompts.
+Both rankings take the top N positive measurements across all candidates. You can use
+the same flags with `compare-many` on raw captures. The JSON export follows the console
+verdict, so a failing comparison can still produce an artifact and exit with code 1.
+
 ### Find repeated failures and inspect one prompt
 
 ```powershell
