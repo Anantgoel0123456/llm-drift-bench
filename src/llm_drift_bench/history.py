@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from llm_drift_bench._file_io import parse_source_json, read_utf8
+from llm_drift_bench._numbers import finite_number
 from llm_drift_bench.models import DriftBenchmarkReport
 
 _SPARK_BARS = "▁▂▃▄▅▆▇█"
@@ -75,20 +76,58 @@ class HistoryEntry:
         missing = [k for k in required if k not in data]
         if missing:
             raise ValueError(f"History entry missing required field(s): {missing}.")
-        p95 = data.get("candidate_p95_latency_ms")
+        if type(data["passed"]) is not bool:
+            raise ValueError("History entry 'passed' must be a boolean.")
+        for key in ("recorded_at", "baseline_model", "candidate_model"):
+            if not isinstance(data[key], str) or not data[key].strip():
+                raise ValueError(f"History entry {key!r} must be a non-empty string.")
+        for key in ("total_samples", "drifted_samples"):
+            val = data[key]
+            if type(val) is not int or val < 0:
+                raise ValueError(f"History entry {key!r} must be a non-negative integer.")
+        if data["drifted_samples"] > data["total_samples"]:
+            raise ValueError("History entry 'drifted_samples' cannot exceed 'total_samples'.")
+
+        unit_vals: dict[str, float] = {}
+        for key in (
+            "mean_composite_drift",
+            "max_composite_drift",
+            "candidate_json_conformity_rate",
+        ):
+            raw_num = data[key]
+            if isinstance(raw_num, bool) or not isinstance(raw_num, (int, float)):
+                raise ValueError(f"History entry {key!r} must be a number in [0, 1].")
+            num = finite_number(raw_num)
+            if not 0.0 <= num <= 1.0:
+                raise ValueError(f"History entry {key!r} must lie between 0 and 1.")
+            unit_vals[key] = num
+
+        p95_raw = data.get("candidate_p95_latency_ms")
+        p95: float | None = None
+        if p95_raw is not None:
+            if isinstance(p95_raw, bool) or not isinstance(p95_raw, (int, float)):
+                raise ValueError("History entry 'candidate_p95_latency_ms' must be numeric.")
+            p95 = finite_number(p95_raw)
+            if p95 < 0:
+                raise ValueError("History entry 'candidate_p95_latency_ms' must be non-negative.")
+
+        for opt in ("tag", "git_sha"):
+            if data.get(opt) is not None and not isinstance(data[opt], str):
+                raise ValueError(f"History entry {opt!r} must be a string or null.")
+
         return cls(
-            recorded_at=str(data["recorded_at"]),
-            baseline_model=str(data["baseline_model"]),
-            candidate_model=str(data["candidate_model"]),
-            passed=bool(data["passed"]),
-            total_samples=int(data["total_samples"]),
-            drifted_samples=int(data["drifted_samples"]),
-            mean_composite_drift=float(data["mean_composite_drift"]),
-            max_composite_drift=float(data["max_composite_drift"]),
-            candidate_json_conformity_rate=float(data["candidate_json_conformity_rate"]),
-            candidate_p95_latency_ms=float(p95) if p95 is not None else None,
-            tag=str(data["tag"]) if data.get("tag") is not None else None,
-            git_sha=str(data["git_sha"]) if data.get("git_sha") is not None else None,
+            recorded_at=data["recorded_at"],
+            baseline_model=data["baseline_model"],
+            candidate_model=data["candidate_model"],
+            passed=data["passed"],
+            total_samples=data["total_samples"],
+            drifted_samples=data["drifted_samples"],
+            mean_composite_drift=unit_vals["mean_composite_drift"],
+            max_composite_drift=unit_vals["max_composite_drift"],
+            candidate_json_conformity_rate=unit_vals["candidate_json_conformity_rate"],
+            candidate_p95_latency_ms=p95,
+            tag=data.get("tag"),
+            git_sha=data.get("git_sha"),
         )
 
 
@@ -180,6 +219,16 @@ def _trend_svg(title: str, values: Sequence[float], color: str, *, y_max: float 
     plot_w = width - pad_l - pad_r
     plot_h = height - pad_t - pad_b
     n = len(values)
+    if n == 0:
+        return (
+            f"<svg viewBox='0 0 {width} {height}' role='img' aria-label='{escape(title)}' "
+            "style='width:100%;max-width:680px;height:auto;background:#111e32;border-radius:8px;"
+            "margin-top:10px'>"
+            f"<text x='{pad_l}' y='18' fill='#7dd3fc' font-size='13' font-weight='600'>"
+            f"{escape(title)}</text>"
+            f"<text x='{width / 2:.1f}' y='{height / 2:.1f}' text-anchor='middle' "
+            "fill='#94a3b8' font-size='13'>No history entries recorded.</text></svg>"
+        )
     coords: list[tuple[float, float]] = []
     for idx, val in enumerate(values):
         x = pad_l + (plot_w / 2 if n == 1 else (idx / (n - 1)) * plot_w)

@@ -1122,6 +1122,8 @@ def _add_history_subparser(
 
     show = hist_sub.add_parser("show", help="Display sparklines or export trend HTML from ledger.")
     show.add_argument("--ledger", required=True, metavar="FILE", help="Path to JSONL ledger file.")
+    show.add_argument("--candidate", default=None, help="Filter entries by candidate model name.")
+    show.add_argument("--tag", default=None, help="Filter entries by tag.")
     show.add_argument("--limit", type=int, default=None, help="Show only the latest N runs.")
     show.add_argument(
         "--format",
@@ -1148,6 +1150,10 @@ def _handle_history(args: argparse.Namespace) -> int:
     if action == "show":
         _protect_inputs(args.output, args.ledger)
         entries = load_history(args.ledger)
+        if args.candidate is not None:
+            entries = [e for e in entries if e.candidate_model == args.candidate]
+        if args.tag is not None:
+            entries = [e for e in entries if e.tag == args.tag]
         if args.limit is not None:
             if args.limit < 1:
                 raise ValueError("--limit must be positive.")
