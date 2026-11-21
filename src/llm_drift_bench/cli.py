@@ -82,7 +82,7 @@ def _add_tool_check_option(parser: argparse.ArgumentParser) -> None:
 
 def _load_tool_checks(paths: Sequence[str], output_format: str) -> list[ToolCheckRecord]:
     if paths and output_format not in ("markdown", "html", "pr-comment"):
-        raise ValueError("--tool-check requires markdown, html, or pr-comment output.")
+        raise ValueError("--tool-check requires markdown or html (or pr-comment) output.")
     return [load_tool_check(path) for path in paths]
 
 
