@@ -351,6 +351,20 @@ and baseline validation evidence. Use the same baseline capture and suite for ev
 run. Saved reports do not include the original response or schema content needed
 to verify byte-for-byte identity. Agreement with a baseline does not measure accuracy.
 
+### Find repeated failures and inspect one prompt
+
+```powershell
+python -m llm_drift_bench compare-reports examples/expected-pass.json examples/expected-drift.json --hotspots 2 --inspect-prompt ticket-01
+```
+
+Both comparison commands accept these options. Hotspots count the candidates
+whose individual prompt check failed. Ties are ordered by the highest drift
+among those failures, then by prompt ID. Repeat `--inspect-prompt` to see scores,
+numeric drift, latency differences, and validation paths and rules across all
+candidates. The ticket example shows the missing `$.priority` field. JSON output
+includes `hotspots` and `prompt_details` only when requested. These display
+options preserve the comparison's exit code.
+
 ### Gate on new prompt failures
 
 Both comparison commands support `--against LABEL`. For a gate focused on

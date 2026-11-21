@@ -101,3 +101,68 @@ def compare_with_changes(
                                         reference[row.prompt_id].composite_drift_score,
                                         row.composite_drift_score))
     return ranking, changes
+
+
+@dataclass(frozen=True)
+class PromptHotspot:
+    """Frequency and peak drift among candidates that failed this prompt."""
+
+    prompt_id: str
+    category: str
+    drifted_candidates: int
+    max_drift: float
+
+
+def _hotspots(reports: Sequence[DriftBenchmarkReport], limit: int) -> list[PromptHotspot]:
+    if limit < 1:
+        raise ValueError("--hotspots must be positive.")
+    counts: dict[str, PromptHotspot] = {}
+    for report in reports:
+        for row in report.results:
+            if row.drifted:
+                previous = counts.get(row.prompt_id)
+                counts[row.prompt_id] = PromptHotspot(
+                    row.prompt_id, row.category,
+                    1 + (previous.drifted_candidates if previous else 0),
+                    max(previous.max_drift, row.composite_drift_score)
+                    if previous else row.composite_drift_score,
+                )
+    return sorted(counts.values(), key=lambda h: (
+        -h.drifted_candidates, -h.max_drift, h.prompt_id,
+    ))[:limit]
+
+
+@dataclass(frozen=True)
+class PromptInspection:
+    """Candidate-specific measurements and validation paths for a selected prompt."""
+
+    prompt_id: str
+    category: str
+    candidate: str
+    drifted: bool
+    composite_drift: float
+    numeric_drift: float | None
+    latency_delta_ms: float | None
+    valid_json: bool
+    issues: tuple[tuple[str, str], ...]
+
+
+def _inspect_prompts(
+    reports: Sequence[DriftBenchmarkReport], prompt_ids: Sequence[str],
+) -> list[PromptInspection]:
+    requested = set(prompt_ids)
+    inspections = []
+    for report in reports:
+        for row in report.results:
+            if row.prompt_id in requested:
+                validation = row.candidate_validation
+                inspections.append(PromptInspection(
+                    row.prompt_id, row.category, report.candidate_model, row.drifted,
+                    row.composite_drift_score, row.json_numeric_drift, row.latency_delta_ms,
+                    validation.is_valid_json,
+                    tuple((issue.path, issue.rule) for issue in validation.issues),
+                ))
+    missing = requested.difference(row.prompt_id for row in inspections)
+    if missing:
+        raise ValueError(f"Unknown prompt IDs: {sorted(missing)!r}.")
+    return sorted(inspections, key=lambda row: (row.prompt_id, -row.composite_drift, row.candidate))

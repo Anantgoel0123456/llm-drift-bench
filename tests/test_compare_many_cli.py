@@ -88,3 +88,36 @@ def test_batch_matches_separately_saved_rankings(capsys) -> None:
         for field in ("passed", "samples", "drifted", "worst_prompt_id", "conformity", "p95_ms"):
             assert current[field] == recorded[field]
         assert round(current["mean_drift"], 4) == recorded["mean_drift"]
+
+
+def test_inspection_with_hotspots_preserves_gate_and_evidence(capsys) -> None:
+    flags = ["-s", str(EXAMPLES / "extraction-suite.json"), "--inspect-prompt", "ticket-01",
+             "--inspect-prompt", "ticket-01", "--hotspots", "1", "--format", "json"]
+    assert main([*ARGS, *flags]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    worst, best = payload["prompt_details"]
+    assert (worst["candidate"], best["candidate"]) == ("Q4", "Q8")
+    assert worst["issues"] == [["$.priority", "required"]]
+    assert best["issues"] == [] and best["latency_delta_ms"] is None
+    hotspot, = payload["hotspots"]
+    assert hotspot["prompt_id"] == "ticket-01" and hotspot["drifted_candidates"] == 1
+    assert main([*ARGS, *flags, "--format", "text"]) == 1
+    text = capsys.readouterr().out
+    assert "drifted in 1/2" in text and "$.priority" in text and "latency delta n/a" in text
+
+
+def test_invalid_inspection_requests_emit_no_partial_rankings(capsys) -> None:
+    for flags in (["--inspect-prompt", "missing"], ["--hotspots", "0"]):
+        assert main([*ARGS, *flags]) == 2
+        captured = capsys.readouterr()
+        assert captured.err and not captured.out
+
+
+def test_hotspots_count_multiple_candidates_and_handle_all_pass(capsys) -> None:
+    assert main([*ARGS, "-c", "repeat", str(EXAMPLES / "candidate-drift.jsonl"),
+                 "--hotspots", "2", "--format", "json"]) == 1
+    assert all(row["drifted_candidates"] == 2
+               for row in json.loads(capsys.readouterr().out)["hotspots"])
+    all_pass = [*ARGS[:-1], str(EXAMPLES / "candidate-pass.jsonl")]
+    assert main([*all_pass, "--hotspots", "3", "--format", "json"]) == 0
+    assert json.loads(capsys.readouterr().out)["hotspots"] == []

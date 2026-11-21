@@ -31,3 +31,14 @@ def test_comparison_ci_exit_codes() -> None:
     assert main([*ARGS, "--fail-on-drift"]) == 1
     assert main([*ARGS, "--fail-on-drift", "--format", "json"]) == 1
     assert main(ARGS[:2]) == 2
+
+
+def test_saved_report_inspection_and_default_json_compatibility(capsys) -> None:
+    assert main([*ARGS, "--format", "json"]) == 0
+    assert set(json.loads(capsys.readouterr().out)) == {"baseline", "candidates"}
+    assert main([*ARGS, "--inspect-prompt", "invoice-01", "--hotspots", "2",
+                 "--against", "demo-candidate-pass", "--fail-on-regression",
+                 "--format", "json"]) == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["prompt_details"][0]["numeric_drift"] == 0.4444
+    assert data["changes_matched"] == 2 and len(data["hotspots"]) == 2

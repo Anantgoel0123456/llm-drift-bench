@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Inspect selected prompts across candidates with `--inspect-prompt` and rank
+  recurring individual failures with `--hotspots N` in both comparison commands.
+
 - Dataset parsing errors identify the source file. JSON syntax errors include
   line and column, and record conversion errors identify the JSONL line or
   one-based JSON array position. Invalid measurements and duplicate JSON keys

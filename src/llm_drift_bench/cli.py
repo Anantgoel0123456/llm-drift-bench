@@ -15,7 +15,12 @@ from llm_drift_bench import __version__
 from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench._matching import require_same_ids
 from llm_drift_bench.batch import evaluate_many
-from llm_drift_bench.comparison import compare_reports, compare_with_changes
+from llm_drift_bench.comparison import (
+    _hotspots,
+    _inspect_prompts,
+    compare_reports,
+    compare_with_changes,
+)
 from llm_drift_bench.diagnostics import diagnose_report
 from llm_drift_bench.engine import (
     DriftBenchmarkEngine,
@@ -606,6 +611,10 @@ def _handle_init_sample(args: argparse.Namespace) -> int:
 
 
 def _add_comparison_output_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--inspect-prompt", action="append", metavar="ID",
+                        help="Show one prompt across candidates (repeatable).")
+    parser.add_argument("--hotspots", type=int, metavar="N",
+                        help="Show the N prompts that drifted across the most candidates.")
     parser.add_argument("--fail-on-regression", action="store_true",
                         help="Exit 1 for any new prompt failure relative to --against.")
     parser.add_argument("--change-limit", type=int, help="Maximum changed prompts to display.")
@@ -679,6 +688,8 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
         if args.against is None:
             raise ValueError("--change-type requires --against.")
         changes = [change for change in changes if change.state == args.change_type]
+    inspections = _inspect_prompts(reports, args.inspect_prompt) if args.inspect_prompt else []
+    hotspots = _hotspots(reports, args.hotspots) if args.hotspots is not None else []
     matched = len(changes)
     if args.change_limit is not None:
         if args.against is None or args.change_limit < 1:
@@ -690,6 +701,10 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
         if args.against is not None:
             payload.update(against=args.against, changes=[asdict(change) for change in changes],
                            changes_matched=matched, changes_omitted=matched - len(changes))
+        if args.inspect_prompt:
+            payload["prompt_details"] = [asdict(detail) for detail in inspections]
+        if args.hotspots is not None:
+            payload["hotspots"] = [asdict(hotspot) for hotspot in hotspots]
         print(json.dumps(payload))
         return status
     print(f"Baseline {ascii(reports[0].baseline_model)}")
@@ -707,6 +722,21 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
                   f"({change.reference_drift:.4f} -> {change.candidate_drift:.4f})")
         if matched > len(changes):
             print(f"{matched - len(changes)} additional changes omitted.")
+    if args.hotspots is not None:
+        print("Prompt hotspots:")
+        if not hotspots:
+            print("No individual prompts drifted.")
+        for hotspot in hotspots:
+            print(f"  {ascii(hotspot.prompt_id)}: drifted in {hotspot.drifted_candidates}/"
+                  f"{len(reports)} candidates, max drift {hotspot.max_drift:.4f}")
+    for detail in inspections:
+        state = "DRIFT" if detail.drifted else "OK"
+        numeric = "n/a" if detail.numeric_drift is None else f"{detail.numeric_drift:.4f}"
+        latency = "n/a" if detail.latency_delta_ms is None else f"{detail.latency_delta_ms:+.2f} ms"
+        print(f"{ascii(detail.prompt_id)} | {ascii(detail.candidate)} | {state} | "
+              f"drift {detail.composite_drift:.4f} | numeric {numeric} | latency delta {latency}")
+        for path, rule in detail.issues:
+            print(f"  {ascii(path)}: {ascii(rule)}")
     return status
 
 
