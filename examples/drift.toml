@@ -1,0 +1,26 @@
+# Example llm-drift-bench evaluation policy (use with: run --config examples/drift.toml)
+long_text_mode = "error"
+
+[thresholds]
+max_composite_drift = 0.25
+min_json_conformity_rate = 0.95
+max_numeric_relative_drift = 0.15
+max_latency_regression_pct = 50.0
+
+[weights]
+text_weight = 0.35
+json_weight = 0.65
+token_jaccard = 0.35
+ngram = 0.30
+levenshtein = 0.35
+json_structure = 0.40
+json_exact_field = 0.35
+json_numeric = 0.25
+
+# Ignore volatile fields such as request timestamps or trace IDs
+[fields."$.timestamp"]
+ignore = true
+
+# Allow minor numeric jitter on confidence scores without tripping drift gates
+[fields."$.confidence"]
+tolerance_abs = 0.03
