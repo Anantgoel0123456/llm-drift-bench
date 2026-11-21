@@ -90,3 +90,13 @@ def test_legacy_suite_hides_pydantic_input_values(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="line 2") as error:
         load_test_prompts(path)
     assert "secret user content" not in str(error.value)
+
+
+@pytest.mark.parametrize("data", ['[{},42]', '{"samples":[{},42]}'])
+def test_nonobject_rows_identify_array_position(tmp_path: Path, data: str) -> None:
+    from llm_drift_bench.engine import load_model_samples
+
+    path = tmp_path / "samples.json"
+    path.write_text(data, encoding="utf-8")
+    with pytest.raises(ValueError, match="record 2.*JSON objects"):
+        load_model_samples(path)
