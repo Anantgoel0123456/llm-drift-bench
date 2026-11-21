@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import TypeAdapter
 
-from llm_drift_bench._file_io import parse_json, read_utf8
+from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench.models import (
     BenchmarkResult,
     DriftBenchmarkReport,
@@ -310,7 +310,7 @@ def load_report(path: str | Path) -> DriftBenchmarkReport | BenchmarkResult:
     file cannot carry a passing verdict that its own evidence contradicts.
     """
     text = read_utf8(path)
-    raw = parse_json(text)
+    raw = parse_source_json(text, path)
     if not isinstance(raw, dict):
         raise ValueError("A saved report must be a JSON object.")
     engine = "total_samples" in raw and "results" in raw

@@ -121,3 +121,13 @@ def test_schema_errors_identify_the_schema_file(tmp_path: Path, capsys) -> None:
     schema.write_text("{", encoding="utf-8")
     assert main(["validate", "-i", str(capture), "-s", str(schema)]) == 2
     assert str(schema) in capsys.readouterr().err
+
+
+def test_malformed_saved_report_identifies_source(tmp_path: Path) -> None:
+    from llm_drift_bench.report_io import load_report
+
+    path = tmp_path / "previous.json"
+    path.write_text('{"bad":}', encoding="utf-8")
+    with pytest.raises(ValueError, match="line 1, column 8") as error:
+        load_report(path)
+    assert str(path) in str(error.value)
