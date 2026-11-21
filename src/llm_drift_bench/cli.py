@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from llm_drift_bench import __version__
-from llm_drift_bench._breakdowns import category_summary, rule_counts
+from llm_drift_bench._breakdowns import category_summary, latency_increases, rule_counts
 from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench._matching import require_same_ids
 from llm_drift_bench.batch import evaluate_many
@@ -616,6 +616,8 @@ def _add_comparison_output_options(parser: argparse.ArgumentParser) -> None:
                         help="Summarize prompt counts and mean drift per candidate and category.")
     parser.add_argument("--rule-summary", action="store_true",
                         help="Count candidate validation issues grouped by rule.")
+    parser.add_argument("--slowdowns", type=int, metavar="N",
+                        help="Show the N largest measured latency increases in milliseconds.")
     parser.add_argument("--inspect-prompt", action="append", metavar="ID",
                         help="Show one prompt across candidates (repeatable).")
     parser.add_argument("--hotspots", type=int, metavar="N",
@@ -695,6 +697,7 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
         changes = [change for change in changes if change.state == args.change_type]
     categories = category_summary(reports) if args.by_category else []
     validation_rules = rule_counts(reports) if args.rule_summary else []
+    slowdowns = latency_increases(reports, args.slowdowns) if args.slowdowns is not None else []
     inspections = _inspect_prompts(reports, args.inspect_prompt) if args.inspect_prompt else []
     hotspots = _hotspots(reports, args.hotspots) if args.hotspots is not None else []
     matched = len(changes)
@@ -712,6 +715,8 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
             payload["categories"] = [asdict(item) for item in categories]
         if args.rule_summary:
             payload["validation_rules"] = [asdict(item) for item in validation_rules]
+        if args.slowdowns is not None:
+            payload["slowdowns"] = [asdict(item) for item in slowdowns]
         if args.inspect_prompt:
             payload["prompt_details"] = [asdict(detail) for detail in inspections]
         if args.hotspots is not None:
@@ -748,6 +753,11 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
     for rule in validation_rules:
         print(f"Rule {ascii(rule.rule)} | {ascii(rule.candidate)} | "
               f"{rule.affected_prompts} prompt(s), {rule.occurrences} issue(s)")
+    if args.slowdowns is not None and not slowdowns:
+        print("No positive paired latency measurements.")
+    for slowdown in slowdowns:
+        print(f"Slowdown {ascii(slowdown.candidate)} {ascii(slowdown.prompt_id)}: "
+              f"+{slowdown.delta_ms:.2f} ms")
     for detail in inspections:
         state = "DRIFT" if detail.drifted else "OK"
         numeric = "n/a" if detail.numeric_drift is None else f"{detail.numeric_drift:.4f}"
