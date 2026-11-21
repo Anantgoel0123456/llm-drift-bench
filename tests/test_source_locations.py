@@ -80,3 +80,13 @@ def test_invalid_suite_schema_locates_prompt(tmp_path: Path) -> None:
     path.write_text('\n{"id":"p","schema":[]}', encoding="utf-8")
     with pytest.raises(ValueError, match="line 2.*schema"):
         load_prompt_cases(path)
+
+
+def test_legacy_suite_hides_pydantic_input_values(tmp_path: Path) -> None:
+    from llm_drift_bench.evaluator import load_test_prompts
+
+    path = tmp_path / "suite.jsonl"
+    path.write_text('\n{"prompt":"secret user content"}', encoding="utf-8")
+    with pytest.raises(ValueError, match="line 2") as error:
+        load_test_prompts(path)
+    assert "secret user content" not in str(error.value)

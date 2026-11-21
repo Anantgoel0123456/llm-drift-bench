@@ -7,8 +7,10 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from llm_drift_bench._matching import index_records, require_same_ids
-from llm_drift_bench.engine import _load_records, load_model_samples
+from llm_drift_bench.engine import _load_records, _record_location, load_model_samples
 from llm_drift_bench.metrics import (
     jaccard_similarity,
     json_exact_field_match,
@@ -178,10 +180,17 @@ def load_test_prompts(path: str | Path) -> list[TestPrompt]:
     file_path = Path(path)
     items, _ = _load_records(file_path, ("prompts", "cases", "suite", "items"))
 
-    for _, item in items:
+    prompts = []
+    for number, item in items:
+        location = _record_location(file_path, number)
         if "id" in item and "prompt_id" in item and item["id"] != item["prompt_id"]:
-            raise ValueError(f"Conflicting 'prompt_id' and 'id' in {file_path}.")
-    prompts = [TestPrompt.model_validate(item) for _, item in items]
+            raise ValueError(f"Conflicting 'prompt_id' and 'id' in {location}.")
+        try:
+            prompts.append(TestPrompt.model_validate(item))
+        except ValidationError as exc:
+            detail = exc.errors(include_input=False, include_url=False)[0]
+            field = ".".join(str(part) for part in detail["loc"])
+            raise ValueError(f"{location}: {field}: {detail['msg']}") from None
     index_records(prompts, str(file_path))
     return prompts
 
