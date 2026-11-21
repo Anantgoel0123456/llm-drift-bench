@@ -714,9 +714,14 @@ def _render_comparison_rich(
         title=f"Candidate Comparison (Baseline: {baseline_model})",
         safe_box=True,
     )
-    for col in ("Candidate", "Verdict", "Drifted", "Mean Drift", "Max Drift",
-                "JSON Conformity", "P95 Latency", "Worst Prompt"):
-        table.add_column(col)
+    table.add_column("Candidate", no_wrap=True)
+    table.add_column("Verdict", justify="center")
+    table.add_column("Drifted", justify="right")
+    table.add_column("Mean Drift", justify="right")
+    table.add_column("Max Drift", justify="right")
+    table.add_column("JSON", justify="right")
+    table.add_column("P95", justify="right")
+    table.add_column("Worst Prompt", no_wrap=True)
     for row in rows:
         verdict = "PASS" if row.passed else "FAIL"
         latency = "n/a" if row.p95_ms is None else f"{row.p95_ms:.2f} ms"
@@ -731,7 +736,7 @@ def _render_comparison_rich(
             Text(latency),
             Text(worst),
         )
-    Console().print(table)
+    Console(width=120).print(table)
 
 
 def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.Namespace) -> int:
