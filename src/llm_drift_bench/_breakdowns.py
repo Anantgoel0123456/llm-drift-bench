@@ -51,3 +51,19 @@ def rule_counts(reports: Sequence[DriftBenchmarkReport]) -> list[RuleCount]:
                 prompts[key] += 1
     return [RuleCount(*key, prompts[key], counts[key])
             for key in sorted(counts, key=lambda k: (-prompts[k], -counts[k], k))]
+
+
+@dataclass(frozen=True)
+class LatencyIncrease:
+    candidate: str
+    prompt_id: str
+    delta_ms: float
+
+
+def latency_increases(reports: Sequence[DriftBenchmarkReport], limit: int) -> list[LatencyIncrease]:
+    if limit < 1:
+        raise ValueError("--slowdowns must be positive.")
+    rows = [LatencyIncrease(report.candidate_model, row.prompt_id, row.latency_delta_ms)
+            for report in reports for row in report.results
+            if row.latency_delta_ms is not None and row.latency_delta_ms > 0]
+    return sorted(rows, key=lambda item: (-item.delta_ms, item.candidate, item.prompt_id))[:limit]

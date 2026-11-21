@@ -27,3 +27,14 @@ def test_rule_counts_distinguish_repeated_issues_from_affected_prompts() -> None
     doubled = replace(ticket, candidate_validation=replace(validation, issues=validation.issues * 2))
     result, = rule_counts([replace(report, results=(doubled,))])
     assert (result.rule, result.affected_prompts, result.occurrences) == ("required", 1, 2)
+
+
+def test_slowdowns_require_positive_paired_measurements() -> None:
+    from llm_drift_bench._breakdowns import latency_increases
+
+    report = load_engine_report(FILES[0])
+    row = report.results[0]
+    timed = tuple(replace(row, prompt_id=str(i), latency_delta_ms=d)
+                  for i, d in enumerate((None, 0, -5, 8, 16)))
+    results = latency_increases([replace(report, results=timed)], 1)
+    assert [(item.prompt_id, item.delta_ms) for item in results] == [("4", 16)]
