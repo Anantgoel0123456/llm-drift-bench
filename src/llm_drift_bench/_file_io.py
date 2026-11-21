@@ -43,3 +43,15 @@ def parse_json(text: str) -> Any:
         )
     except RecursionError as exc:
         raise ValueError("JSON nesting exceeds the decoder limit.") from exc
+
+
+def parse_source_json(text: str, path: str | Path, *, line: int = 1) -> Any:
+    """Parse a document or JSONL row and retain its physical source location."""
+    try:
+        return parse_json(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Invalid JSON on line {line + exc.lineno - 1}, column {exc.colno} in {path}: {exc.msg}"
+        ) from exc
+    except ValueError as exc:
+        raise ValueError(f"Invalid JSON in {path} (starting line {line}): {exc}") from exc

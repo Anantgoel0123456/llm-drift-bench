@@ -21,3 +21,13 @@ def test_duplicate_keys_do_not_echo_capture_content() -> None:
     with pytest.raises(ValueError, match="Duplicate JSON object key") as error:
         parse_json('{"private value":1,"private value":2}')
     assert "private value" not in str(error.value)
+
+
+def test_malformed_json_identifies_document_and_column(tmp_path: Path) -> None:
+    from llm_drift_bench.engine import load_model_samples
+
+    path = tmp_path / "bad capture.json"
+    path.write_text('[\n  !]', encoding="utf-8")
+    with pytest.raises(ValueError, match="line 2, column 3") as error:
+        load_model_samples(path)
+    assert str(path) in str(error.value)

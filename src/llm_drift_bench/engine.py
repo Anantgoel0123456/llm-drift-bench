@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from llm_drift_bench._file_io import parse_json, read_utf8
+from llm_drift_bench._file_io import parse_json, parse_source_json, read_utf8
 from llm_drift_bench._matching import index_records, require_same_ids
 from llm_drift_bench.metrics import (
     compute_composite_drift_score,
@@ -298,7 +298,7 @@ def _load_records(
             records.append(item)
         return records, None
 
-    parsed = parse_json(raw)
+    parsed = parse_source_json(raw, file_path)
     if isinstance(parsed, list):
         for item in parsed:
             if not isinstance(item, dict):
