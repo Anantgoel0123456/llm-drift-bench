@@ -77,6 +77,28 @@ class TestEngine(unittest.TestCase):
             engine.evaluate([sample], [])
         with self.assertRaises(ValueError):
             engine.evaluate([sample], [ModelSample(prompt_id="other", output="world")])
+        with self.assertRaisesRegex(ValueError, "Baseline capture contains multiple model names"):
+            engine.evaluate(
+                [
+                    ModelSample(prompt_id="p1", output="a", model_name="m1"),
+                    ModelSample(prompt_id="p2", output="b", model_name="m2"),
+                ],
+                [
+                    ModelSample(prompt_id="p1", output="a", model_name="c1"),
+                    ModelSample(prompt_id="p2", output="b", model_name="c1"),
+                ],
+            )
+        with self.assertRaisesRegex(ValueError, "Candidate capture contains multiple model names"):
+            engine.evaluate(
+                [
+                    ModelSample(prompt_id="p1", output="a", model_name="m1"),
+                    ModelSample(prompt_id="p2", output="b", model_name="m1"),
+                ],
+                [
+                    ModelSample(prompt_id="p1", output="a", model_name="c1"),
+                    ModelSample(prompt_id="p2", output="b", model_name="c2"),
+                ],
+            )
 
     def test_evaluate_sample_pair_without_prompt_case(self) -> None:
         base = ModelSample(prompt_id="p1", output="The sky is blue")

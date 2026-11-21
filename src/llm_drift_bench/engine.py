@@ -129,6 +129,10 @@ class DriftBenchmarkEngine:
             raise ValueError("baseline_samples cannot be empty.")
         if not candidate_samples:
             raise ValueError("candidate_samples cannot be empty.")
+        if len({sample.model_name for sample in baseline_samples}) > 1:
+            raise ValueError("Baseline capture contains multiple model names.")
+        if len({sample.model_name for sample in candidate_samples}) > 1:
+            raise ValueError("Candidate capture contains multiple model names.")
 
         base_map = index_records(baseline_samples, "baseline")
         cand_map = index_records(candidate_samples, "candidate")
