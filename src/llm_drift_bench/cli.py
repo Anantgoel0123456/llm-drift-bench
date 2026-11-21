@@ -1220,6 +1220,23 @@ def _add_capture_subparser(
         help="Bounded transient retries between 0 and 5 (default: 2).",
     )
     parser.add_argument(
+        "--json-mode",
+        action="store_true",
+        help="Request response_format={'type': 'json_object'} from the endpoint.",
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=1,
+        help="Concurrent requests between 1 and 32 (default: 1).",
+    )
+    parser.add_argument(
+        "--runs",
+        type=int,
+        default=1,
+        help="Number of repeated captures (1..20; >1 writes <stem>-runN.jsonl).",
+    )
+    parser.add_argument(
         "-o",
         "--output",
         required=True,
@@ -1228,6 +1245,8 @@ def _add_capture_subparser(
 
 
 def _handle_capture(args: argparse.Namespace) -> int:
+    if args.runs < 1 or args.runs > 20:
+        raise ValueError("--runs must be between 1 and 20.")
     _protect_inputs(args.output, args.suite)
     prompts = load_prompt_cases(args.suite)
     config = CaptureConfig(
@@ -1240,10 +1259,23 @@ def _handle_capture(args: argparse.Namespace) -> int:
         seed=args.seed,
         max_tokens=args.max_tokens,
         system_prompt=args.system,
+        json_mode=args.json_mode,
+        concurrency=args.concurrency,
     )
-    samples = capture_suite(prompts, config)
-    _atomic_write_text(Path(args.output), serialize_samples_jsonl(samples))
-    print(f"Captured {len(samples)} prompt(s) for model {config.model!r} -> {args.output}")
+    out_base = Path(args.output)
+    if args.runs == 1:
+        samples = capture_suite(prompts, config)
+        _atomic_write_text(out_base, serialize_samples_jsonl(samples))
+        print(f"Captured {len(samples)} prompt(s) for model {config.model!r} -> {args.output}")
+        return 0
+
+    suffix = out_base.suffix or ".jsonl"
+    for run_idx in range(1, args.runs + 1):
+        run_path = out_base.with_name(f"{out_base.stem}-run{run_idx}{suffix}")
+        _protect_inputs(str(run_path), args.suite)
+        samples = capture_suite(prompts, config)
+        _atomic_write_text(run_path, serialize_samples_jsonl(samples))
+        print(f"Run {run_idx}/{args.runs}: captured {len(samples)} prompt(s) -> {run_path}")
     return 0
 
 

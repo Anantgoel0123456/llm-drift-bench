@@ -128,3 +128,47 @@ def test_cli_capture_writes_loadable_jsonl(
     loaded = load_model_samples(out_file)
     assert len(loaded) == 2
     assert all(s.model_name == "llama3:8b-q4" and s.tokens_generated == 8 for s in loaded)
+
+
+def test_capture_concurrency_json_mode_and_multi_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    seen_payloads: list[dict[str, Any]] = []
+
+    def fake_transport(
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        timeout: float,
+    ) -> dict[str, Any]:
+        seen_payloads.append(payload)
+        return {
+            "choices": [{"message": {"content": '{"ok": true}'}, "finish_reason": "stop"}],
+            "usage": {"completion_tokens": 4},
+        }
+
+    monkeypatch.setattr("llm_drift_bench.capture._default_transport", fake_transport)
+    out_base = tmp_path / "batch.jsonl"
+    rc = main(
+        [
+            "capture",
+            "--suite",
+            str(EXAMPLES / "extraction-suite.json"),
+            "--endpoint",
+            "http://localhost:11434/v1",
+            "--model",
+            "llama3:8b-q4",
+            "--json-mode",
+            "--concurrency",
+            "2",
+            "--runs",
+            "2",
+            "-o",
+            str(out_base),
+        ]
+    )
+    assert rc == 0
+    assert (tmp_path / "batch-run1.jsonl").is_file()
+    assert (tmp_path / "batch-run2.jsonl").is_file()
+    assert len(seen_payloads) == 4
+    assert all(p.get("response_format") == {"type": "json_object"} for p in seen_payloads)

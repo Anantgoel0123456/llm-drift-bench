@@ -10,10 +10,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from llm_drift_bench._file_io import MAX_INPUT_BYTES
 from llm_drift_bench.models import ModelSample, PromptCase
 
 _RETRYABLE_STATUS = frozenset({408, 429, 500, 502, 503, 504})
@@ -33,6 +35,8 @@ class CaptureConfig:
     seed: int | None = None
     max_tokens: int | None = None
     system_prompt: str | None = None
+    json_mode: bool = False
+    concurrency: int = 1
 
     def __post_init__(self) -> None:
         parsed = urllib.parse.urlparse(self.endpoint)
@@ -60,6 +64,10 @@ class CaptureConfig:
             isinstance(self.max_tokens, bool) or self.max_tokens < 1
         ):
             raise ValueError("max_tokens must be a positive integer or None.")
+        if not isinstance(self.json_mode, bool):
+            raise ValueError("json_mode must be a boolean.")
+        if isinstance(self.concurrency, bool) or not 1 <= self.concurrency <= 32:
+            raise ValueError("concurrency must be an integer between 1 and 32.")
 
     @property
     def chat_completions_url(self) -> str:
@@ -82,8 +90,17 @@ def _default_transport(
     encoded = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=encoded, headers=headers, method="POST")
     with urllib.request.urlopen(req, timeout=timeout_sec) as resp:  # noqa: S310
-        body = resp.read().decode("utf-8")
-    parsed: Any = json.loads(body)
+        raw_bytes = resp.read(MAX_INPUT_BYTES + 1)
+    if len(raw_bytes) > MAX_INPUT_BYTES:
+        raise ValueError(f"Endpoint response exceeded the {MAX_INPUT_BYTES}-byte limit.")
+    try:
+        body = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("Endpoint response was not valid UTF-8.") from exc
+    try:
+        parsed: Any = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Endpoint response was not valid JSON: {exc.msg}.") from exc
     if not isinstance(parsed, dict):
         raise ValueError("Endpoint response must be a JSON object.")
     return parsed
@@ -101,6 +118,8 @@ def _build_request_body(prompt: PromptCase, config: CaptureConfig) -> dict[str, 
         body["seed"] = config.seed
     if config.max_tokens is not None:
         body["max_tokens"] = config.max_tokens
+    if config.json_mode:
+        body["response_format"] = {"type": "json_object"}
     return body
 
 
@@ -156,9 +175,8 @@ def capture_suite(
 
     send = transport or _default_transport
     url = config.chat_completions_url
-    samples: list[ModelSample] = []
 
-    for prompt in prompts:
+    def _capture_one(prompt: PromptCase) -> ModelSample:
         body = _build_request_body(prompt, config)
         last_exc: Exception | None = None
         response: dict[str, Any] | None = None
@@ -174,14 +192,17 @@ def capture_suite(
                 last_exc = exc
                 if exc.code not in _RETRYABLE_STATUS or attempt == config.max_retries:
                     raise RuntimeError(
-                        f"Capture failed for prompt {prompt.prompt_id!r}: HTTP {exc.code}."
+                        f"Capture failed for prompt {prompt.prompt_id!r} "
+                        f"on {config.endpoint_host}: HTTP {exc.code}."
                     ) from None
                 sleep_fn(min(8.0, 0.5 * (2**attempt)))
             except (urllib.error.URLError, TimeoutError) as exc:
                 last_exc = exc
                 if attempt == config.max_retries:
+                    reason = getattr(exc, "reason", type(exc).__name__)
                     raise RuntimeError(
-                        f"Capture failed for prompt {prompt.prompt_id!r}: {exc}."
+                        f"Capture failed for prompt {prompt.prompt_id!r} "
+                        f"on {config.endpoint_host}: {reason}."
                     ) from None
                 sleep_fn(min(8.0, 0.5 * (2**attempt)))
 
@@ -199,17 +220,19 @@ def capture_suite(
             "finish_reason": finish_reason,
             "system_fingerprint": fingerprint,
         }
-        samples.append(
-            ModelSample(
-                prompt_id=prompt.prompt_id,
-                output=content,
-                model_name=config.model,
-                latency_ms=latency_ms,
-                tokens_generated=comp_tokens,
-                metadata={k: v for k, v in metadata.items() if v is not None},
-            )
+        return ModelSample(
+            prompt_id=prompt.prompt_id,
+            output=content,
+            model_name=config.model,
+            latency_ms=latency_ms,
+            tokens_generated=comp_tokens,
+            metadata={k: v for k, v in metadata.items() if v is not None},
         )
-    return samples
+
+    if config.concurrency == 1 or len(prompts) == 1:
+        return [_capture_one(prompt) for prompt in prompts]
+    with ThreadPoolExecutor(max_workers=min(config.concurrency, len(prompts))) as pool:
+        return list(pool.map(_capture_one, prompts))
 
 
 def serialize_samples_jsonl(samples: Sequence[ModelSample]) -> str:
