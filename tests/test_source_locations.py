@@ -141,3 +141,13 @@ def test_tool_trace_errors_include_file_and_row(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="line 2.*resource") as error:
         load_tool_events(path)
     assert str(path) in str(error.value)
+
+
+def test_malformed_tool_check_names_file(tmp_path: Path) -> None:
+    from llm_drift_bench.tool_log import load_tool_check
+
+    path = tmp_path / "tool-check.json"
+    path.write_text('!', encoding="utf-8")
+    with pytest.raises(ValueError, match="line 1, column 1") as error:
+        load_tool_check(path)
+    assert str(path) in str(error.value)

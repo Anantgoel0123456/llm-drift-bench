@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from llm_drift_bench._file_io import parse_json, read_utf8
+from llm_drift_bench._file_io import parse_json, parse_source_json, read_utf8
 from llm_drift_bench.tool_events import ToolCheckResult, ToolEvent, check_read_before_edit
 
 EVENT_FIELDS = frozenset({"sequence", "kind", "resource", "success", "start", "end"})
@@ -204,7 +204,7 @@ def check_trace_file(
 
 def load_tool_check(path: str | Path) -> ToolCheckRecord:
     """Load a saved check file, rejecting any verdict its own evidence contradicts."""
-    raw = parse_json(read_utf8(path))
+    raw = parse_source_json(read_utf8(path), path)
     if not isinstance(raw, dict):
-        raise ValueError("A saved tool check must be a JSON object.")
+        raise ValueError(f"A saved tool check must be a JSON object: {path}")
     return ToolCheckRecord.from_dict(raw)
