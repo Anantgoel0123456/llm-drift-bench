@@ -769,9 +769,9 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
               f"drifted {group.drifted}/{group.samples} | mean {group.mean_drift:.4f}")
     if args.rule_summary and not validation_rules:
         print("No recorded candidate validation issues.")
-    for rule in validation_rules:
-        print(f"Rule {ascii(rule.rule)} | {ascii(rule.candidate)} | "
-              f"{rule.affected_prompts} prompt(s), {rule.occurrences} issue(s)")
+    for rule_count in validation_rules:
+        print(f"Rule {ascii(rule_count.rule)} | {ascii(rule_count.candidate)} | "
+              f"{rule_count.affected_prompts} prompt(s), {rule_count.occurrences} issue(s)")
     if args.slowdowns is not None and not slowdowns:
         print("No positive paired latency measurements.")
     for slowdown in slowdowns:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
+from heapq import nsmallest
 from statistics import fmean
 
 from llm_drift_bench.models import DriftBenchmarkReport, SampleDriftResult
@@ -63,10 +64,11 @@ class LatencyIncrease:
 def latency_increases(reports: Sequence[DriftBenchmarkReport], limit: int) -> list[LatencyIncrease]:
     if limit < 1:
         raise ValueError("--slowdowns must be positive.")
-    rows = [LatencyIncrease(report.candidate_model, row.prompt_id, row.latency_delta_ms)
+    rows = (LatencyIncrease(report.candidate_model, row.prompt_id, row.latency_delta_ms)
             for report in reports for row in report.results
-            if row.latency_delta_ms is not None and row.latency_delta_ms > 0]
-    return sorted(rows, key=lambda item: (-item.delta_ms, item.candidate, item.prompt_id))[:limit]
+            if row.latency_delta_ms is not None and row.latency_delta_ms > 0)
+    return nsmallest(limit, rows,
+                     key=lambda item: (-item.delta_ms, item.candidate, item.prompt_id))
 
 
 @dataclass(frozen=True)
@@ -79,9 +81,8 @@ class NumericChange:
 def numeric_changes(reports: Sequence[DriftBenchmarkReport], limit: int) -> list[NumericChange]:
     if limit < 1:
         raise ValueError("--numeric-changes must be positive.")
-    rows = [NumericChange(report.candidate_model, row.prompt_id, row.json_numeric_drift)
+    rows = (NumericChange(report.candidate_model, row.prompt_id, row.json_numeric_drift)
             for report in reports for row in report.results
-            if row.json_numeric_drift is not None and row.json_numeric_drift > 0]
-    return sorted(rows, key=lambda item: (-item.numeric_drift, item.candidate, item.prompt_id))[
-        :limit
-    ]
+            if row.json_numeric_drift is not None and row.json_numeric_drift > 0)
+    return nsmallest(limit, rows,
+                     key=lambda item: (-item.numeric_drift, item.candidate, item.prompt_id))
