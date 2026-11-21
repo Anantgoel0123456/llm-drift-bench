@@ -1,6 +1,6 @@
 # Architecture of llm-drift-bench
 
-This document describes the 0.2.0 implementation.
+This document describes the `0.3.0.dev0` implementation.
 
 The package compares captured LLM responses using lexical similarity,
 JSON structure and field agreement, numeric drift, and recorded latency.
@@ -28,14 +28,14 @@ interchangeable.
 
 `engine.py` loads PromptCase and ModelSample records from JSON or JSONL.
 
-PromptCase wrappers accept `prompts`, `cases`, or `items`.
+PromptCase wrappers accept `prompts`, `cases`, `suite`, or `items`.
 ModelSample wrappers accept `samples`, `outputs`, or `results`.
 
 `evaluator.py` separately loads TestPrompt records. Its wrappers accept
-`prompts`, `cases`, or `suite`.
+`prompts`, `cases`, `suite`, or `items`.
 
-All current file readers use UTF-8 without explicit BOM support.
-Files are read into memory.
+All current file readers enforce UTF-8 with BOM (`utf-8-sig`) support and a
+16 MiB file size cap. Files are read into memory.
 
 ## JSON extraction and validation
 
@@ -83,7 +83,9 @@ Similarity is `1 - distance / max(len(a), len(b))`. Both empty inputs score
 ValueError, even for identical strings. The CLI reports this as input error
 exit code 2. Inputs are never silently truncated or compared as tokens.
 
-The JSON path representation currently does not escape object keys.
+Both `metrics.py` and `validator.py` quote object keys containing dots,
+brackets, or special characters (for example `$["a.b"]`) to avoid colliding
+with nested field paths (`$.a.b`).
 
 `evaluator.py` additionally implements SequenceMatcher token difference,
 a lexical and structural similarity blend, and throughput calculations.
@@ -140,12 +142,26 @@ other thresholds does not certify latency performance.
 
 Commands are:
 
-- run
-- report
-- validate
-- init-sample
+- `run` (with `--config`, `--long-text-mode`, `--include-diffs`, `--format pr-comment`, `--junit-output`, `--github-summary`)
+- `validate`
+- `report` (supports `markdown`, `console`/`table`, `json`, `html`, `junit`, `pr-comment`)
+- `diagnose`
+- `compare-many` (supports `--sort-by`, `--format rich`, `--html-output`, `--json-output`, `--config`)
+- `compare-reports` (supports `--sort-by`, `--format rich`, `--html-output`, `--json-output`)
+- `check-tools`
+- `stats` (bootstrap confidence intervals, multi-run flakiness, and paired permutation tests)
+- `history` (`record` and `show` with terminal sparklines and offline SVG trend HTML)
+- `capture` (zero-dependency OpenAI-compatible endpoint collector for Ollama/vLLM/OpenAI)
+- `init-sample`
+- `ai-devices`
 
-There is no inspect command.
+Additional library modules:
+
+- `policy.py`: `drift.toml` / `drift.json` evaluation policies with custom metric weights and per-JSONPath `ignore` / `tolerance_abs` / `tolerance_rel` rules.
+- `stats.py`: deterministic bootstrap CIs, multi-run stability, and paired permutation significance tests.
+- `history.py`: append-only JSONL drift ledger with sparklines and SVG HTML trend charts.
+- `capture.py`: OpenAI-compatible HTTP capture collector with explicit timeouts, retries, and env-var secret handling.
+- `adapters.py`: offline transcript adapters for OpenAI tool calls, Anthropic/Claude `tool_use`/`tool_result` logs, and OpenTelemetry GenAI spans.
 
 All CLI run formats render one DriftBenchmarkReport. Rich, Markdown, and HTML
 use the canonical summary/detail values without calling evaluate_suite. The

@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Added
+
+- `drift.toml` / `drift.json` evaluation policies (`load_policy`, `DriftPolicy`, `MetricWeights`, `FieldRule`, and `run`/`compare-many --config`) with custom metric weights, per-JSONPath `ignore` / `tolerance_abs` / `tolerance_rel` rules, and `--long-text-mode skip_levenshtein` for >16,384-character outputs.
+- Multi-run statistical analysis (`stats.py` and `llm-drift-bench stats`): deterministic bootstrap confidence intervals (`bootstrap_mean_ci`), paired sign-flip permutation significance tests (`paired_permutation_test`), and flaky-prompt detection (`summarize_multi_run`).
+- Visual reporting upgrades: GitHub PR comment formatter (`--format pr-comment` with `--previous` deltas), opt-in pure-CSS side-by-side HTML JSON field diffs (`run --format html --include-diffs`), and multi-candidate HTML dashboards with inline SVG Pareto charts (`compare-reports`/`compare-many --html-output`).
+- Append-only drift history ledger (`history.py` and `llm-drift-bench history record|show`) with terminal Unicode sparklines and standalone SVG trend HTML dashboards.
+- Zero-dependency OpenAI-compatible capture collector (`capture.py` and `llm-drift-bench capture`) supporting Ollama, vLLM, llama.cpp server, and OpenAI endpoints with bounded retries, timeouts, provenance metadata, and env-var secret handling.
+- Offline agent transcript adapters (`adapters.py`: `from_openai_tool_calls`, `from_anthropic_transcript`, `from_otel_genai_spans`) plus `check_max_tool_retries` and `check_no_secret_in_tool_args` workflow checks.
+- `--sort-by` (`drift`, `passed`, `conformity`, `latency`) and `--format rich` on `compare-reports` and `compare-many`, plus logical workflow subcommand ordering in `--help`.
+
+### Fixed
+
+- `_write_comparison_json` (and all CLI file writers) now create missing parent directories automatically and write atomically via temporary files + `os.replace`.
+- `extract_json_payload` now scans opening `{` and `[` in document order (fixing prose-wrapped JSON arrays of objects like `[{"a": 1}]`), iterates all markdown fences prioritizing ```` ```json ```` blocks, and handles unrelated prose braces cleanly while keeping strict duplicate-key and non-finite rejection.
+- `_check_json_type` now rejects `NaN` and `±Infinity` for JSON Schema `"type": "number"`, and `validator.py` quotes dotted/special object keys consistently with `metrics.py`.
+- `_patterns.py` now properly handles leading `]` inside regex character classes (`[^]...]` and `[]...]`).
+- `diagnose_report` now reports per-prompt conformity failures even when baseline also failed, and reports co-occurring `numeric_change` alongside `schema` issues.
+- `DriftBenchmarkEngine.evaluate` now rejects mixed `model_name` values within a single capture, matching `evaluate_many`.
+
 - Both comparison commands support per-category drift, validation rule counts,
   ranked latency increases and numeric changes, and a separate JSON output file.
 

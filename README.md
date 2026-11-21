@@ -225,10 +225,18 @@ It is not available in published 0.1.0.
 
 | Command | Purpose |
 | --- | --- |
-| `run` | Compare captured baseline and candidate outputs |
-| `validate --strict` | Fail when captured outputs do not conform |
-| `report` | Render an existing result |
+| `run` | Compare captured baseline and candidate outputs (`--config`, `--include-diffs`, `--format pr-comment`) |
+| `validate --strict` | Fail when captured outputs do not conform to JSON / JSON Schema |
+| `report` | Render a saved result as Markdown, Rich console, JSON, HTML, JUnit, or PR comment |
+| `diagnose` | Explain why a saved comparison failed (plus optional local OpenVINO advisor) |
+| `compare-many` | Evaluate multiple candidate captures at once (`--sort-by`, `--format rich`, `--html-output`) |
+| `compare-reports` | Rank saved candidate reports and export SVG Pareto HTML dashboards |
+| `stats` | Compute bootstrap confidence intervals, multi-run flakiness, and paired permutation tests |
+| `history` | Append runs to a JSONL drift ledger and render terminal sparklines or SVG trend HTML |
+| `capture` | Collect reproducible JSONL captures from OpenAI-compatible endpoints (Ollama, vLLM, OpenAI) |
+| `check-tools` | Run offline read-before-edit checks on normalized agent traces |
 | `init-sample --dir demo` | Create illustrative starter files |
+| `ai-devices` | List devices visible to the optional OpenVINO runtime |
 
 All `run` formats now render the same engine result: table, JSON, Rich, Markdown,
 and HTML. Saved engine reports preserve scores, thresholds, and failure reasons.
@@ -441,3 +449,50 @@ for individual prompts first, followed by suite and timing checks. Captured
 responses, prompt IDs and field values stay out of its input.
 It cannot change the verdict or edit files. If inference fails, the command
 returns 2 and still shows the deterministic findings.
+
+## Advanced evaluation workflows (`0.3.0.dev0`)
+
+### Task-specific `drift.toml` policies (weights & per-field tolerances)
+
+Ignore volatile fields (`$.timestamp`, `$.request_id`), set per-field numeric tolerances, or tune metric weights in `drift.toml` (see [examples/drift.toml](examples/drift.toml)):
+
+```powershell
+python -m llm_drift_bench run -b examples/baseline.jsonl -c examples/candidate-pass.jsonl -s examples/extraction-suite.json --config examples/drift.toml
+```
+
+For responses longer than 16,384 characters, add `--long-text-mode skip_levenshtein` (or set `long_text_mode = "skip_levenshtein"` in `drift.toml`).
+
+### PR comments, opt-in HTML diffs, and SVG Pareto dashboards
+
+```powershell
+# Compact GitHub PR comment with deltas vs a previous report
+python -m llm_drift_bench report -i examples/expected-drift.json --format pr-comment --previous examples/expected-pass.json
+
+# Opt-in side-by-side collapsible JSON field diffs in offline HTML
+python -m llm_drift_bench run -b examples/baseline.jsonl -c examples/candidate-drift.jsonl -s examples/extraction-suite.json --format html --include-diffs --no-fail-on-drift
+
+# Multi-candidate ranking with inline SVG Pareto chart and Rich console tables
+python -m llm_drift_bench compare-reports examples/expected-pass.json examples/expected-drift.json --sort-by passed --format rich --html-output comparison.html
+```
+
+### Multi-run statistics & significance testing (`stats`)
+
+```powershell
+python -m llm_drift_bench stats run1.json run2.json run3.json --compare-against baseline-ref.json --confidence 0.95
+```
+
+### Drift history ledger & trend charts (`history`)
+
+```powershell
+python -m llm_drift_bench history record --ledger drift-history.jsonl -i examples/expected-pass.json --tag q8 --git-sha abc1234
+python -m llm_drift_bench history show --ledger drift-history.jsonl --format text
+python -m llm_drift_bench history show --ledger drift-history.jsonl --format html -o trends.html
+```
+
+### OpenAI-compatible capture collector (`capture`)
+
+Capture reproducible `.jsonl` outputs directly from Ollama, vLLM, llama.cpp server, or OpenAI with explicit timeouts, bounded retries, and env-var secret handling (no extra runtime dependencies):
+
+```powershell
+python -m llm_drift_bench capture --suite examples/extraction-suite.json --endpoint http://localhost:11434/v1 --model llama3:8b-q4_K_M --seed 42 -o candidate.jsonl
+```
