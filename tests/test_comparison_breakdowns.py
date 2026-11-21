@@ -1,9 +1,11 @@
 """Verify optional comparison breakdowns against saved engine reports."""
 
+import json
 from dataclasses import replace
 from pathlib import Path
 
 from llm_drift_bench._breakdowns import category_summary
+from llm_drift_bench.cli import main
 from llm_drift_bench.report_io import load_engine_report
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
@@ -47,3 +49,26 @@ def test_numeric_ranking_includes_measured_changes_only() -> None:
     reports = [load_engine_report(path) for path in FILES]
     changed, = numeric_changes(reports, 4)
     assert (changed.prompt_id, changed.numeric_drift) == ("invoice-01", 0.4444)
+
+
+def test_saved_comparison_export_matches_json_stdout(tmp_path, capsys) -> None:
+    output = tmp_path / "comparison result.json"
+    args = ["compare-reports", *FILES, "--by-category", "--rule-summary",
+            "--slowdowns", "3", "--numeric-changes", "2", "--json-output", str(output)]
+    assert main(args) == 1
+    assert "invoice-01" in capsys.readouterr().out
+    assert main([*args, "--format", "json"]) == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data == json.loads(output.read_text(encoding="utf-8"))
+    assert len(data["categories"]) == 4
+    assert data["validation_rules"][0]["rule"] == "required"
+    assert data["slowdowns"] == []
+    assert data["numeric_changes"][0]["prompt_id"] == "invoice-01"
+
+
+def test_export_protects_source_reports(tmp_path) -> None:
+    source = tmp_path / "saved.json"
+    original = Path(FILES[0]).read_bytes()
+    source.write_bytes(original)
+    assert main(["compare-reports", str(source), FILES[1], "--json-output", str(source)]) == 2
+    assert source.read_bytes() == original
