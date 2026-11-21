@@ -22,6 +22,7 @@ from llm_drift_bench._breakdowns import (
 from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench._matching import require_same_ids
 from llm_drift_bench.batch import evaluate_many
+from llm_drift_bench.capture import CaptureConfig, capture_suite, serialize_samples_jsonl
 from llm_drift_bench.comparison import (
     SortKey,
     _hotspots,
@@ -1160,6 +1161,82 @@ def _handle_history(args: argparse.Namespace) -> int:
     raise ValueError(f"Unsupported history action: {action!r}.")
 
 
+def _add_capture_subparser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    parser = subparsers.add_parser(
+        "capture",
+        help="Capture model outputs from an OpenAI-compatible endpoint (Ollama, vLLM, OpenAI).",
+    )
+    parser.add_argument(
+        "-s",
+        "--suite",
+        "-p",
+        "--prompts",
+        dest="suite",
+        required=True,
+        help="Path to prompt suite JSON/JSONL file.",
+    )
+    parser.add_argument(
+        "--endpoint",
+        required=True,
+        help="OpenAI-compatible base URL (e.g. http://localhost:11434/v1).",
+    )
+    parser.add_argument("--model", required=True, help="Model identifier to query.")
+    parser.add_argument(
+        "--api-key-env",
+        default=None,
+        help="Optional environment variable name holding the Bearer API key.",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="Sampling temperature (default: 0.0).",
+    )
+    parser.add_argument("--seed", type=int, default=None, help="Optional deterministic seed.")
+    parser.add_argument("--max-tokens", type=int, default=None, help="Optional max_tokens limit.")
+    parser.add_argument("--system", default=None, help="Optional system prompt.")
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=60.0,
+        help="Per-request timeout in seconds (default: 60.0).",
+    )
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=2,
+        help="Bounded transient retries between 0 and 5 (default: 2).",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        required=True,
+        help="Output JSONL file path for captured ModelSamples.",
+    )
+
+
+def _handle_capture(args: argparse.Namespace) -> int:
+    _protect_inputs(args.output, args.suite)
+    prompts = load_prompt_cases(args.suite)
+    config = CaptureConfig(
+        endpoint=args.endpoint,
+        model=args.model,
+        api_key_env=args.api_key_env,
+        timeout_sec=args.timeout,
+        max_retries=args.retries,
+        temperature=args.temperature,
+        seed=args.seed,
+        max_tokens=args.max_tokens,
+        system_prompt=args.system,
+    )
+    samples = capture_suite(prompts, config)
+    _atomic_write_text(Path(args.output), serialize_samples_jsonl(samples))
+    print(f"Captured {len(samples)} prompt(s) for model {config.model!r} -> {args.output}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build and return the top-level CLI ArgumentParser."""
     parser = argparse.ArgumentParser(
@@ -1199,6 +1276,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_check_tools_subparser(subparsers)
     _add_stats_subparser(subparsers)
     _add_history_subparser(subparsers)
+    _add_capture_subparser(subparsers)
     _add_init_sample_subparser(subparsers)
     subparsers.add_parser("ai-devices", help="List devices visible to OpenVINO.")
     return parser
@@ -1233,6 +1311,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _handle_stats(args)
         if args.command == "history":
             return _handle_history(args)
+        if args.command == "capture":
+            return _handle_capture(args)
         if args.command == "init-sample":
             return _handle_init_sample(args)
     except Exception as exc:
