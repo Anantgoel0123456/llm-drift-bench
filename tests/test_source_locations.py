@@ -173,3 +173,18 @@ def test_suite_loaders_agree_on_duplicate_location(tmp_path: Path) -> None:
     for load in (load_prompt_cases, load_test_prompts):
         with pytest.raises(ValueError, match="Duplicate prompt_id.*record 2"):
             load(path)
+
+
+@pytest.mark.parametrize(("ext", "data", "location"), [
+    ("json", '[{"id":"p","output":"SECRET"},!]', "column"),
+    ("jsonl", '\n\n{"id":"p","output":{"hidden":"SECRET"}}', "line 3"),
+])
+def test_cli_exit_two_preserves_location_and_privacy(tmp_path, capsys, ext, data, location):
+    from llm_drift_bench.cli import main
+
+    path = tmp_path / f"capture with spaces.{ext}"
+    path.write_text(data, encoding="utf-8")
+    assert main(["validate", "-i", str(path)]) == 2
+    output = capsys.readouterr()
+    assert not output.out and str(path) in output.err and location in output.err
+    assert "SECRET" not in output.err
