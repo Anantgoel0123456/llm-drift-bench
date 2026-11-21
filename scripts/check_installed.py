@@ -35,6 +35,8 @@ def check_archive_contents(artifact: Path) -> None:
         metadata_root = "-".join(artifact.name.split("-")[:2]) + ".dist-info"
         if metadata_root + "/licenses/LICENSE" not in names:
             raise SystemExit(f"{artifact.name} is missing its packaged LICENSE")
+    elif artifact.name.removesuffix(".tar.gz") + "/LICENSE" not in names:
+        raise SystemExit(f"{artifact.name} is missing its root LICENSE")
     print(f"Archive contents verified: {artifact.name} ({len(names)} files)")
 
 

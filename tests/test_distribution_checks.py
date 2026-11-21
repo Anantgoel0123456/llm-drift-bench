@@ -1,5 +1,6 @@
 """Check distribution validation against small standalone archives."""
 
+import io
 import runpy
 import tarfile
 import zipfile
@@ -37,4 +38,13 @@ def test_wheel_requires_license_under_its_own_metadata(tmp_path: Path) -> None:
         stream.writestr("llm_drift_bench/py.typed", "")
         stream.writestr("unrelated.dist-info/licenses/LICENSE", "other")
     with pytest.raises(SystemExit, match="LICENSE"):
+        CHECK(archive)
+
+
+def test_sdist_requires_license_at_project_root(tmp_path: Path) -> None:
+    archive = tmp_path / (ROOT + ".tar.gz")
+    with tarfile.open(archive, "w:gz") as stream:
+        for name in ("src/llm_drift_bench/py.typed", "examples/LICENSE"):
+            stream.addfile(tarfile.TarInfo(f"{ROOT}/{name}"), io.BytesIO())
+    with pytest.raises(SystemExit, match="root LICENSE"):
         CHECK(archive)
