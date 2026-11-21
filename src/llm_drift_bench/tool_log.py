@@ -88,7 +88,11 @@ def parse_tool_events(text: str) -> list[ToolEvent]:
 
 def load_tool_events(path: str | Path) -> list[ToolEvent]:
     """Load a normalized trace file (.json array or .jsonl) with bounded strict parsing."""
-    return parse_tool_events(read_utf8(path))
+    text = read_utf8(path)
+    try:
+        return parse_tool_events(text)
+    except ValueError as exc:
+        raise ValueError(f"{path}: {exc}") from exc
 
 
 @dataclass(frozen=True)

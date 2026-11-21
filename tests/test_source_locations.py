@@ -131,3 +131,13 @@ def test_malformed_saved_report_identifies_source(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="line 1, column 8") as error:
         load_report(path)
     assert str(path) in str(error.value)
+
+
+def test_tool_trace_errors_include_file_and_row(tmp_path: Path) -> None:
+    from llm_drift_bench.tool_log import load_tool_events
+
+    path = tmp_path / "trace.jsonl"
+    path.write_text('\n{"kind":"read"}', encoding="utf-8")
+    with pytest.raises(ValueError, match="line 2.*resource") as error:
+        load_tool_events(path)
+    assert str(path) in str(error.value)
