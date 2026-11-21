@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from llm_drift_bench._file_io import parse_json, parse_source_json, read_utf8
+from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench._matching import index_records, require_same_ids
 from llm_drift_bench.metrics import (
     compute_composite_drift_score,
@@ -289,10 +289,7 @@ def _load_records(
             stripped = line.strip(" \t\r")
             if not stripped:
                 continue
-            try:
-                item = parse_json(stripped)
-            except ValueError as exc:
-                raise ValueError(f"Invalid JSON on line {idx} in {file_path}: {exc}") from exc
+            item = parse_source_json(line, file_path, line=idx)
             if not isinstance(item, dict):
                 raise ValueError(f"Line {idx} in {file_path} must be a JSON object.")
             records.append(item)

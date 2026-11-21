@@ -31,3 +31,12 @@ def test_malformed_json_identifies_document_and_column(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="line 2, column 3") as error:
         load_model_samples(path)
     assert str(path) in str(error.value)
+
+
+def test_jsonl_columns_include_leading_whitespace(tmp_path: Path) -> None:
+    from llm_drift_bench.engine import load_prompt_cases
+
+    path = tmp_path / "suite.jsonl"
+    path.write_bytes(b'\r\n    !\r\n')
+    with pytest.raises(ValueError, match="line 2, column 5"):
+        load_prompt_cases(path)
