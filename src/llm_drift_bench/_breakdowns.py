@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from statistics import fmean
@@ -29,3 +29,25 @@ def category_summary(reports: Sequence[DriftBenchmarkReport]) -> list[CategorySu
                         fmean(row.composite_drift_score for row in rows))
         for (candidate, category), rows in sorted(groups.items())
     ]
+
+
+@dataclass(frozen=True)
+class RuleCount:
+    candidate: str
+    rule: str
+    affected_prompts: int
+    occurrences: int
+
+
+def rule_counts(reports: Sequence[DriftBenchmarkReport]) -> list[RuleCount]:
+    counts: Counter[tuple[str, str]] = Counter()
+    prompts: Counter[tuple[str, str]] = Counter()
+    for report in reports:
+        for row in report.results:
+            rules = Counter(issue.rule for issue in row.candidate_validation.issues)
+            for rule, count in rules.items():
+                key = (report.candidate_model, rule)
+                counts[key] += count
+                prompts[key] += 1
+    return [RuleCount(*key, prompts[key], counts[key])
+            for key in sorted(counts, key=lambda k: (-prompts[k], -counts[k], k))]
