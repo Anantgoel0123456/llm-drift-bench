@@ -71,10 +71,11 @@ class MetricWeights:
 
 @dataclass(frozen=True)
 class FieldRule:
-    """Per-JSONPath override for ignoring volatile fields or allowing numeric tolerance."""
+    """Per-JSONPath override for ignoring fields, unordered arrays, or numeric tolerances."""
 
     path: str
     ignore: bool = False
+    unordered_array: bool = False
     tolerance_abs: float | None = None
     tolerance_rel: float | None = None
 
@@ -83,6 +84,8 @@ class FieldRule:
             raise ValueError(f"FieldRule path must start with '$': {self.path!r}.")
         if not isinstance(self.ignore, bool):
             raise ValueError("FieldRule.ignore must be a boolean.")
+        if not isinstance(self.unordered_array, bool):
+            raise ValueError("FieldRule.unordered_array must be a boolean.")
         _check_optional_nonneg("tolerance_abs", self.tolerance_abs)
         _check_optional_nonneg("tolerance_rel", self.tolerance_rel)
 
@@ -126,8 +129,10 @@ def _parse_toml_scalar(raw: str) -> Any:
         return True
     if value == "false":
         return False
-    if value.startswith('"') and value.endswith('"'):
+    if value.startswith('"') and value.endswith('"') and len(value) >= 2:
         return json.loads(value)
+    if value.startswith("'") and value.endswith("'") and len(value) >= 2:
+        return value[1:-1]
     if re.fullmatch(r"[+-]?\d+", value):
         return int(value)
     if re.fullmatch(r"[+-]?(\d+\.\d*|\.\d+)([eE][+-]?\d+)?|[+-]?\d+[eE][+-]?\d+", value):
@@ -243,7 +248,11 @@ def load_policy(path: str | Path) -> DriftPolicy:
     for field_path, spec in fields_raw.items():
         if not isinstance(spec, dict):
             raise ValueError(f"Policy field rule {field_path!r} must be a table/object.")
-        _check_keys(f"fields.{field_path}", spec, {"ignore", "tolerance_abs", "tolerance_rel"})
+        _check_keys(
+            f"fields.{field_path}",
+            spec,
+            {"ignore", "unordered_array", "tolerance_abs", "tolerance_rel"},
+        )
         field_rules[field_path] = FieldRule(path=field_path, **spec)
 
     long_text_mode = raw.get("long_text_mode", "error")
@@ -265,21 +274,54 @@ def _path_is_ignored(path: str, ignored_prefixes: tuple[str, ...]) -> bool:
     return False
 
 
+def _normalize_unordered_arrays(
+    data: Any,
+    unordered_paths: frozenset[str],
+    prefix: str = "$",
+) -> Any:
+    """Recursively sort arrays whose JSONPath is configured as order-insensitive."""
+    if isinstance(data, dict):
+        result: dict[str, Any] = {}
+        for key, val in data.items():
+            seg = (
+                f".{key}" if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key)
+                else f"[{json.dumps(key, ensure_ascii=True)}]"
+            )
+            result[key] = _normalize_unordered_arrays(val, unordered_paths, f"{prefix}{seg}")
+        return result
+    if isinstance(data, list):
+        items = [
+            _normalize_unordered_arrays(item, unordered_paths, f"{prefix}[{i}]")
+            for i, item in enumerate(data)
+        ]
+        if prefix in unordered_paths:
+            return sorted(items, key=lambda elem: json.dumps(elem, sort_keys=True))
+        return items
+    return data
+
+
 def _numeric_within_tolerance(
     val_a: float,
     val_b: float,
     rule: FieldRule | None,
 ) -> tuple[bool, float]:
     denom = max(abs(val_a), abs(val_b), 1e-9)
-    if (val_a < 0) != (val_b < 0):
-        rel_diff = abs(val_a / denom - val_b / denom)
-        diff = rel_diff * denom
-    else:
-        diff = abs(val_a - val_b)
-        rel_diff = diff / denom
+    opposite_sign = (val_a < 0) != (val_b < 0)
+    rel_diff = abs(val_a / denom - val_b / denom) if opposite_sign else abs(val_a - val_b) / denom
+
     if rule is not None:
-        if rule.tolerance_abs is not None and diff <= rule.tolerance_abs:
-            return True, 0.0
+        if rule.tolerance_abs is not None:
+            tol_abs = rule.tolerance_abs
+            if opposite_sign:
+                within_abs = (
+                    abs(val_a) <= tol_abs
+                    and abs(val_b) <= tol_abs
+                    and (abs(val_a) + abs(val_b)) <= tol_abs
+                )
+            else:
+                within_abs = abs(val_a - val_b) <= tol_abs
+            if within_abs:
+                return True, 0.0
         if rule.tolerance_rel is not None and rel_diff <= rule.tolerance_rel:
             return True, 0.0
     return False, min(1.0, rel_diff)
@@ -291,6 +333,10 @@ def evaluate_json_with_policy(
     field_rules: Mapping[str, FieldRule],
 ) -> tuple[float, float, float | None]:
     """Compute (structural_sim, exact_field_match, numeric_drift) applying per-field rules."""
+    unordered = frozenset(path for path, rule in field_rules.items() if rule.unordered_array)
+    if unordered:
+        json_a = _normalize_unordered_arrays(json_a, unordered)
+        json_b = _normalize_unordered_arrays(json_b, unordered)
     flat_a_raw = flatten_json_paths(json_a)
     flat_b_raw = flatten_json_paths(json_b)
 

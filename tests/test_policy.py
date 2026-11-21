@@ -167,3 +167,28 @@ def test_invalid_policy_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="positive"):
         MetricWeights(text_weight=0.0, json_weight=0.0)
+
+
+def test_unordered_array_rule_large_float_tolerance_and_single_quote_toml() -> None:
+    parsed = _parse_toml_fallback("long_text_mode = 'skip_levenshtein'\n")
+    assert parsed["long_text_mode"] == "skip_levenshtein"
+
+    policy = DriftPolicy(
+        weights=MetricWeights(text_weight=0.0, json_weight=1.0),
+        field_rules={
+            "$.tags": FieldRule(path="$.tags", unordered_array=True),
+            "$.extreme": FieldRule(path="$.extreme", tolerance_abs=1.0),
+        },
+    )
+    b = [ModelSample(prompt_id="p1", output='{"tags": ["urgent", "billing"], "extreme": 1e308}')]
+    c = [ModelSample(prompt_id="p1", output='{"tags": ["billing", "urgent"], "extreme": -1e308}')]
+    rep = DriftBenchmarkEngine(policy=policy).evaluate(b, c)
+    assert rep.results[0].json_structural_similarity == 1.0
+    assert rep.results[0].json_exact_field_match == pytest.approx(2 / 3)
+    assert rep.results[0].json_numeric_drift == 1.0
+
+    # Pure tag reordering scores 0.0 drift when unordered_array=True
+    b2 = [ModelSample(prompt_id="p1", output='{"tags": ["b", "a", "c"]}')]
+    c2 = [ModelSample(prompt_id="p1", output='{"tags": ["c", "b", "a"]}')]
+    rep2 = DriftBenchmarkEngine(policy=policy).evaluate(b2, c2)
+    assert rep2.passed and rep2.mean_composite_drift == 0.0
