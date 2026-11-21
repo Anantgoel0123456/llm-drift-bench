@@ -57,3 +57,17 @@ def test_bad_token_count_reports_field_without_value() -> None:
     with pytest.raises(ValueError, match="tokens_generated") as error:
         ModelSample.from_dict({"id": "p", "output": "", "tokens_generated": "private value"})
     assert "private value" not in str(error.value)
+
+
+@pytest.mark.parametrize(("ext", "data", "where"), [
+    ("json", '{"samples":[{"id":"p"}]}', "record 1"),
+    ("jsonl", '\n\n{"id":"p"}', "line 3"),
+])
+def test_invalid_sample_keeps_source_location(tmp_path: Path, ext: str, data: str, where: str):
+    from llm_drift_bench.engine import load_model_samples
+
+    path = tmp_path / f"capture.{ext}"
+    path.write_text(data, encoding="utf-8")
+    with pytest.raises(ValueError, match=where) as error:
+        load_model_samples(path)
+    assert str(path) in str(error.value)

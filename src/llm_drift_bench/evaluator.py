@@ -178,10 +178,10 @@ def load_test_prompts(path: str | Path) -> list[TestPrompt]:
     file_path = Path(path)
     items, _ = _load_records(file_path, ("prompts", "cases", "suite", "items"))
 
-    for item in items:
+    for _, item in items:
         if "id" in item and "prompt_id" in item and item["id"] != item["prompt_id"]:
             raise ValueError(f"Conflicting 'prompt_id' and 'id' in {file_path}.")
-    prompts = [TestPrompt.model_validate(item) for item in items]
+    prompts = [TestPrompt.model_validate(item) for _, item in items]
     index_records(prompts, str(file_path))
     return prompts
 

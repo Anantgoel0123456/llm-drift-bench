@@ -273,10 +273,15 @@ class DriftBenchmarkEngine:
         )
 
 
+def _record_location(path: str | Path, number: int) -> str:
+    unit = "line" if Path(path).suffix.lower() == ".jsonl" else "record"
+    return f"{path} ({unit} {number})"
+
+
 def _load_records(
     path: str | Path,
     container_keys: tuple[str, ...],
-) -> tuple[list[dict[str, Any]], str | None]:
+) -> tuple[list[tuple[int, dict[str, Any]]], str | None]:
     """Read a JSON or JSONL file into a list of dicts and optional top-level model_name."""
     file_path = Path(path)
     raw = read_utf8(file_path)
@@ -284,7 +289,7 @@ def _load_records(
         return [], None
 
     if file_path.suffix.lower() == ".jsonl":
-        records: list[dict[str, Any]] = []
+        records: list[tuple[int, dict[str, Any]]] = []
         for idx, line in enumerate(raw.split("\n"), start=1):
             stripped = line.strip(" \t\r")
             if not stripped:
@@ -292,7 +297,7 @@ def _load_records(
             item = parse_source_json(line, file_path, line=idx)
             if not isinstance(item, dict):
                 raise ValueError(f"Line {idx} in {file_path} must be a JSON object.")
-            records.append(item)
+            records.append((idx, item))
         return records, None
 
     parsed = parse_source_json(raw, file_path)
@@ -300,7 +305,7 @@ def _load_records(
         for item in parsed:
             if not isinstance(item, dict):
                 raise ValueError(f"All items in {file_path} must be JSON objects.")
-        return parsed, None
+        return list(enumerate(parsed, start=1)), None
 
     if isinstance(parsed, dict):
         top_model = parsed.get("model_name") or parsed.get("model")
@@ -312,7 +317,7 @@ def _load_records(
             if key in parsed and isinstance(parsed[key], list):
                 if any(not isinstance(item, dict) for item in parsed[key]):
                     raise ValueError(f"All items in {file_path} must be JSON objects.")
-                return list(parsed[key]), model_str
+                return list(enumerate(parsed[key], start=1)), model_str
 
     raise ValueError(f"Unsupported dataset format in {file_path}.")
 
@@ -327,7 +332,12 @@ def load_model_samples(
     fallback_model = top_model or (
         default_model_name if default_model_name != "unknown" else file_path.stem
     )
-    samples = [ModelSample.from_dict(rec, default_model_name=fallback_model) for rec in records]
+    samples = []
+    for number, rec in records:
+        try:
+            samples.append(ModelSample.from_dict(rec, default_model_name=fallback_model))
+        except ValueError as exc:
+            raise ValueError(f"{_record_location(path, number)}: {exc}") from exc
     index_records(samples, str(file_path))
     return samples
 
@@ -335,7 +345,7 @@ def load_model_samples(
 def load_prompt_cases(path: str | Path) -> list[PromptCase]:
     """Load a list of PromptCase objects from a JSON or JSONL file."""
     records, _ = _load_records(path, ("prompts", "cases", "suite", "items"))
-    prompts = [PromptCase.from_dict(rec) for rec in records]
+    prompts = [PromptCase.from_dict(rec) for _, rec in records]
     index_records(prompts, str(path))
     return prompts
 
