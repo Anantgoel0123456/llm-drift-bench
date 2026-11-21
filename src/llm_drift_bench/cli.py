@@ -532,7 +532,13 @@ def _add_check_tools_subparser(
             "Exit codes: 0 PASS, 1 FAIL, 3 UNKNOWN, 2 error. UNKNOWN is never treated as PASS."
         ),
     )
-    parser.add_argument("-i", "--input", required=True, help="Normalized trace file.")
+    parser.add_argument("-i", "--input", required=True, help="Trace or transcript file.")
+    parser.add_argument(
+        "--adapter",
+        choices=("normalized", "openai", "anthropic", "otel"),
+        default="normalized",
+        help="Input trace adapter: normalized (default), openai, anthropic, or otel.",
+    )
     parser.add_argument(
         "--resource", required=True,
         help="Exact resource revision identifier to require (must match the trace).",
@@ -562,10 +568,20 @@ def _add_check_tools_subparser(
 def _handle_check_tools(args: argparse.Namespace) -> int:
     """Execute the 'check-tools' subcommand."""
     _protect_inputs(args.output, args.input)
-    record = check_trace_file(
-        args.input, resource=args.resource, required_start=args.start,
-        required_end=args.end, trace_complete=args.trace_complete,
-    )
+    if args.adapter == "normalized":
+        record = check_trace_file(
+            args.input, resource=args.resource, required_start=args.start,
+            required_end=args.end, trace_complete=args.trace_complete,
+        )
+    else:
+        from llm_drift_bench.adapters import load_adapted_tool_events
+        from llm_drift_bench.tool_log import check_trace
+
+        events = load_adapted_tool_events(args.input, adapter=args.adapter)
+        record = check_trace(
+            events, resource=args.resource, required_start=args.start,
+            required_end=args.end, trace_complete=args.trace_complete,
+        )
     payload = json.dumps(record.to_dict(), indent=2)
     if args.output:
         _atomic_write_text(Path(args.output), payload + "\n")

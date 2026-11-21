@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
 
+from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench.tool_events import ToolEvent
+from llm_drift_bench.tool_log import load_tool_events
+
+AdapterName = Literal["normalized", "openai", "anthropic", "otel"]
 
 DEFAULT_READ_TOOLS = frozenset({"read_file", "Read", "view_file", "get_file", "cat"})
 DEFAULT_EDIT_TOOLS = frozenset({
@@ -67,21 +72,32 @@ def from_openai_tool_calls(
     for msg in messages:
         if msg.get("role") == "tool" and isinstance(msg.get("tool_call_id"), str):
             tool_results[msg["tool_call_id"]] = msg
+        elif msg.get("type") == "function_call_output" and isinstance(msg.get("call_id"), str):
+            tool_results[msg["call_id"]] = msg
 
     events: list[ToolEvent] = []
     seq = 0
     for msg in messages:
+        # Support both Chat Completions tool_calls and Responses API function_call items.
+        raw_calls: list[tuple[str | None, str | None, Any]] = []
         tool_calls = msg.get("tool_calls")
-        if not isinstance(tool_calls, list):
-            continue
-        for call in tool_calls:
-            if not isinstance(call, Mapping):
-                continue
-            fn = call.get("function")
-            if not isinstance(fn, Mapping):
-                continue
-            name = fn.get("name")
-            if not isinstance(name, str):
+        if isinstance(tool_calls, list):
+            for call in tool_calls:
+                if not isinstance(call, Mapping):
+                    continue
+                fn = call.get("function")
+                if not isinstance(fn, Mapping):
+                    continue
+                cid = call.get("id") if isinstance(call.get("id"), str) else None
+                name = fn.get("name") if isinstance(fn.get("name"), str) else None
+                raw_calls.append((cid, name, fn.get("arguments")))
+        elif msg.get("type") == "function_call":
+            cid = msg.get("call_id") if isinstance(msg.get("call_id"), str) else None
+            name = msg.get("name") if isinstance(msg.get("name"), str) else None
+            raw_calls.append((cid, name, msg.get("arguments")))
+
+        for call_id, name, raw_args in raw_calls:
+            if name is None:
                 continue
             if name in read_tools:
                 kind = "read"
@@ -89,12 +105,11 @@ def from_openai_tool_calls(
                 kind = "edit"
             else:
                 continue
-            args = _extract_args_dict(fn.get("arguments"))
+            args = _extract_args_dict(raw_args)
             resource = _extract_resource(args, resource_keys)
             if resource is None:
                 continue
-            call_id = call.get("id")
-            result_msg = tool_results.get(call_id) if isinstance(call_id, str) else None
+            result_msg = tool_results.get(call_id) if call_id is not None else None
             success = True
             start: int | None = None
             end: int | None = None
@@ -234,3 +249,39 @@ def from_otel_genai_spans(
         )
         seq += 1
     return events
+
+
+def load_adapted_tool_events(
+    path: str | Path,
+    adapter: AdapterName = "normalized",
+) -> list[ToolEvent]:
+    """Load a trace file using either the strict normalized format or a transcript adapter."""
+    if adapter == "normalized":
+        return load_tool_events(path)
+    source = Path(path)
+    raw = read_utf8(source)
+    stripped = raw.strip(" \t\r\n")
+    if not stripped:
+        raise ValueError(f"{source}: transcript file is empty.")
+    if source.suffix.lower() == ".jsonl":
+        items: Any = [
+            parse_source_json(line, source, line=idx)
+            for idx, line in enumerate(raw.split("\n"), start=1)
+            if line.strip(" \t\r")
+        ]
+    else:
+        parsed = parse_source_json(raw, source)
+        if isinstance(parsed, dict):
+            items = parsed.get("messages") or parsed.get("spans") or parsed.get("events") or []
+        else:
+            items = parsed
+    if not isinstance(items, list):
+        raise ValueError(f"{source}: transcript must contain a JSON array or JSONL records.")
+    records = [item for item in items if isinstance(item, Mapping)]
+    if adapter == "openai":
+        return from_openai_tool_calls(records)
+    if adapter == "anthropic":
+        return from_anthropic_transcript(records)
+    if adapter == "otel":
+        return from_otel_genai_spans(records)
+    raise ValueError(f"Unsupported adapter: {adapter!r}.")

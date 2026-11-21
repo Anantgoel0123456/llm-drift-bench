@@ -128,3 +128,50 @@ def test_max_tool_retries_and_secret_scanning() -> None:
 
     clean_res = check_no_secret_in_tool_args([{"path": "README.md"}], trace_complete=True)
     assert clean_res.status == "PASS"
+
+
+def test_openai_responses_api_and_cli_check_tools_adapter(tmp_path) -> None:
+    import json
+
+    from llm_drift_bench.cli import main
+
+    transcript = tmp_path / "responses.json"
+    transcript.write_text(
+        json.dumps(
+            [
+                {
+                    "type": "function_call",
+                    "call_id": "fc_1",
+                    "name": "read_file",
+                    "arguments": '{"path": "guide@1"}',
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": "fc_1",
+                    "range": {"start": 0, "end": 100},
+                },
+                {
+                    "type": "function_call",
+                    "call_id": "fc_2",
+                    "name": "edit_file",
+                    "arguments": '{"path": "app.py@1"}',
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    rc = main(
+        [
+            "check-tools",
+            "-i",
+            str(transcript),
+            "--adapter",
+            "openai",
+            "--resource",
+            "guide@1",
+            "--end",
+            "100",
+            "--trace-complete",
+        ]
+    )
+    assert rc == 0
