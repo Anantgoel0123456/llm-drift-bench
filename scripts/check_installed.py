@@ -89,6 +89,16 @@ else:
 '''
         subprocess.run([str(python), "-c", code], cwd=root, env=env, check=True)
         examples = Path(__file__).resolve().parents[1] / "examples"
+        benchmark = [str(cli), "run", "-s", str(examples / "extraction-suite.json"),
+                     "-b", str(examples / "baseline.jsonl"), "--format", "json"]
+        for name, expected in (("pass", 0), ("drift", 1)):
+            outcome = subprocess.run(
+                [*benchmark, "-c", str(examples / f"candidate-{name}.jsonl")],
+                cwd=root, env=env, capture_output=True, text=True,
+            )
+            if outcome.returncode != expected:
+                raise SystemExit(f"run {name}: exit {outcome.returncode}, want {expected}")
+            assert json.loads(outcome.stdout)["passed"] is (expected == 0)
         comparison = subprocess.run(
             [str(cli), "compare-reports", str(examples / "expected-drift.json"),
              str(examples / "expected-pass.json"), "--format", "json"],
