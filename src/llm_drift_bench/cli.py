@@ -1314,6 +1314,64 @@ def _handle_capture(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_infer_schema_subparser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    parser = subparsers.add_parser(
+        "infer-schema",
+        help="Infer a JSON Schema prompt suite directly from captured baseline JSON outputs.",
+    )
+    parser.add_argument(
+        "-i",
+        "--input",
+        nargs="+",
+        required=True,
+        metavar="FILE",
+        help="One or more captured baseline output files (.json/.jsonl).",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Optional output path for the generated prompts.json suite (stdout if omitted).",
+    )
+    parser.add_argument(
+        "--strict-additional",
+        action="store_true",
+        help="Emit additionalProperties: false on all inferred object schemas.",
+    )
+    parser.add_argument(
+        "--shared-schema",
+        action="store_true",
+        help="Merge all JSON samples into one shared schema applied across JSON prompts.",
+    )
+
+
+def _handle_infer_schema(args: argparse.Namespace) -> int:
+    from llm_drift_bench.schema_infer import infer_prompt_suite
+
+    _protect_inputs(args.output, *args.input)
+    samples: list[ModelSample] = []
+    for path in args.input:
+        samples.extend(load_model_samples(path))
+    suite = infer_prompt_suite(
+        samples,
+        strict_additional=args.strict_additional,
+        shared_schema=args.shared_schema,
+    )
+    serialized = json.dumps(suite, indent=2) + "\n"
+    if args.output:
+        _atomic_write_text(Path(args.output), serialized)
+        with_schema = sum(1 for item in suite if "schema" in item)
+        print(
+            f"Inferred {len(suite)} prompt case(s) "
+            f"({with_schema} with JSON schema) -> {args.output}"
+        )
+    else:
+        print(serialized, end="")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build and return the top-level CLI ArgumentParser."""
     parser = argparse.ArgumentParser(
@@ -1354,6 +1412,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_stats_subparser(subparsers)
     _add_history_subparser(subparsers)
     _add_capture_subparser(subparsers)
+    _add_infer_schema_subparser(subparsers)
     _add_init_sample_subparser(subparsers)
     subparsers.add_parser("ai-devices", help="List devices visible to OpenVINO.")
     return parser
@@ -1390,6 +1449,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _handle_history(args)
         if args.command == "capture":
             return _handle_capture(args)
+        if args.command == "infer-schema":
+            return _handle_infer_schema(args)
         if args.command == "init-sample":
             return _handle_init_sample(args)
     except Exception as exc:
