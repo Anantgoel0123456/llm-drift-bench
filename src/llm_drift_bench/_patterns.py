@@ -16,6 +16,7 @@ def pattern_policy_error(pattern: str) -> str | None:
     if len(pattern) > MAX_PATTERN_LENGTH:
         return f"pattern exceeds {MAX_PATTERN_LENGTH} characters."
     in_class = False
+    class_first_index = -1
     repeats = 0
     index = 0
     while index < len(pattern):
@@ -26,10 +27,13 @@ def pattern_policy_error(pattern: str) -> str | None:
             if escaped.isalnum() and escaped not in "dDsSwW":
                 return "Only character-class escapes and escaped punctuation are supported."
         elif in_class:
-            if char == "]":
+            if char == "^" and index == class_first_index:
+                class_first_index = index + 1
+            elif char == "]" and index > class_first_index:
                 in_class = False
         elif char == "[":
             in_class = True
+            class_first_index = index + 1
         elif char in "()|{}?":
             return "Groups, alternation, counted/optional/lazy repetition are unsupported."
         elif char in "*+":

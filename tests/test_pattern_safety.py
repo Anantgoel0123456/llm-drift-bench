@@ -22,6 +22,7 @@ def test_unsafe_patterns_never_reach_search(pattern: str) -> None:
     (r"^INV-\d+$", "INV-123"), ("^[A-Z]+$", "ABC"),
     ("^.*end$", "the end"), ("word", "a word here"),
     (r"^a\+b$", "a+b"), ("^[()|]+$", "()|"), ("", "anything"),
+    (r"^[^]+]+$", "abc"), (r"^[]()+]+$", "]()+"), (r"^[^]]+$", "hello"),
 ])
 def test_documented_subset_matches(pattern: str, value: str) -> None:
     assert not validate_against_schema(value, {"pattern": pattern})
