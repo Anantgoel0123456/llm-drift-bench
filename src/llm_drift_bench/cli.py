@@ -36,6 +36,12 @@ from llm_drift_bench.engine import (
     load_model_samples,
     load_prompt_cases,
 )
+from llm_drift_bench.history import (
+    export_history_html,
+    format_history_text,
+    load_history,
+    record_report,
+)
 from llm_drift_bench.junit import export_junit_report
 from llm_drift_bench.local_advisor import available_devices, generate_advice
 from llm_drift_bench.models import DriftBenchmarkReport, DriftThresholds, ModelSample
@@ -1094,6 +1100,66 @@ def _handle_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_history_subparser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    parser = subparsers.add_parser(
+        "history",
+        help="Record benchmark reports to a JSONL ledger and inspect drift trends.",
+    )
+    hist_sub = parser.add_subparsers(dest="history_action", metavar="<action>")
+
+    rec = hist_sub.add_parser("record", help="Append a saved engine report to the drift ledger.")
+    rec.add_argument("--ledger", required=True, metavar="FILE", help="Path to JSONL ledger file.")
+    rec.add_argument("-i", "--input", required=True, help="Saved engine report JSON file.")
+    rec.add_argument("--tag", default=None, help="Optional release or quantization tag.")
+    rec.add_argument("--git-sha", default=None, help="Optional git commit SHA.")
+
+    show = hist_sub.add_parser("show", help="Display sparklines or export trend HTML from ledger.")
+    show.add_argument("--ledger", required=True, metavar="FILE", help="Path to JSONL ledger file.")
+    show.add_argument("--limit", type=int, default=None, help="Show only the latest N runs.")
+    show.add_argument(
+        "--format",
+        choices=("text", "json", "html"),
+        default="text",
+        help="Output format: text (default), json, or html.",
+    )
+    show.add_argument("-o", "--output", default=None, help="Optional file path to save output.")
+
+
+def _handle_history(args: argparse.Namespace) -> int:
+    action = getattr(args, "history_action", None)
+    if action is None:
+        raise ValueError("Specify a history action: 'record' or 'show'.")
+    if action == "record":
+        _protect_inputs(args.ledger, args.input)
+        report = load_engine_report(args.input)
+        entry = record_report(args.ledger, report, tag=args.tag, git_sha=args.git_sha)
+        print(
+            f"Recorded {entry.candidate_model} ({'PASS' if entry.passed else 'FAIL'}, "
+            f"mean drift {entry.mean_composite_drift:.4f}) to {args.ledger}"
+        )
+        return 0
+    if action == "show":
+        _protect_inputs(args.output, args.ledger)
+        entries = load_history(args.ledger)
+        if args.limit is not None:
+            if args.limit < 1:
+                raise ValueError("--limit must be positive.")
+            entries = entries[-args.limit:]
+        if args.format == "json":
+            rendered = json.dumps([e.to_dict() for e in entries], indent=2) + "\n"
+        elif args.format == "html":
+            rendered = export_history_html(entries)
+        else:
+            rendered = format_history_text(entries) + "\n"
+        if args.output:
+            _atomic_write_text(Path(args.output), rendered)
+        print(rendered, end="")
+        return 0
+    raise ValueError(f"Unsupported history action: {action!r}.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build and return the top-level CLI ArgumentParser."""
     parser = argparse.ArgumentParser(
@@ -1132,6 +1198,7 @@ def build_parser() -> argparse.ArgumentParser:
     comparison.add_argument("reports", nargs="+", metavar="REPORT", help="Saved engine report.")
     _add_check_tools_subparser(subparsers)
     _add_stats_subparser(subparsers)
+    _add_history_subparser(subparsers)
     _add_init_sample_subparser(subparsers)
     subparsers.add_parser("ai-devices", help="List devices visible to OpenVINO.")
     return parser
@@ -1164,6 +1231,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _handle_check_tools(args)
         if args.command == "stats":
             return _handle_stats(args)
+        if args.command == "history":
+            return _handle_history(args)
         if args.command == "init-sample":
             return _handle_init_sample(args)
     except Exception as exc:
