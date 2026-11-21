@@ -24,6 +24,7 @@ from llm_drift_bench._visuals import (
     comparison_html,
     render_html_diffs_section,
 )
+from llm_drift_bench.comparison import SortKey
 from llm_drift_bench.models import BenchmarkResult, DriftBenchmarkReport
 from llm_drift_bench.tool_log import ToolCheckRecord
 
@@ -296,6 +297,8 @@ def export_pr_comment(
 def export_comparison_html(
     reports: Sequence[DriftBenchmarkReport],
     output_path: str | Path | None = None,
+    *,
+    sort_by: SortKey = "drift",
 ) -> str:
     """Export a standalone multi-candidate HTML dashboard with an inline SVG Pareto chart."""
-    return _save_text(comparison_html(reports), output_path)
+    return _save_text(comparison_html(reports, sort_by=sort_by), output_path)

@@ -105,4 +105,35 @@ def test_cli_compare_reports_html_pareto_dashboard(tmp_path: Path) -> None:
     assert "Pareto View" in content
     assert "demo-candidate-pass" in content
     assert "demo-candidate-drift" in content
+    assert "text-anchor='end'" in content
     assert "<script" not in content.lower()
+
+
+def test_comparison_html_respects_sort_by_and_renders_pareto_frontier(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from llm_drift_bench.report_io import load_engine_report
+    from llm_drift_bench.reporter import export_comparison_html
+
+    pass_accurate = replace(
+        load_engine_report(EXAMPLES / "expected-pass.json"),
+        candidate_model="pass-accurate",
+        mean_composite_drift=0.02,
+        candidate_p95_latency_ms=120.0,
+    )
+    pass_balanced = replace(
+        load_engine_report(EXAMPLES / "expected-pass.json"),
+        candidate_model="pass-balanced",
+        mean_composite_drift=0.08,
+        candidate_p95_latency_ms=60.0,
+    )
+    fail_fast = replace(
+        load_engine_report(EXAMPLES / "expected-drift.json"),
+        candidate_model="fail-fast",
+        mean_composite_drift=0.05,
+        candidate_p95_latency_ms=90.0,
+    )
+    html = export_comparison_html([fail_fast, pass_balanced, pass_accurate], sort_by="passed")
+    assert html.index("<td>pass-balanced</td>") < html.index("<td>fail-fast</td>")
+    assert "<polyline" in html
+    assert "P95 Latency (ms)" in html

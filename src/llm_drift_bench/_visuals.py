@@ -17,7 +17,7 @@ from llm_drift_bench._report_views import (
     measurement,
     tool_check_rows,
 )
-from llm_drift_bench.comparison import _hotspots, compare_reports
+from llm_drift_bench.comparison import SortKey, _hotspots, compare_reports
 from llm_drift_bench.metrics import _json_type_tag, _values_equal, flatten_json_paths
 from llm_drift_bench.models import DriftBenchmarkReport
 from llm_drift_bench.tool_log import ToolCheckRecord
@@ -194,46 +194,106 @@ def canonical_pr_comment(
     return "\n".join(lines) + "\n"
 
 
+def _pareto_frontier(
+    points: Sequence[tuple[float, float, bool]],
+    *,
+    higher_y_better: bool,
+) -> list[tuple[float, float]]:
+    """Return non-dominated points ordered by increasing X (lower X is always better)."""
+    ordered = sorted(points, key=lambda pt: (pt[0], -pt[1] if higher_y_better else pt[1]))
+    frontier: list[tuple[float, float]] = []
+    best_y: float | None = None
+    for x_val, y_val, _ in ordered:
+        if best_y is None or (
+            y_val > best_y if higher_y_better else y_val < best_y
+        ):
+            frontier.append((x_val, y_val))
+            best_y = y_val
+    return frontier
+
+
 def _pareto_svg(rows: Sequence[Any]) -> str:
-    """Render an offline inline SVG scatter plot: Drift (X) vs Conformity or P95 Latency (Y)."""
-    width, height = 720, 320
-    pad_l, pad_r, pad_t, pad_b = 64, 32, 28, 48
+    """Render an offline inline SVG scatter plot with axis ticks and Pareto frontier."""
+    width, height = 720, 340
+    pad_l, pad_r, pad_t, pad_b = 68, 36, 30, 52
     plot_w = width - pad_l - pad_r
     plot_h = height - pad_t - pad_b
 
     has_latency = all(row.p95_ms is not None for row in rows)
-    max_x = max([row.mean_drift for row in rows] + [0.1])
-    max_x = min(1.0, max_x * 1.15)
+    max_x = min(1.0, max([row.mean_drift for row in rows] + [0.1]) * 1.15)
     if has_latency:
         y_vals = [float(row.p95_ms) for row in rows]
         max_y = max(max(y_vals) * 1.15, 1.0)
         y_label = "P95 Latency (ms) — lower is faster"
+        higher_y_better = False
     else:
         max_y = 100.0
         y_label = "JSON Conformity (%) — higher is better"
+        higher_y_better = True
 
-    points: list[str] = []
-    for row in rows:
-        cx = pad_l + (row.mean_drift / max_x) * plot_w
-        if has_latency:
-            y_val = float(row.p95_ms)
-            cy = pad_t + plot_h - (y_val / max_y) * plot_h
-        else:
-            y_val = row.conformity * 100.0
-            cy = pad_t + plot_h - (y_val / 100.0) * plot_h
+    def to_svg(x_val: float, y_val: float) -> tuple[float, float]:
+        cx = pad_l + (x_val / max_x) * plot_w
+        cy = pad_t + plot_h - (y_val / max_y) * plot_h
+        return cx, cy
+
+    raw_pts = [
+        (row.mean_drift, float(row.p95_ms) if has_latency else row.conformity * 100.0, row.passed)
+        for row in rows
+    ]
+    frontier = _pareto_frontier(raw_pts, higher_y_better=higher_y_better)
+    frontier_svg = ""
+    if len(frontier) >= 2:
+        pts_str = " ".join(f"{to_svg(x, y)[0]:.1f},{to_svg(x, y)[1]:.1f}" for x, y in frontier)
+        frontier_svg = (
+            f"<polyline fill='none' stroke='#38bdf8' stroke-width='1.8' "
+            f"stroke-dasharray='6 4' opacity='0.8' points='{pts_str}'/>"
+        )
+
+    grid_svg: list[str] = []
+    for frac in (0.0, 0.5, 1.0):
+        gx = pad_l + frac * plot_w
+        gy = pad_t + plot_h - frac * plot_h
+        x_tick = f"{frac * max_x:.2f}"
+        y_tick = f"{frac * max_y:.0f}" if has_latency else f"{frac * 100:.0f}%"
+        grid_svg.append(
+            f"<line x1='{gx:.1f}' y1='{pad_t}' x2='{gx:.1f}' y2='{pad_t + plot_h}' "
+            "stroke='#1e293b' stroke-width='1'/>"
+            f"<text x='{gx:.1f}' y='{pad_t + plot_h + 16}' text-anchor='middle' "
+            f"fill='#94a3b8' font-size='11'>{x_tick}</text>"
+            f"<line x1='{pad_l}' y1='{gy:.1f}' x2='{width - pad_r}' y2='{gy:.1f}' "
+            "stroke='#1e293b' stroke-width='1'/>"
+            f"<text x='{pad_l - 8}' y='{gy + 4:.1f}' text-anchor='end' "
+            f"fill='#94a3b8' font-size='11'>{y_tick}</text>"
+        )
+
+    placed: list[tuple[float, float]] = []
+    points_svg: list[str] = []
+    for row, (xv, yv, _) in zip(rows, raw_pts, strict=True):
+        cx, cy = to_svg(xv, yv)
+        label_y = cy + 4.0
+        for px, py in placed:
+            if abs(cx - px) < 70 and abs(label_y - py) < 14:
+                label_y += 15.0
+        label_y = min(pad_t + plot_h - 4.0, max(pad_t + 12.0, label_y))
+        placed.append((cx, label_y))
+        anchor_end = cx > width * 0.65
+        text_x = cx - 10.0 if anchor_end else cx + 10.0
+        anchor_attr = "end" if anchor_end else "start"
         color = "#6ee7b7" if row.passed else "#fda4af"
-        points.append(
+        points_svg.append(
             f"<circle cx='{cx:.1f}' cy='{cy:.1f}' r='7' fill='{color}' "
             f"stroke='#0b1220' stroke-width='2'/>"
-            f"<text x='{cx + 10:.1f}' y='{cy + 4:.1f}' fill='#e8eef8' font-size='12'>"
-            f"{escape(row.candidate)}</text>"
+            f"<text x='{text_x:.1f}' y='{label_y:.1f}' text-anchor='{anchor_attr}' "
+            f"fill='#e8eef8' font-size='12'>{escape(row.candidate)}</text>"
         )
 
     return (
         f"<svg viewBox='0 0 {width} {height}' role='img' "
         "aria-label='Candidate Pareto scatter chart' "
         "style='width:100%;max-width:720px;height:auto;background:#111e32;border-radius:8px'>"
-        f"<line x1='{pad_l}' y1='{pad_t + plot_h}' x2='{width - pad_r}' y2='{pad_t + plot_h}' "
+        + "".join(grid_svg)
+        + frontier_svg
+        + f"<line x1='{pad_l}' y1='{pad_t + plot_h}' x2='{width - pad_r}' y2='{pad_t + plot_h}' "
         "stroke='#475569' stroke-width='1.5'/>"
         f"<line x1='{pad_l}' y1='{pad_t}' x2='{pad_l}' y2='{pad_t + plot_h}' "
         "stroke='#475569' stroke-width='1.5'/>"
@@ -242,14 +302,18 @@ def _pareto_svg(rows: Sequence[Any]) -> str:
         f"<text x='18' y='{pad_t + plot_h / 2:.1f}' text-anchor='middle' fill='#a8bad2' "
         f"font-size='12' transform='rotate(-90 18 {pad_t + plot_h / 2:.1f})'>"
         f"{escape(y_label)}</text>"
-        + "".join(points)
+        + "".join(points_svg)
         + "</svg>"
     )
 
 
-def comparison_html(reports: Sequence[DriftBenchmarkReport]) -> str:
+def comparison_html(
+    reports: Sequence[DriftBenchmarkReport],
+    *,
+    sort_by: SortKey = "drift",
+) -> str:
     """Export a standalone script-free HTML comparison dashboard with an inline SVG Pareto chart."""
-    rows = compare_reports(reports)
+    rows = compare_reports(reports, sort_by=sort_by)
     categories = category_summary(reports)
     hotspots = _hotspots(reports, 10)
     baseline_name = reports[0].baseline_model

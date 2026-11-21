@@ -895,12 +895,16 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
         if args.json_output is not None:
             _write_comparison_json(Path(args.json_output), serialized)
         if getattr(args, "html_output", None) is not None:
-            _atomic_write_text(Path(args.html_output), export_comparison_html(reports))
+            _atomic_write_text(
+                Path(args.html_output), export_comparison_html(reports, sort_by=sort_by)
+            )
         if args.format == "json":
             print(serialized)
             return status
     elif getattr(args, "html_output", None) is not None:
-        _atomic_write_text(Path(args.html_output), export_comparison_html(reports))
+        _atomic_write_text(
+            Path(args.html_output), export_comparison_html(reports, sort_by=sort_by)
+        )
     if args.format == "rich":
         _render_comparison_rich(reports[0].baseline_model, rows)
     else:
