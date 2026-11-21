@@ -617,6 +617,8 @@ def _handle_init_sample(args: argparse.Namespace) -> int:
 
 
 def _add_comparison_output_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--json-output", metavar="FILE",
+                        help="Save comparison JSON alongside console output.")
     parser.add_argument("--by-category", action="store_true",
                         help="Summarize prompt counts and mean drift per candidate and category.")
     parser.add_argument("--rule-summary", action="store_true",
@@ -664,6 +666,7 @@ def _candidate_captures(
 
 
 def _handle_many(args: argparse.Namespace) -> int:
+    _protect_inputs(args.json_output, args.baseline, args.suite, *(p for _, p in args.candidate))
     labels = [label for label, _ in args.candidate]
     if len(labels) < 2:
         raise ValueError("Provide at least two labeled candidate captures.")
@@ -677,6 +680,7 @@ def _handle_many(args: argparse.Namespace) -> int:
 
 
 def _handle_compare_reports(args: argparse.Namespace) -> int:
+    _protect_inputs(args.json_output, *args.reports)
     reports = [load_engine_report(path) for path in args.reports]
     return _render_comparison(reports, args)
 
@@ -714,7 +718,7 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
         if args.against is None or args.change_limit < 1:
             raise ValueError("--change-limit requires --against and a positive integer.")
         changes = changes[:args.change_limit]
-    if args.format == "json":
+    if args.format == "json" or args.json_output is not None:
         payload: dict[str, Any] = {"baseline": reports[0].baseline_model,
                                    "candidates": [asdict(row) for row in rows]}
         if args.against is not None:
@@ -732,8 +736,12 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
             payload["prompt_details"] = [asdict(detail) for detail in inspections]
         if args.hotspots is not None:
             payload["hotspots"] = [asdict(hotspot) for hotspot in hotspots]
-        print(json.dumps(payload))
-        return status
+        serialized = json.dumps(payload)
+        if args.json_output is not None:
+            Path(args.json_output).write_text(serialized + "\n", encoding="utf-8")
+        if args.format == "json":
+            print(serialized)
+            return status
     print(f"Baseline {ascii(reports[0].baseline_model)}")
     for row in rows:
         verdict = "PASS" if row.passed else "FAIL"
