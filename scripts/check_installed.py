@@ -16,9 +16,9 @@ FORBIDDEN_FRAGMENTS = ("_vendor", "OPIK_LICENSE", "OPIK_NOTICE", "commit-reviewe
 def archive_names(artifact: Path) -> list[str]:
     if artifact.suffix == ".whl":
         with zipfile.ZipFile(artifact) as wheel:
-            return wheel.namelist()
+            return [item.filename for item in wheel.infolist() if not item.is_dir()]
     with tarfile.open(artifact) as sdist:
-        return sdist.getnames()
+        return [item.name for item in sdist.getmembers() if item.isfile()]
 
 
 def check_archive_contents(artifact: Path) -> None:
