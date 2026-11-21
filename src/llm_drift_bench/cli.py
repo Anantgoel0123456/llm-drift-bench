@@ -9,6 +9,7 @@ import sys
 from collections.abc import Iterator, Sequence
 from dataclasses import asdict
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 
 from llm_drift_bench import __version__
@@ -685,6 +686,17 @@ def _handle_compare_reports(args: argparse.Namespace) -> int:
     return _render_comparison(reports, args)
 
 
+def _write_comparison_json(target: Path, serialized: str) -> None:
+    """Replace the target only after the complete document has been written."""
+    with NamedTemporaryFile(dir=target.parent, delete=False) as stream:
+        temporary = Path(stream.name)
+    try:
+        temporary.write_text(serialized + "\n", encoding="utf-8")
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.Namespace) -> int:
     if args.against is not None:
         rows, changes = compare_with_changes(reports, args.against)
@@ -738,7 +750,7 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
             payload["hotspots"] = [asdict(hotspot) for hotspot in hotspots]
         serialized = json.dumps(payload)
         if args.json_output is not None:
-            Path(args.json_output).write_text(serialized + "\n", encoding="utf-8")
+            _write_comparison_json(Path(args.json_output), serialized)
         if args.format == "json":
             print(serialized)
             return status

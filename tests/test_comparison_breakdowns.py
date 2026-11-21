@@ -98,3 +98,15 @@ def test_invalid_ranking_limits_preserve_existing_output(tmp_path) -> None:
     for flag in ("--slowdowns", "--numeric-changes"):
         assert main(["compare-reports", *FILES, flag, "0", "--json-output", str(target)]) == 2
     assert target.read_bytes() == b"previous"
+
+
+def test_failed_export_preserves_previous_result(tmp_path, monkeypatch) -> None:
+    def fail_replace(source, target):
+        raise OSError("destination busy")
+
+    target = tmp_path / "output.json"
+    target.write_bytes(b"old")
+    monkeypatch.setattr("llm_drift_bench.cli.os.replace", fail_replace)
+    assert main(["compare-reports", *FILES, "--json-output", str(target)]) == 2
+    assert target.read_bytes() == b"old"
+    assert list(tmp_path.iterdir()) == [target]
