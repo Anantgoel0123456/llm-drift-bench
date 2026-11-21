@@ -20,7 +20,10 @@ def read_utf8(path: str | Path) -> str:
     try:
         return data.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
-        raise ValueError(f"Input must be UTF-8 (an initial BOM is allowed): {source}") from exc
+        offset = len(data) - len(exc.object) + exc.start
+        raise ValueError(
+            f"Input must be UTF-8: {source} (invalid byte at offset {offset})."
+        ) from exc
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
