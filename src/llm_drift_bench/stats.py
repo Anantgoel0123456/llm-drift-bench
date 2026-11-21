@@ -60,6 +60,64 @@ class PairedSignificance:
 
 
 @dataclass(frozen=True)
+class McNemarResult:
+    """Exact two-sided McNemar test on paired binary outcomes (e.g., pass/fail or conformity)."""
+
+    b_regressed: int
+    c_recovered: int
+    p_value: float
+    alpha: float
+    significant: bool
+    sample_size: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "b_regressed": self.b_regressed,
+            "c_recovered": self.c_recovered,
+            "p_value": round(self.p_value, 6),
+            "alpha": self.alpha,
+            "significant": self.significant,
+            "sample_size": self.sample_size,
+        }
+
+
+def mcnemar_exact_test(
+    passed_a: Sequence[bool],
+    passed_b: Sequence[bool],
+    *,
+    alpha: float = 0.05,
+) -> McNemarResult:
+    """Compute exact two-sided McNemar binomial p-value for paired binary pass/fail outcomes.
+
+    b_regressed counts items that passed in A and failed in B;
+    c_recovered counts items that failed in A and passed in B.
+    """
+    if not passed_a or len(passed_a) != len(passed_b):
+        raise ValueError("passed_a and passed_b must be non-empty sequences of equal length.")
+    if not (0.0 < alpha < 1.0):
+        raise ValueError("alpha must lie strictly between 0 and 1.")
+
+    b_reg = sum(1 for a, b in zip(passed_a, passed_b, strict=True) if a and not b)
+    c_rec = sum(1 for a, b in zip(passed_a, passed_b, strict=True) if not a and b)
+    discordant = b_reg + c_rec
+    if discordant == 0:
+        return McNemarResult(0, 0, 1.0, alpha, False, len(passed_a))
+
+    tail = min(b_reg, c_rec)
+    denom = 2**discordant
+    one_sided = sum(math.comb(discordant, k) for k in range(tail + 1)) / denom
+    p_val = min(1.0, 2.0 * one_sided)
+    return McNemarResult(
+        b_regressed=b_reg,
+        c_recovered=c_rec,
+        p_value=p_val,
+        alpha=alpha,
+        significant=p_val < alpha,
+        sample_size=len(passed_a),
+    )
+
+
+@dataclass(frozen=True)
 class PromptStability:
     """Per-prompt drift variance and flakiness across repeated runs."""
 

@@ -12,6 +12,7 @@ from llm_drift_bench.engine import DriftBenchmarkEngine
 from llm_drift_bench.models import ModelSample
 from llm_drift_bench.stats import (
     bootstrap_mean_ci,
+    mcnemar_exact_test,
     paired_permutation_test,
     summarize_multi_run,
 )
@@ -105,4 +106,16 @@ def test_cli_stats_text_and_json_with_significance(capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert "mean_drift_ci" in payload
     assert "significance" in payload
+    assert "mcnemar_conformity" in payload
     assert payload["significance"]["observed_diff"] > 0
+
+
+def test_mcnemar_exact_test_binary_shifts() -> None:
+    # 10 prompts regressed (True -> False), 0 recovered -> exact p = 2 * (1/1024) = 0.001953
+    res = mcnemar_exact_test([True] * 12, [True, True] + [False] * 10)
+    assert res.b_regressed == 10 and res.c_recovered == 0
+    assert res.significant is True
+    assert res.p_value == pytest.approx(2 / 1024)
+
+    same = mcnemar_exact_test([True, False], [True, False])
+    assert same.p_value == 1.0 and same.significant is False

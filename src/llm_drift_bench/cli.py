@@ -55,7 +55,7 @@ from llm_drift_bench.reporter import (
     export_pr_comment,
     render_console_report,
 )
-from llm_drift_bench.stats import paired_permutation_test, summarize_multi_run
+from llm_drift_bench.stats import mcnemar_exact_test, paired_permutation_test, summarize_multi_run
 from llm_drift_bench.tool_log import (
     ToolCheckRecord,
     check_trace_file,
@@ -1064,24 +1064,36 @@ def _handle_stats(args: argparse.Namespace) -> int:
         seed=args.seed,
     )
     sig_payload: dict[str, Any] | None = None
+    mcnemar_payload: dict[str, Any] | None = None
     if args.compare_against is not None:
         ref = load_engine_report(args.compare_against)
-        ref_map = {row.prompt_id: row.composite_drift_score for row in ref.results}
-        cand_map = {item.prompt_id: item.mean_drift for item in summary.prompt_stability}
+        if ref.baseline_model != summary.baseline_model:
+            raise ValueError(
+                "Comparison report baseline model must match the evaluated runs."
+            )
+        ref_map = {row.prompt_id: row for row in ref.results}
+        cand_map = {item.prompt_id: item for item in summary.prompt_stability}
         require_same_ids(set(ref_map), set(cand_map), "Comparison report")
         ordered_ids = sorted(ref_map)
         sig = paired_permutation_test(
-            [ref_map[pid] for pid in ordered_ids],
-            [cand_map[pid] for pid in ordered_ids],
+            [ref_map[pid].composite_drift_score for pid in ordered_ids],
+            [cand_map[pid].mean_drift for pid in ordered_ids],
             n_permutations=args.resamples,
             seed=args.seed,
         )
         sig_payload = sig.to_dict()
+        mcnemar = mcnemar_exact_test(
+            [ref_map[pid].candidate_validation.passed for pid in ordered_ids],
+            [cand_map[pid].conformity_rate >= 0.5 for pid in ordered_ids],
+        )
+        mcnemar_payload = mcnemar.to_dict()
 
     if args.format == "json":
         payload = summary.to_dict()
         if sig_payload is not None:
             payload["significance"] = sig_payload
+        if mcnemar_payload is not None:
+            payload["mcnemar_conformity"] = mcnemar_payload
         print(json.dumps(payload, indent=2))
         return 0
 
@@ -1101,6 +1113,13 @@ def _handle_stats(args: argparse.Namespace) -> int:
         print(
             f"Paired permutation test vs {args.compare_against}: "
             f"diff={sig_payload['observed_diff']:+.4f}, p={sig_payload['p_value']:.4f} ({verdict})"
+        )
+    if mcnemar_payload is not None:
+        m_verdict = "SIGNIFICANT" if mcnemar_payload["significant"] else "not significant"
+        print(
+            f"McNemar conformity test: regressed={mcnemar_payload['b_regressed']}, "
+            f"recovered={mcnemar_payload['c_recovered']}, "
+            f"p={mcnemar_payload['p_value']:.4f} ({m_verdict})"
         )
     return 0
 
