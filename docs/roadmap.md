@@ -11,12 +11,12 @@ This is a prioritized plan, not a list of shipped capabilities or release dates.
 - [x] Add a framework-independent assertion helper for automated tests.
 - [x] Unify CLI engine, saved report, Rich, and Markdown scores and failure reasons.
 - [x] Add standalone HTML exports of canonical engine reports.
-- [ ] Complete schema validation policy, malformed-schema checks, and regex safety.
+- [x] Validate supported schema keyword shapes and enforce a bounded regex subset.
 - [x] Reject nonfinite and out-of-range numbers in captured output parsing and numeric drift.
 - [x] Remove ambiguous JSON key paths in structural, field-match, and numeric metrics.
 - [x] Add an offline read-before-edit library check for normalized tool events.
 - [x] Handle BOM input and document encoding and size limits consistently.
-- [x] Separate TestPyPI manual publishing from production release publishing.
+- [x] Allow manual checks or an explicit publish to the selected registry. Published releases target PyPI.
 - [x] Verify built wheels outside the checkout on Windows/Linux and Python 3.10-3.13.
 
 ## Remaining verification and integrations
@@ -40,13 +40,13 @@ The CI version constraint and integral-float schema-limit issues are fixed local
 
 - [x] JUnit XML exports with per-prompt cases and an overall benchmark gate.
 - [x] GitHub step summaries with `run --github-summary`.
+- [x] Evaluate several candidate captures against one baseline with `compare-many` and identify newly drifted or recovered prompts.
 
 ## Planned features
 
 | Feature | Value | Relative effort |
 | --- | --- | --- |
 | Configurable weights and drift.toml | Reuse task-specific evaluation policies | Medium |
-| Compare one baseline with many candidates | Inspect a quantization sweep | Medium |
 | Endpoint collection with provenance | Capture reproducible inputs | Large |
 | Optional embeddings | Add a distinct semantic signal | Large |
 | Run history and trends | Compare versioned runs over time | Large |
