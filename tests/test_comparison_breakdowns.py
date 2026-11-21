@@ -110,3 +110,11 @@ def test_failed_export_preserves_previous_result(tmp_path, monkeypatch) -> None:
     assert main(["compare-reports", *FILES, "--json-output", str(target)]) == 2
     assert target.read_bytes() == b"old"
     assert list(tmp_path.iterdir()) == [target]
+
+
+def test_comparison_json_output_creates_nested_parent_directories(tmp_path) -> None:
+    nested = tmp_path / "artifacts" / "sub" / "comparison.json"
+    assert main(["compare-reports", *FILES, "--json-output", str(nested)]) == 0
+    assert nested.is_file()
+    data = json.loads(nested.read_text(encoding="utf-8"))
+    assert len(data["candidates"]) == 2

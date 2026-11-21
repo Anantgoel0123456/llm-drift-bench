@@ -217,14 +217,10 @@ def _handle_run(args: argparse.Namespace) -> int:
     )
 
     if args.output:
-        out_path = Path(args.output)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(report.to_json(indent=2), encoding="utf-8")
+        _atomic_write_text(Path(args.output), report.to_json(indent=2))
 
     if args.junit_output:
-        junit_path = Path(args.junit_output)
-        junit_path.parent.mkdir(parents=True, exist_ok=True)
-        junit_path.write_text(export_junit_report(report), encoding="utf-8")
+        _atomic_write_text(Path(args.junit_output), export_junit_report(report))
 
     if args.format == "junit":
         print(export_junit_report(report), end="")
@@ -300,9 +296,7 @@ def _handle_report(args: argparse.Namespace) -> int:
             raise ValueError("JUnit export requires a canonical engine report.")
         xml = export_junit_report(result)
         if args.output:
-            target = Path(args.output)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(xml, encoding="utf-8")
+            _atomic_write_text(Path(args.output), xml)
         print(xml, end="")
     elif args.format == "markdown":
         md = export_markdown_report(result, output_path=args.output, tool_checks=tool_checks)
@@ -311,9 +305,7 @@ def _handle_report(args: argparse.Namespace) -> int:
         payload = (result.to_json(indent=2) if isinstance(result, DriftBenchmarkReport)
                    else result.model_dump_json(indent=2))
         if args.output:
-            out_file = Path(args.output)
-            out_file.parent.mkdir(parents=True, exist_ok=True)
-            out_file.write_text(payload, encoding="utf-8")
+            _atomic_write_text(Path(args.output), payload)
         print(payload)
     elif args.format == "html":
         print(
@@ -322,9 +314,7 @@ def _handle_report(args: argparse.Namespace) -> int:
     else:
         rendered = render_console_report(result)
         if args.output:
-            out_file = Path(args.output)
-            out_file.parent.mkdir(parents=True, exist_ok=True)
-            out_file.write_text(rendered, encoding="utf-8")
+            _atomic_write_text(Path(args.output), rendered)
     return 0
 
 
@@ -488,9 +478,7 @@ def _handle_check_tools(args: argparse.Namespace) -> int:
     )
     payload = json.dumps(record.to_dict(), indent=2)
     if args.output:
-        out_path = Path(args.output)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(payload + "\n", encoding="utf-8")
+        _atomic_write_text(Path(args.output), payload + "\n")
     result = record.result
     if args.format == "json":
         print(payload)
@@ -686,15 +674,21 @@ def _handle_compare_reports(args: argparse.Namespace) -> int:
     return _render_comparison(reports, args)
 
 
-def _write_comparison_json(target: Path, serialized: str) -> None:
-    """Replace the target only after the complete document has been written."""
+def _atomic_write_text(target: Path, content: str) -> None:
+    """Create parent directories and replace target only after a complete write."""
+    target.parent.mkdir(parents=True, exist_ok=True)
     with NamedTemporaryFile(dir=target.parent, delete=False) as stream:
         temporary = Path(stream.name)
     try:
-        temporary.write_text(serialized + "\n", encoding="utf-8")
+        temporary.write_text(content, encoding="utf-8")
         os.replace(temporary, target)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _write_comparison_json(target: Path, serialized: str) -> None:
+    """Replace the target only after the complete document has been written."""
+    _atomic_write_text(target, serialized + "\n")
 
 
 def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.Namespace) -> int:
