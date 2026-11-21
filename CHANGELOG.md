@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- Dataset parsing errors identify the source file. JSON syntax errors include
+  line and column, and record conversion errors identify the JSONL line or
+  one-based JSON array position. Invalid measurements and duplicate JSON keys
+  no longer echo their input values.
+- Installed-package CI verifies license files in both distribution formats and
+  exercises benchmark exit codes 0, 1 and 2 outside the source checkout.
+
 - Evaluate multiple candidate captures against one baseline and suite with
   `compare-many` or `evaluate_many()`.
 - Track newly drifted and recovered prompts with `--against` or
