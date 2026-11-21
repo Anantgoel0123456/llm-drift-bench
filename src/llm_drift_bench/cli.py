@@ -46,6 +46,7 @@ from llm_drift_bench.reporter import (
     export_markdown_report,
     render_console_report,
 )
+from llm_drift_bench.stats import paired_permutation_test, summarize_multi_run
 from llm_drift_bench.tool_log import (
     ToolCheckRecord,
     check_trace_file,
@@ -958,6 +959,101 @@ def _handle_diagnose(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_stats_subparser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    parser = subparsers.add_parser(
+        "stats",
+        help="Compute bootstrap confidence intervals, multi-run variance, and significance tests.",
+    )
+    parser.add_argument(
+        "reports",
+        nargs="+",
+        metavar="REPORT",
+        help="One or more saved engine reports (repeated runs of the same candidate).",
+    )
+    parser.add_argument(
+        "--compare-against",
+        metavar="REPORT",
+        default=None,
+        help="Optional saved engine report for a paired permutation significance test.",
+    )
+    parser.add_argument(
+        "--confidence",
+        type=float,
+        default=0.95,
+        help="Bootstrap confidence level between 0 and 1 (default: 0.95).",
+    )
+    parser.add_argument(
+        "--resamples",
+        type=int,
+        default=1000,
+        help="Number of bootstrap resamples / permutations (default: 1000).",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Deterministic random seed for resampling (default: 0).",
+    )
+    parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Stdout display format: text (default) or json.",
+    )
+
+
+def _handle_stats(args: argparse.Namespace) -> int:
+    reports = [load_engine_report(path) for path in args.reports]
+    summary = summarize_multi_run(
+        reports,
+        confidence=args.confidence,
+        n_resamples=args.resamples,
+        seed=args.seed,
+    )
+    sig_payload: dict[str, Any] | None = None
+    if args.compare_against is not None:
+        ref = load_engine_report(args.compare_against)
+        ref_map = {row.prompt_id: row.composite_drift_score for row in ref.results}
+        cand_map = {item.prompt_id: item.mean_drift for item in summary.prompt_stability}
+        require_same_ids(set(ref_map), set(cand_map), "Comparison report")
+        ordered_ids = sorted(ref_map)
+        sig = paired_permutation_test(
+            [ref_map[pid] for pid in ordered_ids],
+            [cand_map[pid] for pid in ordered_ids],
+            n_permutations=args.resamples,
+            seed=args.seed,
+        )
+        sig_payload = sig.to_dict()
+
+    if args.format == "json":
+        payload = summary.to_dict()
+        if sig_payload is not None:
+            payload["significance"] = sig_payload
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    ci = summary.mean_drift_ci
+    conf_ci = summary.conformity_ci
+    pct = int(round(ci.confidence_level * 100))
+    print(f"Multi-run stability ({summary.runs} run(s), {summary.prompts} prompt(s))")
+    print(f"Baseline: {summary.baseline_model} | Candidate: {summary.candidate_model}")
+    print(f"Mean drift ({pct}% CI): {ci.mean:.4f} [{ci.lower:.4f}, {ci.upper:.4f}]")
+    print(f"Conformity ({pct}% CI): {conf_ci.mean:.1%} [{conf_ci.lower:.1%}, {conf_ci.upper:.1%}]")
+    if summary.flaky_prompts:
+        print(f"Flaky prompts ({len(summary.flaky_prompts)}): {', '.join(summary.flaky_prompts)}")
+    else:
+        print("Flaky prompts: none")
+    if sig_payload is not None:
+        verdict = "SIGNIFICANT" if sig_payload["significant"] else "not significant"
+        print(
+            f"Paired permutation test vs {args.compare_against}: "
+            f"diff={sig_payload['observed_diff']:+.4f}, p={sig_payload['p_value']:.4f} ({verdict})"
+        )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build and return the top-level CLI ArgumentParser."""
     parser = argparse.ArgumentParser(
@@ -995,6 +1091,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_comparison_output_options(comparison)
     comparison.add_argument("reports", nargs="+", metavar="REPORT", help="Saved engine report.")
     _add_check_tools_subparser(subparsers)
+    _add_stats_subparser(subparsers)
     _add_init_sample_subparser(subparsers)
     subparsers.add_parser("ai-devices", help="List devices visible to OpenVINO.")
     return parser
@@ -1025,6 +1122,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _handle_validate(args)
         if args.command == "check-tools":
             return _handle_check_tools(args)
+        if args.command == "stats":
+            return _handle_stats(args)
         if args.command == "init-sample":
             return _handle_init_sample(args)
     except Exception as exc:
