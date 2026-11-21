@@ -133,7 +133,10 @@ def canonical_markdown(
 
 
 def canonical_html(
-    report: DriftBenchmarkReport, tool_checks: Sequence[ToolCheckRecord] = (),
+    report: DriftBenchmarkReport,
+    tool_checks: Sequence[ToolCheckRecord] = (),
+    *,
+    extra_sections: str = "",
 ) -> str:
     def table(headers: tuple[str, ...], rows: Sequence[tuple[str, ...]]) -> str:
         head = "".join(f"<th scope='col'>{escape(v)}</th>" for v in headers)
@@ -168,13 +171,20 @@ color:{'#6ee7b7' if report.passed else '#fda4af'}}}.scroll{{overflow-x:auto}}
 table{{border-collapse:collapse;width:100%;background:#111e32}}th,td{{padding:12px;
 border-bottom:1px solid #30405a;text-align:left}}th{{color:#7dd3fc}}td{{white-space:pre-wrap;
 overflow-wrap:anywhere}}.muted{{color:#a8bad2}}footer{{margin-top:40px}}
+.diff-card{{margin:14px 0;padding:12px 16px;background:#111e32;border:1px solid #30405a;
+border-radius:8px}}.diff-card summary{{cursor:pointer}}
+.diff-added td:last-child{{color:#6ee7b7}}.diff-removed td:last-child{{color:#fda4af}}
+.diff-changed td:last-child,.diff-type_changed td:last-child{{color:#fcd34d}}
+.side-by-side{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:10px}}
+.side-by-side pre{{background:#0b1220;padding:10px;border-radius:6px;overflow-x:auto;
+white-space:pre-wrap;margin:0}}
 </style></head><body><main><p class="muted">llm-drift-bench / offline report</p>
 <h1>Model comparison <span class="status">{state}</span></h1>
 <p>Baseline: {escape(report.baseline_model)}<br>Candidate: {escape(report.candidate_model)}</p>
 <p>{report.total_samples} samples / {report.drifted_samples} drifted</p>
 <h2>Summary</h2>{table(('Metric', 'Baseline', 'Candidate / value'), summary_rows(report))}
 <h2>Per-prompt results</h2>{table(DETAIL_HEADERS, detail_rows(report))}
-{tool_section}<h2>Checks and notes</h2><ul>{notes}</ul>{thresholds}
+{extra_sections}{tool_section}<h2>Checks and notes</h2><ul>{notes}</ul>{thresholds}
 <footer class="muted">Saved evaluation, not live monitoring. Agreement is not correctness.
 Missing measurements remain unavailable.</footer></main></body></html>
 """

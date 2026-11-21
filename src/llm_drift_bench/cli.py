@@ -42,8 +42,10 @@ from llm_drift_bench.models import DriftBenchmarkReport, DriftThresholds, ModelS
 from llm_drift_bench.policy import DriftPolicy, load_policy
 from llm_drift_bench.report_io import load_engine_report, load_report
 from llm_drift_bench.reporter import (
+    export_comparison_html,
     export_html_report,
     export_markdown_report,
+    export_pr_comment,
     render_console_report,
 )
 from llm_drift_bench.stats import paired_permutation_test, summarize_multi_run
@@ -72,8 +74,8 @@ def _add_tool_check_option(parser: argparse.ArgumentParser) -> None:
 
 
 def _load_tool_checks(paths: Sequence[str], output_format: str) -> list[ToolCheckRecord]:
-    if paths and output_format not in ("markdown", "html"):
-        raise ValueError("--tool-check requires markdown or html output.")
+    if paths and output_format not in ("markdown", "html", "pr-comment"):
+        raise ValueError("--tool-check requires markdown, html, or pr-comment output.")
     return [load_tool_check(path) for path in paths]
 
 
@@ -152,9 +154,14 @@ def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     )
     run_parser.add_argument(
         "--format",
-        choices=("table", "rich", "json", "markdown", "html", "junit"),
+        choices=("table", "rich", "json", "markdown", "html", "junit", "pr-comment"),
         default="table",
-        help="Stdout format: table (default), rich, json, markdown, html, or junit.",
+        help="Stdout format: table (default), rich, json, markdown, html, junit, or pr-comment.",
+    )
+    run_parser.add_argument(
+        "--include-diffs",
+        action="store_true",
+        help="Include opt-in collapsible response diffs in HTML output.",
     )
     run_parser.add_argument(
         "--junit-output", metavar="FILE",
@@ -282,8 +289,15 @@ def _handle_run(args: argparse.Namespace) -> int:
         print(report.to_json(indent=2))
     elif args.format == "markdown":
         print(export_markdown_report(report, tool_checks=tool_checks), end="")
+    elif args.format == "pr-comment":
+        print(export_pr_comment(report, tool_checks=tool_checks), end="")
     elif args.format == "html":
-        print(export_html_report(report, tool_checks=tool_checks), end="")
+        diffs_map: dict[str, tuple[str, str]] | None = None
+        if args.include_diffs:
+            base_by_id = {s.prompt_id: s.output for s in baseline_samples}
+            cand_by_id = {s.prompt_id: s.output for s in candidate_samples}
+            diffs_map = {pid: (base_by_id[pid], cand_by_id[pid]) for pid in base_by_id}
+        print(export_html_report(report, tool_checks=tool_checks, diffs=diffs_map), end="")
     elif args.format == "rich":
         render_console_report(report)
     else:
@@ -321,9 +335,15 @@ def _add_report_subparser(
     rep_parser.add_argument(
         "-f",
         "--format",
-        choices=("markdown", "console", "table", "json", "html", "junit"),
+        choices=("markdown", "console", "table", "json", "html", "junit", "pr-comment"),
         default="markdown",
-        help="Output format: markdown (default), console/table, json, html, or junit.",
+        help="Output format: markdown (default), console/table, json, html, junit, or pr-comment.",
+    )
+    rep_parser.add_argument(
+        "--previous",
+        metavar="FILE",
+        default=None,
+        help="Optional previous saved engine report to show metric deltas in pr-comment output.",
     )
     rep_parser.add_argument(
         "-o",
@@ -343,8 +363,9 @@ def _handle_report(args: argparse.Namespace) -> int:
             "Create it with 'run --output', or try -i examples/expected-pass.json "
             "from the repository root."
         )
-    _protect_inputs(args.output, args.input, *args.tool_check)
+    _protect_inputs(args.output, args.input, args.previous, *args.tool_check)
     result = load_report(args.input)
+    previous_report = load_engine_report(args.previous) if args.previous else None
     if args.format == "junit":
         if not isinstance(result, DriftBenchmarkReport):
             raise ValueError("JUnit export requires a canonical engine report.")
@@ -355,6 +376,14 @@ def _handle_report(args: argparse.Namespace) -> int:
     elif args.format == "markdown":
         md = export_markdown_report(result, output_path=args.output, tool_checks=tool_checks)
         print(md, end="")
+    elif args.format == "pr-comment":
+        comment = export_pr_comment(
+            result,
+            output_path=args.output,
+            previous=previous_report,
+            tool_checks=tool_checks,
+        )
+        print(comment, end="")
     elif args.format == "json":
         payload = (result.to_json(indent=2) if isinstance(result, DriftBenchmarkReport)
                    else result.model_dump_json(indent=2))
@@ -662,6 +691,8 @@ def _handle_init_sample(args: argparse.Namespace) -> int:
 def _add_comparison_output_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json-output", metavar="FILE",
                         help="Save comparison JSON alongside console output.")
+    parser.add_argument("--html-output", metavar="FILE",
+                        help="Save standalone HTML comparison dashboard with SVG Pareto chart.")
     parser.add_argument("--by-category", action="store_true",
                         help="Summarize prompt counts and mean drift per candidate and category.")
     parser.add_argument("--rule-summary", action="store_true",
@@ -723,6 +754,10 @@ def _handle_many(args: argparse.Namespace) -> int:
     _protect_inputs(
         args.json_output, args.baseline, args.suite, args.config, *(p for _, p in args.candidate)
     )
+    _protect_inputs(
+        args.html_output, args.baseline, args.suite, args.config, args.json_output,
+        *(p for _, p in args.candidate),
+    )
     labels = [label for label, _ in args.candidate]
     if len(labels) < 2:
         raise ValueError("Provide at least two labeled candidate captures.")
@@ -738,6 +773,7 @@ def _handle_many(args: argparse.Namespace) -> int:
 
 def _handle_compare_reports(args: argparse.Namespace) -> int:
     _protect_inputs(args.json_output, *args.reports)
+    _protect_inputs(args.html_output, args.json_output, *args.reports)
     reports = [load_engine_report(path) for path in args.reports]
     return _render_comparison(reports, args)
 
@@ -851,9 +887,13 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
         serialized = json.dumps(payload)
         if args.json_output is not None:
             _write_comparison_json(Path(args.json_output), serialized)
+        if getattr(args, "html_output", None) is not None:
+            _atomic_write_text(Path(args.html_output), export_comparison_html(reports))
         if args.format == "json":
             print(serialized)
             return status
+    elif getattr(args, "html_output", None) is not None:
+        _atomic_write_text(Path(args.html_output), export_comparison_html(reports))
     if args.format == "rich":
         _render_comparison_rich(reports[0].baseline_model, rows)
     else:

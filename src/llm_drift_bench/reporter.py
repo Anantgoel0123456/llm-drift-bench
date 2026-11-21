@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import io
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from rich.console import Console
@@ -18,6 +18,11 @@ from llm_drift_bench._report_views import (
     detail_rows,
     report_notes,
     summary_rows,
+)
+from llm_drift_bench._visuals import (
+    canonical_pr_comment,
+    comparison_html,
+    render_html_diffs_section,
 )
 from llm_drift_bench.models import BenchmarkResult, DriftBenchmarkReport
 from llm_drift_bench.tool_log import ToolCheckRecord
@@ -257,11 +262,40 @@ def export_html_report(
     result: DriftBenchmarkReport | BenchmarkResult,
     output_path: str | Path | None = None,
     tool_checks: Sequence[ToolCheckRecord] | None = None,
+    *,
+    diffs: Mapping[str, tuple[str, str]] | None = None,
 ) -> str:
     """Export a self-contained, script-free canonical report with no network assets.
 
     tool_checks adds a separate evidence section; it never changes the drift verdict.
+    diffs optionally embeds opt-in collapsible JSON/text diffs for changed prompts.
     """
     if isinstance(result, BenchmarkResult):
         raise ValueError("HTML requires an engine report. Rerun with 'run --output report.json'.")
-    return _save_text(canonical_html(result, tuple(tool_checks or ())), output_path)
+    extra = render_html_diffs_section(result, diffs) if diffs else ""
+    return _save_text(
+        canonical_html(result, tuple(tool_checks or ()), extra_sections=extra),
+        output_path,
+    )
+
+
+def export_pr_comment(
+    result: DriftBenchmarkReport | BenchmarkResult,
+    output_path: str | Path | None = None,
+    *,
+    previous: DriftBenchmarkReport | None = None,
+    tool_checks: Sequence[ToolCheckRecord] | None = None,
+) -> str:
+    """Format a compact GitHub PR comment with status badge, deltas, and collapsible breakdown."""
+    if isinstance(result, BenchmarkResult):
+        raise ValueError("PR comment export requires a canonical engine report.")
+    text = canonical_pr_comment(result, previous=previous, tool_checks=tuple(tool_checks or ()))
+    return _save_text(text, output_path)
+
+
+def export_comparison_html(
+    reports: Sequence[DriftBenchmarkReport],
+    output_path: str | Path | None = None,
+) -> str:
+    """Export a standalone multi-candidate HTML dashboard with an inline SVG Pareto chart."""
+    return _save_text(comparison_html(reports), output_path)
