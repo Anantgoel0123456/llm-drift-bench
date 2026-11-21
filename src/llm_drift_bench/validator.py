@@ -12,9 +12,18 @@ from llm_drift_bench._patterns import MAX_PATTERN_INPUT, pattern_policy_error
 from llm_drift_bench.models import SchemaValidationResult, ValidationIssue
 
 _CODE_FENCE_PATTERN = re.compile(
-    r"```(?:json|JSON)?\s*\n?(.*?)\n?\s*```",
+    r"```([^\n`]*)\n?(.*?)\n?\s*```",
     re.DOTALL,
 )
+_SIMPLE_KEY_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_MAX_PROSE_JSON_ATTEMPTS = 128
+
+
+def _format_key_path(parent: str, key: str) -> str:
+    """Append an object key to a JSONPath, quoting keys that could be ambiguous."""
+    if _SIMPLE_KEY_PATTERN.fullmatch(key):
+        return f"{parent}.{key}"
+    return f"{parent}[{json.dumps(key, ensure_ascii=True)}]"
 
 
 def _parse_payload(text: str) -> Any:
@@ -31,7 +40,7 @@ def extract_json_payload(raw_text: str) -> tuple[bool, Any, str | None]:
     """Extract and parse a JSON payload from raw LLM completion text.
 
     Supports pure JSON strings, markdown code fences (```json ... ```), and
-    fallback extraction of the outermost JSON object/array when wrapped in prose.
+    fallback extraction of the first valid JSON object/array when wrapped in prose.
 
     Args:
         raw_text: Raw text completion produced by an LLM.
@@ -52,10 +61,19 @@ def extract_json_payload(raw_text: str) -> tuple[bool, Any, str | None]:
     except ValueError as value_err:
         return False, None, str(value_err)
 
-    # 2. Try extracting from markdown ```json ... ``` fences.
-    fence_match = _CODE_FENCE_PATTERN.search(stripped)
-    if fence_match:
-        candidate = fence_match.group(1).strip()
+    # 2. Try extracting from markdown fences, prioritizing ```json blocks over untagged blocks.
+    json_fences: list[str] = []
+    plain_fences: list[str] = []
+    for match in _CODE_FENCE_PATTERN.finditer(stripped):
+        tag = match.group(1).strip().lower()
+        body = match.group(2).strip()
+        if not body:
+            continue
+        if tag == "json":
+            json_fences.append(body)
+        elif tag == "":
+            plain_fences.append(body)
+    for candidate in (*json_fences, *plain_fences):
         try:
             return True, _parse_payload(candidate), None
         except json.JSONDecodeError as fence_err:
@@ -63,18 +81,29 @@ def extract_json_payload(raw_text: str) -> tuple[bool, Any, str | None]:
         except ValueError as value_err:
             return False, None, str(value_err)
 
-    # 3. Try locating the first '{' or '[' and matching to last '}' or ']'.
-    for open_char, close_char in (("{", "}"), ("[", "]")):
-        start_idx = stripped.find(open_char)
-        end_idx = stripped.rfind(close_char)
-        if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-            sub = stripped[start_idx : end_idx + 1]
-            try:
-                return True, _parse_payload(sub), None
-            except json.JSONDecodeError:
-                continue
-            except ValueError as value_err:
-                return False, None, str(value_err)
+    # 3. Scan opening '{' and '[' in document order using raw_decode so prose-wrapped
+    # arrays of objects (e.g. 'Result: [{"a": 1}]') and text with unrelated braces parse cleanly.
+    decoder = json.JSONDecoder()
+    attempts = 0
+    for idx, ch in enumerate(stripped):
+        if ch not in "{[":
+            continue
+        attempts += 1
+        if attempts > _MAX_PROSE_JSON_ATTEMPTS:
+            break
+        try:
+            _, end_idx = decoder.raw_decode(stripped, idx)
+        except json.JSONDecodeError:
+            continue
+        except RecursionError:
+            return False, None, "JSON nesting exceeds the decoder limit."
+        span = stripped[idx:end_idx]
+        try:
+            return True, _parse_payload(span), None
+        except json.JSONDecodeError:
+            continue
+        except ValueError as value_err:
+            return False, None, str(value_err)
 
     return False, None, f"Invalid JSON syntax: {last_error}"
 
@@ -93,7 +122,11 @@ def _check_json_type(instance: Any, expected_type: str) -> bool:
         # JSON Schema treats any finite number without a fractional part as an integer.
         return isinstance(instance, float) and math.isfinite(instance) and instance.is_integer()
     if expected_type == "number":
-        return isinstance(instance, (int, float)) and not isinstance(instance, bool)
+        return (
+            isinstance(instance, (int, float))
+            and not isinstance(instance, bool)
+            and (isinstance(instance, int) or math.isfinite(instance))
+        )
     if expected_type == "string":
         return isinstance(instance, str)
     if expected_type == "array":
@@ -379,7 +412,7 @@ def _validate_instance(
             if req_key not in instance:
                 issues.append(
                     ValidationIssue(
-                        path=f"{path}.{req_key}",
+                        path=_format_key_path(path, req_key),
                         message=f"Missing required property {req_key!r}.",
                         rule="required",
                     )
@@ -393,7 +426,7 @@ def _validate_instance(
                         _validate_instance(
                             instance[prop_key],
                             prop_schema,
-                            f"{path}.{prop_key}",
+                            _format_key_path(path, prop_key),
                         )
                     )
 
@@ -404,7 +437,7 @@ def _validate_instance(
                 if actual_key not in allowed_keys:
                     issues.append(
                         ValidationIssue(
-                            path=f"{path}.{actual_key}",
+                            path=_format_key_path(path, actual_key),
                             message=f"Additional property {actual_key!r} is not allowed.",
                             rule="additionalProperties",
                         )
@@ -417,7 +450,7 @@ def _validate_instance(
                         _validate_instance(
                             actual_val,
                             additional,
-                            f"{path}.{actual_key}",
+                            _format_key_path(path, actual_key),
                         )
                     )
 

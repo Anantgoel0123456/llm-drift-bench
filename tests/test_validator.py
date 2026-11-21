@@ -238,3 +238,35 @@ class TestValidator(unittest.TestCase):
         self.assertFalse(result.is_schema_conformant)
         self.assertFalse(result.passed)
         self.assertEqual(result.issues[0].rule, "unsupported_keyword")
+
+    def test_extract_json_prose_arrays_multi_fence_and_extra_braces(self) -> None:
+        ok, data, _ = extract_json_payload('Here is your list: [{"a": 1}]')
+        self.assertTrue(ok)
+        self.assertEqual(data, [{"a": 1}])
+
+        multi_fence = '```python\nd = {1: 2}\n```\n```json\n{"ok": true}\n```'
+        ok_m, data_m, _ = extract_json_payload(multi_fence)
+        self.assertTrue(ok_m)
+        self.assertEqual(data_m, {"ok": True})
+
+        ok_pre, data_pre, _ = extract_json_payload('Format {k: v}. Answer: {"k": 1}')
+        self.assertTrue(ok_pre)
+        self.assertEqual(data_pre, {"k": 1})
+
+        ok_post, data_post, _ = extract_json_payload('Answer: {"a": 1} (see {docs})')
+        self.assertTrue(ok_post)
+        self.assertEqual(data_post, {"a": 1})
+
+    def test_nonfinite_numbers_rejected_and_dotted_keys_quoted(self) -> None:
+        for bad_num in (float("nan"), float("inf"), float("-inf")):
+            issues = validate_against_schema(
+                bad_num, {"type": "number", "minimum": 0, "maximum": 100}
+            )
+            self.assertEqual(len(issues), 1)
+            self.assertEqual(issues[0].rule, "type")
+
+        key_issues = validate_against_schema(
+            {"a.b": 123},
+            {"type": "object", "properties": {"a.b": {"type": "string"}}},
+        )
+        self.assertEqual(key_issues[0].path, '$["a.b"]')
