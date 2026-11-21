@@ -99,6 +99,14 @@ else:
             if outcome.returncode != expected:
                 raise SystemExit(f"run {name}: exit {outcome.returncode}, want {expected}")
             assert json.loads(outcome.stdout)["passed"] is (expected == 0)
+        invalid = root / "invalid capture.jsonl"
+        invalid.write_text('\n{"id":"p","output":{"private":"hidden sample"}}', encoding="utf-8")
+        outcome = subprocess.run([*benchmark, "-c", str(invalid)], cwd=root, env=env,
+                                 capture_output=True, text=True)
+        if outcome.returncode != 2 or outcome.stdout:
+            raise SystemExit("Installed run must return exit 2 and empty stdout for invalid input")
+        assert str(invalid) in outcome.stderr and "line 2" in outcome.stderr
+        assert "hidden sample" not in outcome.stderr
         comparison = subprocess.run(
             [str(cli), "compare-reports", str(examples / "expected-drift.json"),
              str(examples / "expected-pass.json"), "--format", "json"],
