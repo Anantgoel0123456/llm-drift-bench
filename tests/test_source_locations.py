@@ -151,3 +151,14 @@ def test_malformed_tool_check_names_file(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="line 1, column 1") as error:
         load_tool_check(path)
     assert str(path) in str(error.value)
+
+
+def test_duplicate_capture_id_points_to_repeated_line(tmp_path: Path) -> None:
+    from llm_drift_bench.engine import load_model_samples
+
+    path = tmp_path / "duplicate.jsonl"
+    row = '{"id":"p","output":"hidden"}'
+    path.write_text(row + "\n\n" + row, encoding="utf-8")
+    with pytest.raises(ValueError, match="Duplicate prompt_id.*line 3") as error:
+        load_model_samples(path)
+    assert "hidden" not in str(error.value)

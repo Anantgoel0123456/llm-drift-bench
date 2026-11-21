@@ -14,15 +14,19 @@ class _HasPromptID(Protocol):
 Record = TypeVar("Record", bound=_HasPromptID)
 
 
-def index_records(records: Sequence[Record], label: str) -> dict[str, Record]:
+def index_records(
+    records: Sequence[Record], label: str, *, positions: Sequence[int] | None = None,
+    unit: str = "record",
+) -> dict[str, Record]:
     """Index without silently replacing duplicate or blank prompt IDs."""
     indexed: dict[str, Record] = {}
-    for record in records:
+    for index, record in enumerate(records):
         prompt_id = record.prompt_id
         if not isinstance(prompt_id, str) or not prompt_id.strip():
             raise ValueError(f"{label} requires non-empty string prompt IDs.")
         if prompt_id in indexed:
-            raise ValueError(f"Duplicate prompt_id {prompt_id!r} in {label}.")
+            location = f" ({unit} {positions[index]})" if positions is not None else ""
+            raise ValueError(f"Duplicate prompt_id {prompt_id!r} in {label}{location}.")
         indexed[prompt_id] = record
     return indexed
 

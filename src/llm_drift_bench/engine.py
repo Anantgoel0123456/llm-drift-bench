@@ -340,7 +340,8 @@ def load_model_samples(
             samples.append(ModelSample.from_dict(rec, default_model_name=fallback_model))
         except ValueError as exc:
             raise ValueError(f"{_record_location(path, number)}: {exc}") from exc
-    index_records(samples, str(file_path))
+    index_records(samples, str(file_path), positions=[n for n, _ in records],
+                  unit="line" if file_path.suffix.lower() == ".jsonl" else "record")
     return samples
 
 
