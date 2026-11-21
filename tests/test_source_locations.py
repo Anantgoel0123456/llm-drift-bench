@@ -40,3 +40,12 @@ def test_jsonl_columns_include_leading_whitespace(tmp_path: Path) -> None:
     path.write_bytes(b'\r\n    !\r\n')
     with pytest.raises(ValueError, match="line 2, column 5"):
         load_prompt_cases(path)
+
+
+@pytest.mark.parametrize("value", ["private value", [], {}])
+def test_bad_latency_reports_field_without_value(value: object) -> None:
+    from llm_drift_bench import ModelSample
+
+    with pytest.raises(ValueError, match="latency_ms") as error:
+        ModelSample.from_dict({"id": "p", "output": "", "latency_ms": value})
+    assert "private value" not in str(error.value)

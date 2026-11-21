@@ -98,7 +98,10 @@ class ModelSample:
         latency_raw = data.get("latency_ms")
         if isinstance(latency_raw, bool):
             raise ValueError("latency_ms must not be a boolean.")
-        latency_ms = float(latency_raw) if latency_raw is not None else None
+        try:
+            latency_ms = float(latency_raw) if latency_raw is not None else None
+        except (ValueError, TypeError, OverflowError):
+            raise ValueError("latency_ms must be a finite non-negative number.") from None
         tokens_raw = data.get("tokens_generated")
         if tokens_raw is not None and (
             isinstance(tokens_raw, bool) or not isinstance(tokens_raw, (int, str))
