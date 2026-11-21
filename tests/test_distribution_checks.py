@@ -2,6 +2,7 @@
 
 import runpy
 import tarfile
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -18,5 +19,13 @@ def test_directory_cannot_stand_in_for_marker(tmp_path: Path) -> None:
         entry = tarfile.TarInfo(f"{ROOT}/src/llm_drift_bench/py.typed")
         entry.type = tarfile.DIRTYPE
         stream.addfile(entry)
+    with pytest.raises(SystemExit, match="py.typed"):
+        CHECK(archive)
+
+
+def test_unrelated_nested_marker_does_not_validate_wheel(tmp_path: Path) -> None:
+    archive = tmp_path / (ROOT + "-py3-none-any.whl")
+    with zipfile.ZipFile(archive, "w") as stream:
+        stream.writestr("examples/llm_drift_bench/py.typed", "")
     with pytest.raises(SystemExit, match="py.typed"):
         CHECK(archive)

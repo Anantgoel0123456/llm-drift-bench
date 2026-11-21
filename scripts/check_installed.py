@@ -27,8 +27,9 @@ def check_archive_contents(artifact: Path) -> None:
     leaked = [n for n in names if any(part in n for part in FORBIDDEN_FRAGMENTS)]
     if leaked:
         raise SystemExit(f"{artifact.name} contains excluded files: {leaked}")
-    typed = [n for n in names if n.endswith("llm_drift_bench/py.typed")]
-    if not typed:
+    is_wheel = artifact.suffix == ".whl"
+    package_root = "" if is_wheel else artifact.name.removesuffix(".tar.gz") + "/src/"
+    if package_root + "llm_drift_bench/py.typed" not in names:
         raise SystemExit(f"{artifact.name} is missing llm_drift_bench/py.typed")
     print(f"Archive contents verified: {artifact.name} ({len(names)} files)")
 
