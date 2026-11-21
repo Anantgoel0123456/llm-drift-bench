@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from llm_drift_bench import __version__
-from llm_drift_bench._breakdowns import category_summary
+from llm_drift_bench._breakdowns import category_summary, rule_counts
 from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench._matching import require_same_ids
 from llm_drift_bench.batch import evaluate_many
@@ -614,6 +614,8 @@ def _handle_init_sample(args: argparse.Namespace) -> int:
 def _add_comparison_output_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--by-category", action="store_true",
                         help="Summarize prompt counts and mean drift per candidate and category.")
+    parser.add_argument("--rule-summary", action="store_true",
+                        help="Count candidate validation issues grouped by rule.")
     parser.add_argument("--inspect-prompt", action="append", metavar="ID",
                         help="Show one prompt across candidates (repeatable).")
     parser.add_argument("--hotspots", type=int, metavar="N",
@@ -692,6 +694,7 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
             raise ValueError("--change-type requires --against.")
         changes = [change for change in changes if change.state == args.change_type]
     categories = category_summary(reports) if args.by_category else []
+    validation_rules = rule_counts(reports) if args.rule_summary else []
     inspections = _inspect_prompts(reports, args.inspect_prompt) if args.inspect_prompt else []
     hotspots = _hotspots(reports, args.hotspots) if args.hotspots is not None else []
     matched = len(changes)
@@ -707,6 +710,8 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
                            changes_matched=matched, changes_omitted=matched - len(changes))
         if args.by_category:
             payload["categories"] = [asdict(item) for item in categories]
+        if args.rule_summary:
+            payload["validation_rules"] = [asdict(item) for item in validation_rules]
         if args.inspect_prompt:
             payload["prompt_details"] = [asdict(detail) for detail in inspections]
         if args.hotspots is not None:
@@ -738,6 +743,11 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
     for group in categories:
         print(f"Category {ascii(group.category)} | {ascii(group.candidate)} | "
               f"drifted {group.drifted}/{group.samples} | mean {group.mean_drift:.4f}")
+    if args.rule_summary and not validation_rules:
+        print("No recorded candidate validation issues.")
+    for rule in validation_rules:
+        print(f"Rule {ascii(rule.rule)} | {ascii(rule.candidate)} | "
+              f"{rule.affected_prompts} prompt(s), {rule.occurrences} issue(s)")
     for detail in inspections:
         state = "DRIFT" if detail.drifted else "OK"
         numeric = "n/a" if detail.numeric_drift is None else f"{detail.numeric_drift:.4f}"
