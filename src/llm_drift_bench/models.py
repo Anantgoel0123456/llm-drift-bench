@@ -107,7 +107,10 @@ class ModelSample:
             isinstance(tokens_raw, bool) or not isinstance(tokens_raw, (int, str))
         ):
             raise ValueError("tokens_generated must be an integer or integer string.")
-        tokens_generated = int(tokens_raw) if tokens_raw is not None else None
+        try:
+            tokens_generated = int(tokens_raw) if tokens_raw is not None else None
+        except ValueError:
+            raise ValueError("tokens_generated must be an integer or integer string.") from None
         metadata_raw = data.get("metadata")
         metadata = dict(metadata_raw) if isinstance(metadata_raw, dict) else {}
         return cls(

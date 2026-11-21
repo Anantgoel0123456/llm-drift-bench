@@ -49,3 +49,11 @@ def test_bad_latency_reports_field_without_value(value: object) -> None:
     with pytest.raises(ValueError, match="latency_ms") as error:
         ModelSample.from_dict({"id": "p", "output": "", "latency_ms": value})
     assert "private value" not in str(error.value)
+
+
+def test_bad_token_count_reports_field_without_value() -> None:
+    from llm_drift_bench import ModelSample
+
+    with pytest.raises(ValueError, match="tokens_generated") as error:
+        ModelSample.from_dict({"id": "p", "output": "", "tokens_generated": "private value"})
+    assert "private value" not in str(error.value)
