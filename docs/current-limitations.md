@@ -1,6 +1,6 @@
 # Current limitations
 
-Applies to the 0.2.0 development checkout.
+Applies to the current development checkout. See the migration guide for 0.2.0 changes.
 
 ## Numeric output policy
 
@@ -79,7 +79,7 @@ for this metric. Longer responses raise an error (CLI exit code `2`), rather
 than being truncated or scored using a different unit. Unicode normalization
 is not applied.
 
-Commands are `run`, `report`, `validate`, and `init-sample`.
+Use `llm-drift-bench --help` for the commands available in your installed version.
 `--suite` and `--prompts` are aliases for the suite path.
 
 Use existing captured-output files for both comparison targets.
