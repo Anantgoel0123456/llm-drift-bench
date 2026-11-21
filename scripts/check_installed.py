@@ -31,6 +31,10 @@ def check_archive_contents(artifact: Path) -> None:
     package_root = "" if is_wheel else artifact.name.removesuffix(".tar.gz") + "/src/"
     if package_root + "llm_drift_bench/py.typed" not in names:
         raise SystemExit(f"{artifact.name} is missing llm_drift_bench/py.typed")
+    if is_wheel:
+        metadata_root = "-".join(artifact.name.split("-")[:2]) + ".dist-info"
+        if metadata_root + "/licenses/LICENSE" not in names:
+            raise SystemExit(f"{artifact.name} is missing its packaged LICENSE")
     print(f"Archive contents verified: {artifact.name} ({len(names)} files)")
 
 

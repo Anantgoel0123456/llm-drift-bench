@@ -29,3 +29,12 @@ def test_unrelated_nested_marker_does_not_validate_wheel(tmp_path: Path) -> None
         stream.writestr("examples/llm_drift_bench/py.typed", "")
     with pytest.raises(SystemExit, match="py.typed"):
         CHECK(archive)
+
+
+def test_wheel_requires_license_under_its_own_metadata(tmp_path: Path) -> None:
+    archive = tmp_path / (ROOT + "-py3-none-any.whl")
+    with zipfile.ZipFile(archive, "w") as stream:
+        stream.writestr("llm_drift_bench/py.typed", "")
+        stream.writestr("unrelated.dist-info/licenses/LICENSE", "other")
+    with pytest.raises(SystemExit, match="LICENSE"):
+        CHECK(archive)
