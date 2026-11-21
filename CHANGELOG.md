@@ -4,6 +4,14 @@
 
 ### Added
 
+- Automatic JSON Schema inference (`schema_infer.py` and `llm-drift-bench infer-schema`) generating supported-subset `prompts.json` suites directly from captured baseline JSON outputs (`--strict-additional`, `--shared-schema`, multi-run merging, and nullable object/array constraint preservation).
+- Automatic threshold calibration & volatile field detection (`calibrate.py` and `llm-drift-bench calibrate`) generating ready-to-use `drift.toml` policies with configurable safety headroom from repeated baseline runs or saved reports.
+- Pluggable scorer registry (`scorers.py`: `Scorer`, `ScorerResult`, `register_scorer`, `get_scorer`, `list_scorers` with `llm_drift_bench.scorers` entry-point discovery) plus pure-stdlib `char_ngram_cosine_similarity`, `tfidf_cosine_similarity`, and `python_ast_similarity` scorers.
+- Exact two-sided McNemar test (`mcnemar_exact_test`, `McNemarResult`) wired into `stats --compare-against`, plus baseline-model mismatch protection.
+- Order-insensitive array rules (`FieldRule.unordered_array = true`) in `drift.toml` policies, overflow-safe absolute tolerance math, and single-quoted TOML string support in the Python 3.10 fallback parser.
+- Capture collector upgrades (`--concurrency`, `--runs`, `--json-mode`), bounded HTTP response reads, and sanitized HTTP error reporting.
+- OpenAI Responses API (`function_call` / `function_call_output`) support in `adapters.py`, `load_adapted_tool_events`, and `check-tools --adapter normalized|openai|anthropic|otel`.
+- `history show --candidate` and `--tag` filters, plus SVG Pareto frontier polyline, axis grid/ticks, and label collision avoidance in comparison HTML dashboards.
 - `drift.toml` / `drift.json` evaluation policies (`load_policy`, `DriftPolicy`, `MetricWeights`, `FieldRule`, and `run`/`compare-many --config`) with custom metric weights, per-JSONPath `ignore` / `tolerance_abs` / `tolerance_rel` rules, and `--long-text-mode skip_levenshtein` for >16,384-character outputs.
 - Multi-run statistical analysis (`stats.py` and `llm-drift-bench stats`): deterministic bootstrap confidence intervals (`bootstrap_mean_ci`), paired sign-flip permutation significance tests (`paired_permutation_test`), and flaky-prompt detection (`summarize_multi_run`).
 - Visual reporting upgrades: GitHub PR comment formatter (`--format pr-comment` with `--previous` deltas), opt-in pure-CSS side-by-side HTML JSON field diffs (`run --format html --include-diffs`), and multi-candidate HTML dashboards with inline SVG Pareto charts (`compare-reports`/`compare-many --html-output`).
@@ -14,6 +22,9 @@
 
 ### Fixed
 
+- PEP 562 lazy exports in `__init__.py` and `models.py` (moving legacy Pydantic models to `_legacy_models.py`), lazy Rich imports in `reporter.py`, cached `TypeAdapter` in `report_io.py`, and lazy CLI subcommand handler imports — cutting `import llm_drift_bench` latency from ~411 ms to ~8 ms and keeping canonical CLI runs completely free of eager `pydantic` and `rich` imports.
+- `export_comparison_html` now respects the `sort_by` ranking order passed from `compare-reports` and `compare-many`.
+- `HistoryEntry.from_dict` now strictly validates boolean/numeric types and unit ranges (fixing `bool("false") -> True`), and `export_history_html` renders a clean placeholder SVG when history is empty.
 - `_write_comparison_json` (and all CLI file writers) now create missing parent directories automatically and write atomically via temporary files + `os.replace`.
 - `extract_json_payload` now scans opening `{` and `[` in document order (fixing prose-wrapped JSON arrays of objects like `[{"a": 1}]`), iterates all markdown fences prioritizing ```` ```json ```` blocks, and handles unrelated prose braces cleanly while keeping strict duplicate-key and non-finite rejection.
 - `_check_json_type` now rejects `NaN` and `±Infinity` for JSON Schema `"type": "number"`, and `validator.py` quotes dotted/special object keys consistently with `metrics.py`.

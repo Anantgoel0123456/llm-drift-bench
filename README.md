@@ -231,10 +231,12 @@ It is not available in published 0.1.0.
 | `diagnose` | Explain why a saved comparison failed (plus optional local OpenVINO advisor) |
 | `compare-many` | Evaluate multiple candidate captures at once (`--sort-by`, `--format rich`, `--html-output`) |
 | `compare-reports` | Rank saved candidate reports and export SVG Pareto HTML dashboards |
-| `stats` | Compute bootstrap confidence intervals, multi-run flakiness, and paired permutation tests |
-| `history` | Append runs to a JSONL drift ledger and render terminal sparklines or SVG trend HTML |
-| `capture` | Collect reproducible JSONL captures from OpenAI-compatible endpoints (Ollama, vLLM, OpenAI) |
-| `check-tools` | Run offline read-before-edit checks on normalized agent traces |
+| `stats` | Compute bootstrap CIs, multi-run flakiness, paired permutation, and exact McNemar tests |
+| `history` | Append runs to a JSONL drift ledger and render terminal sparklines or SVG trend HTML (`--candidate`, `--tag`) |
+| `capture` | Collect reproducible JSONL captures from OpenAI-compatible endpoints (`--concurrency`, `--runs`, `--json-mode`) |
+| `infer-schema` | Auto-infer a JSON Schema prompt suite from captured baseline JSON outputs |
+| `calibrate` | Auto-calibrate `drift.toml` thresholds and detect volatile fields from repeated baseline runs |
+| `check-tools` | Run offline read-before-edit checks on normalized, OpenAI, Anthropic, or OTel traces (`--adapter`) |
 | `init-sample --dir demo` | Create illustrative starter files |
 | `ai-devices` | List devices visible to the optional OpenVINO runtime |
 
@@ -454,13 +456,36 @@ returns 2 and still shows the deterministic findings.
 
 ### Task-specific `drift.toml` policies (weights & per-field tolerances)
 
-Ignore volatile fields (`$.timestamp`, `$.request_id`), set per-field numeric tolerances, or tune metric weights in `drift.toml` (see [examples/drift.toml](examples/drift.toml)):
+Ignore volatile fields (`$.timestamp`, `$.request_id`), treat arrays as order-insensitive (`unordered_array = true`), set per-field numeric tolerances, or tune metric weights in `drift.toml` (see [examples/drift.toml](examples/drift.toml)):
 
 ```powershell
 python -m llm_drift_bench run -b examples/baseline.jsonl -c examples/candidate-pass.jsonl -s examples/extraction-suite.json --config examples/drift.toml
 ```
 
 For responses longer than 16,384 characters, add `--long-text-mode skip_levenshtein` (or set `long_text_mode = "skip_levenshtein"` in `drift.toml`).
+
+### Zero-setup onboarding: `infer-schema` and `calibrate`
+
+Generate strict JSON Schemas straight from existing baseline captures, and auto-calibrate a `drift.toml` policy (including auto-detected volatile fields like timestamps or request IDs) from repeated baseline runs:
+
+```powershell
+# Infer a ready-to-use prompts.json suite from captured baseline JSON outputs
+python -m llm_drift_bench infer-schema -i examples/baseline.jsonl -o inferred-prompts.json --strict-additional
+
+# Calibrate drift.toml thresholds + ignore volatile fields from two baseline runs
+python -m llm_drift_bench calibrate --baseline-a baseline-run1.jsonl --baseline-b baseline-run2.jsonl -o drift.toml
+```
+
+### Pluggable scorers (`scorers.py`)
+
+Use pure-stdlib offline scorers directly or register custom scorers (also auto-discovered via `llm_drift_bench.scorers` package entry points):
+
+```python
+from llm_drift_bench import get_scorer, list_scorers, python_ast_similarity, register_scorer
+
+print(list_scorers())  # ('char_ngram_cosine', 'python_ast', 'tfidf_cosine')
+score = python_ast_similarity("def f(x): return x + 1", "def g(y): return y + 1")  # 1.0
+```
 
 ### PR comments, opt-in HTML diffs, and SVG Pareto dashboards
 
@@ -491,8 +516,16 @@ python -m llm_drift_bench history show --ledger drift-history.jsonl --format htm
 
 ### OpenAI-compatible capture collector (`capture`)
 
-Capture reproducible `.jsonl` outputs directly from Ollama, vLLM, llama.cpp server, or OpenAI with explicit timeouts, bounded retries, and env-var secret handling (no extra runtime dependencies):
+Capture reproducible `.jsonl` outputs directly from Ollama, vLLM, llama.cpp server, or OpenAI with bounded concurrency (`--concurrency`), multi-run capture (`--runs`), JSON mode (`--json-mode`), explicit timeouts, bounded retries, and env-var secret handling (no extra runtime dependencies):
 
 ```powershell
-python -m llm_drift_bench capture --suite examples/extraction-suite.json --endpoint http://localhost:11434/v1 --model llama3:8b-q4_K_M --seed 42 -o candidate.jsonl
+python -m llm_drift_bench capture --suite examples/extraction-suite.json --endpoint http://localhost:11434/v1 --model llama3:8b-q4_K_M --seed 42 --concurrency 4 --runs 3 --json-mode -o candidate.jsonl
+```
+
+### Agent trace adapters (`check-tools --adapter`)
+
+Run offline read-before-edit checks directly on OpenAI Chat/Responses transcripts, Anthropic/Claude `tool_use`/`tool_result` logs, or OpenTelemetry GenAI spans:
+
+```powershell
+python -m llm_drift_bench check-tools -i transcript.json --adapter openai --resource file.py@v1 --end 500 --trace-complete
 ```

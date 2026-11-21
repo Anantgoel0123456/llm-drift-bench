@@ -11,12 +11,18 @@ dependencies.
 
 ## Data models
 
-`models.py` contains two model families:
+`models.py` exposes two model families while staying lightweight at import time:
 
-- Frozen dataclasses: PromptCase, ModelSample, ValidationIssue,
-  SchemaValidationResult, DriftThresholds, SampleDriftResult, and
-  DriftBenchmarkReport.
-- Pydantic models: TestPrompt, DriftMetrics, and BenchmarkResult.
+- Frozen dataclasses (pure stdlib, loaded immediately): PromptCase, ModelSample,
+  ValidationIssue, SchemaValidationResult, DriftThresholds, SampleDriftResult,
+  and DriftBenchmarkReport.
+- Pydantic models (defined in `_legacy_models.py` and lazy-loaded via PEP 562
+  `__getattr__`): TestPrompt, DriftMetrics, and BenchmarkResult.
+
+Package exports in `__init__.py`, Rich console rendering in `reporter.py`,
+Pydantic report deserializers in `report_io.py`, and CLI subcommand handlers in
+`cli.py` are all lazily loaded so canonical evaluation and CLI startup avoid
+importing `pydantic` or `rich` unless actually needed.
 
 Frozen dataclasses prevent field reassignment but do not make nested
 dictionaries or lists immutable.
@@ -148,20 +154,25 @@ Commands are:
 - `diagnose`
 - `compare-many` (supports `--sort-by`, `--format rich`, `--html-output`, `--json-output`, `--config`)
 - `compare-reports` (supports `--sort-by`, `--format rich`, `--html-output`, `--json-output`)
-- `check-tools`
-- `stats` (bootstrap confidence intervals, multi-run flakiness, and paired permutation tests)
-- `history` (`record` and `show` with terminal sparklines and offline SVG trend HTML)
-- `capture` (zero-dependency OpenAI-compatible endpoint collector for Ollama/vLLM/OpenAI)
+- `check-tools` (supports `--adapter normalized|openai|anthropic|otel`)
+- `stats` (bootstrap confidence intervals, multi-run flakiness, paired permutation, and exact two-sided McNemar tests)
+- `history` (`record` and `show` with `--candidate`/`--tag` filters, terminal sparklines, and offline SVG trend HTML)
+- `capture` (zero-dependency OpenAI-compatible endpoint collector with `--concurrency`, `--runs`, and `--json-mode`)
+- `infer-schema` (automatic supported-subset JSON Schema suite inference from captured baseline JSON outputs)
+- `calibrate` (automatic `drift.toml` threshold calibration and volatile JSON field detection)
 - `init-sample`
 - `ai-devices`
 
 Additional library modules:
 
-- `policy.py`: `drift.toml` / `drift.json` evaluation policies with custom metric weights and per-JSONPath `ignore` / `tolerance_abs` / `tolerance_rel` rules.
-- `stats.py`: deterministic bootstrap CIs, multi-run stability, and paired permutation significance tests.
-- `history.py`: append-only JSONL drift ledger with sparklines and SVG HTML trend charts.
-- `capture.py`: OpenAI-compatible HTTP capture collector with explicit timeouts, retries, and env-var secret handling.
-- `adapters.py`: offline transcript adapters for OpenAI tool calls, Anthropic/Claude `tool_use`/`tool_result` logs, and OpenTelemetry GenAI spans.
+- `policy.py`: `drift.toml` / `drift.json` evaluation policies with custom metric weights and per-JSONPath `ignore` / `unordered_array` / `tolerance_abs` / `tolerance_rel` rules.
+- `stats.py`: deterministic bootstrap CIs, multi-run stability, paired permutation significance tests, and exact two-sided McNemar conformity tests.
+- `history.py`: append-only JSONL drift ledger with strict validation, sparklines, and SVG HTML trend charts.
+- `capture.py`: OpenAI-compatible HTTP capture collector with bounded reads, sanitized errors, `--concurrency`, `--runs`, `--json-mode`, timeouts, and retries.
+- `adapters.py`: offline transcript adapters for OpenAI Chat & Responses APIs, Anthropic/Claude `tool_use`/`tool_result` logs, and OpenTelemetry GenAI spans.
+- `scorers.py`: pluggable scorer protocol & registry (`char_ngram_cosine`, `tfidf_cosine`, `python_ast`, plus `llm_drift_bench.scorers` entry-point discovery).
+- `schema_infer.py`: automatic JSON Schema inference & merging (including nullable object/array constraint preservation).
+- `calibrate.py`: baseline noise threshold calibration, volatile field detection, and `drift.toml` synthesis.
 
 All CLI run formats render one DriftBenchmarkReport. Rich, Markdown, and HTML
 use the canonical summary/detail values without calling evaluate_suite. The
