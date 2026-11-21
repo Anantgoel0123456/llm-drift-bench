@@ -345,7 +345,12 @@ def load_model_samples(
 def load_prompt_cases(path: str | Path) -> list[PromptCase]:
     """Load a list of PromptCase objects from a JSON or JSONL file."""
     records, _ = _load_records(path, ("prompts", "cases", "suite", "items"))
-    prompts = [PromptCase.from_dict(rec) for _, rec in records]
+    prompts = []
+    for number, rec in records:
+        try:
+            prompts.append(PromptCase.from_dict(rec))
+        except ValueError as exc:
+            raise ValueError(f"{_record_location(path, number)}: {exc}") from exc
     index_records(prompts, str(path))
     return prompts
 

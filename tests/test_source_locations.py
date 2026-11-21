@@ -71,3 +71,12 @@ def test_invalid_sample_keeps_source_location(tmp_path: Path, ext: str, data: st
     with pytest.raises(ValueError, match=where) as error:
         load_model_samples(path)
     assert str(path) in str(error.value)
+
+
+def test_invalid_suite_schema_locates_prompt(tmp_path: Path) -> None:
+    from llm_drift_bench.engine import load_prompt_cases
+
+    path = tmp_path / "suite.jsonl"
+    path.write_text('\n{"id":"p","schema":[]}', encoding="utf-8")
+    with pytest.raises(ValueError, match="line 2.*schema"):
+        load_prompt_cases(path)
