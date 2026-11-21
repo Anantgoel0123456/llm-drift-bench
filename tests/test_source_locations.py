@@ -162,3 +162,14 @@ def test_duplicate_capture_id_points_to_repeated_line(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="Duplicate prompt_id.*line 3") as error:
         load_model_samples(path)
     assert "hidden" not in str(error.value)
+
+
+def test_suite_loaders_agree_on_duplicate_location(tmp_path: Path) -> None:
+    from llm_drift_bench.engine import load_prompt_cases
+    from llm_drift_bench.evaluator import load_test_prompts
+
+    path = tmp_path / "suite.json"
+    path.write_text('[{"id":"p"},{"id":"p"}]', encoding="utf-8")
+    for load in (load_prompt_cases, load_test_prompts):
+        with pytest.raises(ValueError, match="Duplicate prompt_id.*record 2"):
+            load(path)

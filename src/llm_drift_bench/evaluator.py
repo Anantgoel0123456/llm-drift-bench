@@ -10,7 +10,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from llm_drift_bench._matching import index_records, require_same_ids
-from llm_drift_bench.engine import _load_records, _record_location, load_model_samples
+from llm_drift_bench.engine import _load_records, _record_location, _record_unit, load_model_samples
 from llm_drift_bench.metrics import (
     jaccard_similarity,
     json_exact_field_match,
@@ -191,7 +191,8 @@ def load_test_prompts(path: str | Path) -> list[TestPrompt]:
             detail = exc.errors(include_input=False, include_url=False)[0]
             field = ".".join(str(part) for part in detail["loc"])
             raise ValueError(f"{location}: {field}: {detail['msg']}") from None
-    index_records(prompts, str(file_path))
+    index_records(prompts, str(file_path), positions=[n for n, _ in items],
+                  unit=_record_unit(file_path))
     return prompts
 
 

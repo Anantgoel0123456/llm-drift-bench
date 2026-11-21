@@ -273,9 +273,12 @@ class DriftBenchmarkEngine:
         )
 
 
+def _record_unit(path: str | Path) -> str:
+    return "line" if Path(path).suffix.lower() == ".jsonl" else "record"
+
+
 def _record_location(path: str | Path, number: int) -> str:
-    unit = "line" if Path(path).suffix.lower() == ".jsonl" else "record"
-    return f"{path} ({unit} {number})"
+    return f"{path} ({_record_unit(path)} {number})"
 
 
 def _load_records(
@@ -341,7 +344,7 @@ def load_model_samples(
         except ValueError as exc:
             raise ValueError(f"{_record_location(path, number)}: {exc}") from exc
     index_records(samples, str(file_path), positions=[n for n, _ in records],
-                  unit="line" if file_path.suffix.lower() == ".jsonl" else "record")
+                  unit=_record_unit(file_path))
     return samples
 
 
@@ -354,7 +357,7 @@ def load_prompt_cases(path: str | Path) -> list[PromptCase]:
             prompts.append(PromptCase.from_dict(rec))
         except ValueError as exc:
             raise ValueError(f"{_record_location(path, number)}: {exc}") from exc
-    index_records(prompts, str(path))
+    index_records(prompts, str(path), positions=[n for n, _ in records], unit=_record_unit(path))
     return prompts
 
 
