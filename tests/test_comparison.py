@@ -100,3 +100,32 @@ def test_same_baseline_can_have_different_json_denominators() -> None:
     structured = engine.evaluate(base, [ModelSample("p", '{"v":1}', "structured")])
     assert plain.baseline_json_conformity_rate != structured.baseline_json_conformity_rate
     assert len(compare_reports([plain, structured])) == 2
+
+
+def test_sort_by_passed_conformity_and_latency() -> None:
+    passing_slower = replace(
+        fixture("pass"),
+        candidate_model="pass-slower",
+        mean_composite_drift=0.09,
+        candidate_p95_latency_ms=120.0,
+    )
+    failing_lower_mean = replace(
+        fixture("drift"),
+        candidate_model="fail-lower-mean",
+        mean_composite_drift=0.05,
+        candidate_p95_latency_ms=40.0,
+    )
+    by_drift = compare_reports([passing_slower, failing_lower_mean], sort_by="drift")
+    assert [r.candidate for r in by_drift] == ["fail-lower-mean", "pass-slower"]
+
+    by_passed = compare_reports([passing_slower, failing_lower_mean], sort_by="passed")
+    assert [r.candidate for r in by_passed] == ["pass-slower", "fail-lower-mean"]
+
+    by_conf = compare_reports([passing_slower, failing_lower_mean], sort_by="conformity")
+    assert [r.candidate for r in by_conf] == ["pass-slower", "fail-lower-mean"]
+
+    by_lat = compare_reports([passing_slower, failing_lower_mean], sort_by="latency")
+    assert [r.candidate for r in by_lat] == ["fail-lower-mean", "pass-slower"]
+
+    with pytest.raises(ValueError, match="Unsupported sort_by"):
+        compare_reports([passing_slower, failing_lower_mean], sort_by="bad")  # type: ignore[arg-type]

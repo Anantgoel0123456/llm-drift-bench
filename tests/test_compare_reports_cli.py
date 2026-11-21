@@ -42,3 +42,11 @@ def test_saved_report_inspection_and_default_json_compatibility(capsys) -> None:
     data = json.loads(capsys.readouterr().out)
     assert data["prompt_details"][0]["numeric_drift"] == 0.4444
     assert data["changes_matched"] == 2 and len(data["hotspots"]) == 2
+
+
+def test_compare_reports_sort_by_and_rich_format(capsys) -> None:
+    assert main([*ARGS, "--sort-by", "passed", "--format", "rich"]) == 0
+    out = capsys.readouterr().out
+    assert "Candidate Comparison" in out
+    assert "demo-candidate-pass" in out
+    assert "demo-candidate-drift" in out

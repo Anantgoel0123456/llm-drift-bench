@@ -628,7 +628,18 @@ def _add_comparison_output_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--change-type", choices=("regressed", "recovered"),
                         help="Show one direction of change (requires --against).")
     parser.add_argument("--against", metavar="LABEL", help="Show changes relative to a candidate.")
-    parser.add_argument("--format", choices=("text", "json"), default="text")
+    parser.add_argument(
+        "--sort-by",
+        choices=("drift", "passed", "conformity", "latency"),
+        default="drift",
+        help="Candidate ranking order: drift (default), passed, conformity, or latency.",
+    )
+    parser.add_argument(
+        "--format",
+        choices=("text", "json", "rich"),
+        default="text",
+        help="Stdout display format: text (default), json, or rich.",
+    )
 
 
 def _add_many_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -691,11 +702,44 @@ def _write_comparison_json(target: Path, serialized: str) -> None:
     _atomic_write_text(target, serialized + "\n")
 
 
+def _render_comparison_rich(
+    baseline_model: str,
+    rows: Sequence[Any],
+) -> None:
+    from rich.console import Console
+    from rich.table import Table
+    from rich.text import Text
+
+    table = Table(
+        title=f"Candidate Comparison (Baseline: {baseline_model})",
+        safe_box=True,
+    )
+    for col in ("Candidate", "Verdict", "Drifted", "Mean Drift", "Max Drift",
+                "JSON Conformity", "P95 Latency", "Worst Prompt"):
+        table.add_column(col)
+    for row in rows:
+        verdict = "PASS" if row.passed else "FAIL"
+        latency = "n/a" if row.p95_ms is None else f"{row.p95_ms:.2f} ms"
+        worst = "none" if row.max_drift == 0.0 else (row.worst_prompt_id or "n/a")
+        table.add_row(
+            Text(row.candidate),
+            Text(verdict, style="green" if row.passed else "red"),
+            Text(f"{row.drifted}/{row.samples}"),
+            Text(f"{row.mean_drift:.4f}"),
+            Text(f"{row.max_drift:.4f}"),
+            Text(f"{row.conformity:.1%}"),
+            Text(latency),
+            Text(worst),
+        )
+    Console().print(table)
+
+
 def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.Namespace) -> int:
+    sort_by = getattr(args, "sort_by", "drift")
     if args.against is not None:
-        rows, changes = compare_with_changes(reports, args.against)
+        rows, changes = compare_with_changes(reports, args.against, sort_by=sort_by)
     else:
-        rows = compare_reports(reports)
+        rows = compare_reports(reports, sort_by=sort_by)
         changes = []
     status = int(args.fail_on_drift and any(not row.passed for row in rows))
     if args.fail_on_regression:
@@ -748,14 +792,17 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
         if args.format == "json":
             print(serialized)
             return status
-    print(f"Baseline {ascii(reports[0].baseline_model)}")
-    for row in rows:
-        verdict = "PASS" if row.passed else "FAIL"
-        latency = "n/a" if row.p95_ms is None else f"{row.p95_ms:.2f} ms"
-        print(f"{ascii(row.candidate)} {verdict} | drifted {row.drifted}/{row.samples} | "
-              f"mean {row.mean_drift:.4f} | max {row.max_drift:.4f} | "
-              f"JSON {row.conformity:.1%} | P95 {latency}"
-              f" | worst prompt {ascii(row.worst_prompt_id)}")
+    if args.format == "rich":
+        _render_comparison_rich(reports[0].baseline_model, rows)
+    else:
+        print(f"Baseline {ascii(reports[0].baseline_model)}")
+        for row in rows:
+            verdict = "PASS" if row.passed else "FAIL"
+            latency = "n/a" if row.p95_ms is None else f"{row.p95_ms:.2f} ms"
+            print(f"{ascii(row.candidate)} {verdict} | drifted {row.drifted}/{row.samples} | "
+                  f"mean {row.mean_drift:.4f} | max {row.max_drift:.4f} | "
+                  f"JSON {row.conformity:.1%} | P95 {latency}"
+                  f" | worst prompt {ascii(row.worst_prompt_id)}")
     if args.against is not None:
         print(f"Prompt changes relative to {ascii(args.against)}: {matched}")
         for change in changes:
@@ -866,11 +913,9 @@ def build_parser() -> argparse.ArgumentParser:
         version=f"%(prog)s {__version__}",
     )
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
-    subparsers.add_parser("ai-devices", help="List devices visible to OpenVINO.")
-    comparison = subparsers.add_parser("compare-reports", help="Rank saved candidate reports.")
-    comparison.add_argument("--fail-on-drift", action="store_true", help="Exit 1 for any failure.")
-    _add_comparison_output_options(comparison)
-    comparison.add_argument("reports", nargs="+", metavar="REPORT", help="Saved engine report.")
+    _add_run_subparser(subparsers)
+    _add_validate_subparser(subparsers)
+    _add_report_subparser(subparsers)
     diagnosis = subparsers.add_parser("diagnose", help="Explain a saved engine report.")
     diagnosis.add_argument("-i", "--input", required=True, help="Saved engine report JSON.")
     diagnosis.add_argument("--ai-model", type=Path, help="Directory of a local OpenVINO model.")
@@ -884,11 +929,13 @@ def build_parser() -> argparse.ArgumentParser:
     diagnosis.add_argument("--limit", type=int, help="Maximum findings to display.")
     diagnosis.add_argument("--format", choices=("text", "json"), default="text")
     _add_many_subparser(subparsers)
-    _add_run_subparser(subparsers)
-    _add_report_subparser(subparsers)
-    _add_validate_subparser(subparsers)
+    comparison = subparsers.add_parser("compare-reports", help="Rank saved candidate reports.")
+    comparison.add_argument("--fail-on-drift", action="store_true", help="Exit 1 for any failure.")
+    _add_comparison_output_options(comparison)
+    comparison.add_argument("reports", nargs="+", metavar="REPORT", help="Saved engine report.")
     _add_check_tools_subparser(subparsers)
     _add_init_sample_subparser(subparsers)
+    subparsers.add_parser("ai-devices", help="List devices visible to OpenVINO.")
     return parser
 
 

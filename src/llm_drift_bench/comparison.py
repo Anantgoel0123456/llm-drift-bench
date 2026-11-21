@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 from llm_drift_bench._matching import index_records, require_same_ids
 from llm_drift_bench.models import DriftBenchmarkReport
+
+SortKey = Literal["drift", "passed", "conformity", "latency"]
+_VALID_SORT_KEYS = ("drift", "passed", "conformity", "latency")
 
 
 @dataclass(frozen=True)
@@ -24,8 +28,34 @@ class CandidateSummary:
     worst_prompt_id: str | None
 
 
-def compare_reports(reports: Sequence[DriftBenchmarkReport]) -> list[CandidateSummary]:
-    """Order candidates by increasing mean composite drift, then by model name."""
+def _sort_rows(rows: list[CandidateSummary], sort_by: SortKey) -> list[CandidateSummary]:
+    if sort_by not in _VALID_SORT_KEYS:
+        raise ValueError(f"Unsupported sort_by {sort_by!r}; choose from {_VALID_SORT_KEYS}.")
+    if sort_by == "passed":
+        return sorted(rows, key=lambda row: (not row.passed, row.mean_drift, row.candidate))
+    if sort_by == "conformity":
+        return sorted(rows, key=lambda row: (-row.conformity, row.mean_drift, row.candidate))
+    if sort_by == "latency":
+        return sorted(
+            rows,
+            key=lambda row: (
+                row.p95_ms is None,
+                row.p95_ms if row.p95_ms is not None else float("inf"),
+                row.mean_drift,
+                row.candidate,
+            ),
+        )
+    return sorted(rows, key=lambda row: (row.mean_drift, row.candidate))
+
+
+def compare_reports(
+    reports: Sequence[DriftBenchmarkReport],
+    *,
+    sort_by: SortKey = "drift",
+) -> list[CandidateSummary]:
+    """Order candidates by the selected metric (default: increasing mean drift, then name)."""
+    if sort_by not in _VALID_SORT_KEYS:
+        raise ValueError(f"Unsupported sort_by {sort_by!r}; choose from {_VALID_SORT_KEYS}.")
     if len(reports) < 2:
         raise ValueError("Provide at least two engine reports.")
     reference = reports[0]
@@ -57,7 +87,7 @@ def compare_reports(reports: Sequence[DriftBenchmarkReport]) -> list[CandidateSu
             report.candidate_json_conformity_rate,
             worst.prompt_id if worst is not None else None,
         ))
-    return sorted(rows, key=lambda row: (row.mean_drift, row.candidate))
+    return _sort_rows(rows, sort_by)
 
 
 @dataclass(frozen=True)
@@ -81,10 +111,13 @@ def prompt_changes(
 
 
 def compare_with_changes(
-    reports: Sequence[DriftBenchmarkReport], against: str,
+    reports: Sequence[DriftBenchmarkReport],
+    against: str,
+    *,
+    sort_by: SortKey = "drift",
 ) -> tuple[list[CandidateSummary], list[PromptChange]]:
     """Compute rankings and prompt transitions with a single compatibility check."""
-    ranking = compare_reports(reports)
+    ranking = compare_reports(reports, sort_by=sort_by)
     by_name = {report.candidate_model: report for report in reports}
     if against not in by_name:
         raise ValueError(f"Unknown reference candidate: {against!r}.")
