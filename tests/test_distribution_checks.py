@@ -48,3 +48,16 @@ def test_sdist_requires_license_at_project_root(tmp_path: Path) -> None:
             stream.addfile(tarfile.TarInfo(f"{ROOT}/{name}"), io.BytesIO())
     with pytest.raises(SystemExit, match="root LICENSE"):
         CHECK(archive)
+
+
+def test_empty_license_fails_and_real_text_passes(tmp_path: Path) -> None:
+    archive = tmp_path / (ROOT + "-py3-none-any.whl")
+    for license_text in ("", "MIT License"):
+        with zipfile.ZipFile(archive, "w") as stream:
+            stream.writestr("llm_drift_bench/py.typed", "")
+            stream.writestr(DIST_INFO + "/licenses/LICENSE", license_text)
+        if license_text:
+            CHECK(archive)
+        else:
+            with pytest.raises(SystemExit, match="LICENSE"):
+                CHECK(archive)

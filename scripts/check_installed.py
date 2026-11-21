@@ -13,31 +13,31 @@ from pathlib import Path
 FORBIDDEN_FRAGMENTS = ("_vendor", "OPIK_LICENSE", "OPIK_NOTICE", "commit-reviewed-changes")
 
 
-def archive_names(artifact: Path) -> list[str]:
+def archive_file_sizes(artifact: Path) -> dict[str, int]:
     if artifact.suffix == ".whl":
         with zipfile.ZipFile(artifact) as wheel:
-            return [item.filename for item in wheel.infolist() if not item.is_dir()]
+            return {item.filename: item.file_size for item in wheel.infolist() if not item.is_dir()}
     with tarfile.open(artifact) as sdist:
-        return [item.name for item in sdist.getmembers() if item.isfile()]
+        return {item.name: item.size for item in sdist.getmembers() if item.isfile()}
 
 
 def check_archive_contents(artifact: Path) -> None:
     """Inspect the distribution itself, before and independent of installation."""
-    names = archive_names(artifact)
-    leaked = [n for n in names if any(part in n for part in FORBIDDEN_FRAGMENTS)]
+    files = archive_file_sizes(artifact)
+    leaked = [n for n in files if any(part in n for part in FORBIDDEN_FRAGMENTS)]
     if leaked:
         raise SystemExit(f"{artifact.name} contains excluded files: {leaked}")
     is_wheel = artifact.suffix == ".whl"
     package_root = "" if is_wheel else artifact.name.removesuffix(".tar.gz") + "/src/"
-    if package_root + "llm_drift_bench/py.typed" not in names:
+    if package_root + "llm_drift_bench/py.typed" not in files:
         raise SystemExit(f"{artifact.name} is missing llm_drift_bench/py.typed")
     if is_wheel:
         metadata_root = "-".join(artifact.name.split("-")[:2]) + ".dist-info"
-        if metadata_root + "/licenses/LICENSE" not in names:
+        if not files.get(metadata_root + "/licenses/LICENSE"):
             raise SystemExit(f"{artifact.name} is missing its packaged LICENSE")
-    elif artifact.name.removesuffix(".tar.gz") + "/LICENSE" not in names:
+    elif not files.get(artifact.name.removesuffix(".tar.gz") + "/LICENSE"):
         raise SystemExit(f"{artifact.name} is missing its root LICENSE")
-    print(f"Archive contents verified: {artifact.name} ({len(names)} files)")
+    print(f"Archive contents verified: {artifact.name} ({len(files)} files)")
 
 
 def main() -> None:
