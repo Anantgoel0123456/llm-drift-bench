@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from llm_drift_bench import __version__
-from llm_drift_bench._breakdowns import category_summary, latency_increases, rule_counts
+from llm_drift_bench._breakdowns import category_summary, latency_increases, numeric_changes, rule_counts
 from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench._matching import require_same_ids
 from llm_drift_bench.batch import evaluate_many
@@ -618,6 +618,8 @@ def _add_comparison_output_options(parser: argparse.ArgumentParser) -> None:
                         help="Count candidate validation issues grouped by rule.")
     parser.add_argument("--slowdowns", type=int, metavar="N",
                         help="Show the N largest measured latency increases in milliseconds.")
+    parser.add_argument("--numeric-changes", type=int, metavar="N",
+                        help="Show the N largest nonzero numeric drift scores.")
     parser.add_argument("--inspect-prompt", action="append", metavar="ID",
                         help="Show one prompt across candidates (repeatable).")
     parser.add_argument("--hotspots", type=int, metavar="N",
@@ -698,6 +700,7 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
     categories = category_summary(reports) if args.by_category else []
     validation_rules = rule_counts(reports) if args.rule_summary else []
     slowdowns = latency_increases(reports, args.slowdowns) if args.slowdowns is not None else []
+    numeric_rows = numeric_changes(reports, args.numeric_changes) if args.numeric_changes is not None else []
     inspections = _inspect_prompts(reports, args.inspect_prompt) if args.inspect_prompt else []
     hotspots = _hotspots(reports, args.hotspots) if args.hotspots is not None else []
     matched = len(changes)
@@ -717,6 +720,8 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
             payload["validation_rules"] = [asdict(item) for item in validation_rules]
         if args.slowdowns is not None:
             payload["slowdowns"] = [asdict(item) for item in slowdowns]
+        if args.numeric_changes is not None:
+            payload["numeric_changes"] = [asdict(item) for item in numeric_rows]
         if args.inspect_prompt:
             payload["prompt_details"] = [asdict(detail) for detail in inspections]
         if args.hotspots is not None:
@@ -758,6 +763,11 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
     for slowdown in slowdowns:
         print(f"Slowdown {ascii(slowdown.candidate)} {ascii(slowdown.prompt_id)}: "
               f"+{slowdown.delta_ms:.2f} ms")
+    if args.numeric_changes is not None and not numeric_rows:
+        print("No nonzero numeric drift measurements.")
+    for numeric_row in numeric_rows:
+        print(f"Numeric change {ascii(numeric_row.candidate)} {ascii(numeric_row.prompt_id)}: "
+              f"{numeric_row.numeric_drift:.4f}")
     for detail in inspections:
         state = "DRIFT" if detail.drifted else "OK"
         numeric = "n/a" if detail.numeric_drift is None else f"{detail.numeric_drift:.4f}"
