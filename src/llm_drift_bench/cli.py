@@ -10,7 +10,7 @@ from collections.abc import Iterator, Sequence
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any
+from typing import Any, cast
 
 from llm_drift_bench import __version__
 from llm_drift_bench._breakdowns import (
@@ -23,6 +23,7 @@ from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench._matching import require_same_ids
 from llm_drift_bench.batch import evaluate_many
 from llm_drift_bench.comparison import (
+    SortKey,
     _hotspots,
     _inspect_prompts,
     compare_reports,
@@ -38,6 +39,7 @@ from llm_drift_bench.engine import (
 from llm_drift_bench.junit import export_junit_report
 from llm_drift_bench.local_advisor import available_devices, generate_advice
 from llm_drift_bench.models import DriftBenchmarkReport, DriftThresholds, ModelSample
+from llm_drift_bench.policy import DriftPolicy, load_policy
 from llm_drift_bench.report_io import load_engine_report, load_report
 from llm_drift_bench.reporter import (
     export_html_report,
@@ -76,27 +78,39 @@ def _load_tool_checks(paths: Sequence[str], output_format: str) -> list[ToolChec
 
 def _add_threshold_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
+        "--config",
+        metavar="FILE",
+        default=None,
+        help="Optional drift.toml or drift.json policy file (thresholds, weights, field rules).",
+    )
+    parser.add_argument(
+        "--long-text-mode",
+        choices=("error", "skip_levenshtein"),
+        default=None,
+        help="Behavior for outputs exceeding 16,384 chars: error (default) or skip_levenshtein.",
+    )
+    parser.add_argument(
         "--max-drift",
         type=float,
-        default=0.25,
+        default=None,
         help="Maximum allowed composite drift score (default: 0.25).",
     )
     parser.add_argument(
         "--min-conformity",
         type=float,
-        default=0.95,
+        default=None,
         help="Minimum required candidate JSON schema conformity rate (default: 0.95).",
     )
     parser.add_argument(
         "--max-numeric-drift",
         type=float,
-        default=0.15,
+        default=None,
         help="Maximum allowed relative drift on numeric JSON fields (default: 0.15).",
     )
     parser.add_argument(
         "--max-latency-regression",
         type=float,
-        default=50.0,
+        default=None,
         help="Maximum allowed P95 latency regression percentage (default: 50.0).",
     )
 
@@ -172,13 +186,49 @@ def _protect_inputs(output: str | None, *inputs: str | None) -> None:
                 raise ValueError(f"Choose a different --output path. {source!r} is an input file.")
 
 
-def _thresholds(args: argparse.Namespace) -> DriftThresholds:
-    return DriftThresholds(
-        max_composite_drift=args.max_drift,
-        min_json_conformity_rate=args.min_conformity,
-        max_numeric_relative_drift=args.max_numeric_drift,
-        max_latency_regression_pct=args.max_latency_regression,
+def _resolve_policy_and_thresholds(
+    args: argparse.Namespace,
+) -> tuple[DriftThresholds, DriftPolicy | None]:
+    policy: DriftPolicy | None = load_policy(args.config) if args.config else None
+    base_thresholds = policy.thresholds if policy is not None else DriftThresholds()
+    thresholds = DriftThresholds(
+        max_composite_drift=(
+            args.max_drift if args.max_drift is not None else base_thresholds.max_composite_drift
+        ),
+        min_json_conformity_rate=(
+            args.min_conformity
+            if args.min_conformity is not None
+            else base_thresholds.min_json_conformity_rate
+        ),
+        max_numeric_relative_drift=(
+            args.max_numeric_drift
+            if args.max_numeric_drift is not None
+            else base_thresholds.max_numeric_relative_drift
+        ),
+        max_latency_regression_pct=(
+            args.max_latency_regression
+            if args.max_latency_regression is not None
+            else base_thresholds.max_latency_regression_pct
+        ),
     )
+    if args.long_text_mode is not None:
+        if policy is None:
+            policy = DriftPolicy(thresholds=thresholds, long_text_mode=args.long_text_mode)
+        else:
+            policy = DriftPolicy(
+                thresholds=thresholds,
+                weights=policy.weights,
+                field_rules=policy.field_rules,
+                long_text_mode=args.long_text_mode,
+            )
+    elif policy is not None:
+        policy = DriftPolicy(
+            thresholds=thresholds,
+            weights=policy.weights,
+            field_rules=policy.field_rules,
+            long_text_mode=policy.long_text_mode,
+        )
+    return thresholds, policy
 
 
 def _handle_run(args: argparse.Namespace) -> int:
@@ -190,10 +240,12 @@ def _handle_run(args: argparse.Namespace) -> int:
                 "Model identifiers are not supported; supply captured JSON/JSONL outputs."
             )
 
-    _protect_inputs(args.output, args.baseline, args.candidate, args.suite, *args.tool_check)
+    _protect_inputs(
+        args.output, args.baseline, args.candidate, args.suite, args.config, *args.tool_check
+    )
     if args.junit_output:
         _protect_inputs(args.junit_output, args.baseline, args.candidate, args.suite,
-                        args.output, *args.tool_check)
+                        args.config, args.output, *args.tool_check)
         if args.output and Path(args.output).resolve() == Path(args.junit_output).resolve():
             raise ValueError("--output and --junit-output require different files.")
     summary_path = None
@@ -201,15 +253,16 @@ def _handle_run(args: argparse.Namespace) -> int:
         destination = os.environ.get("GITHUB_STEP_SUMMARY")
         if not destination or not Path(destination).is_file():
             raise ValueError("--github-summary requires an existing GITHUB_STEP_SUMMARY file.")
-        _protect_inputs(destination, args.baseline, args.candidate, args.suite,
+        _protect_inputs(destination, args.baseline, args.candidate, args.suite, args.config,
                         args.output, args.junit_output, *args.tool_check)
         summary_path = Path(destination)
+    thresholds, policy = _resolve_policy_and_thresholds(args)
     baseline_samples = load_model_samples(args.baseline)
     candidate_samples = load_model_samples(args.candidate)
     prompt_cases = load_prompt_cases(args.suite) if args.suite else None
     tool_checks = _load_tool_checks(args.tool_check, args.format)
 
-    engine = DriftBenchmarkEngine(thresholds=_thresholds(args))
+    engine = DriftBenchmarkEngine(thresholds=thresholds, policy=policy)
     report = engine.evaluate(
         baseline_samples=baseline_samples,
         candidate_samples=candidate_samples,
@@ -666,16 +719,19 @@ def _candidate_captures(
 
 
 def _handle_many(args: argparse.Namespace) -> int:
-    _protect_inputs(args.json_output, args.baseline, args.suite, *(p for _, p in args.candidate))
+    _protect_inputs(
+        args.json_output, args.baseline, args.suite, args.config, *(p for _, p in args.candidate)
+    )
     labels = [label for label, _ in args.candidate]
     if len(labels) < 2:
         raise ValueError("Provide at least two labeled candidate captures.")
     if len(set(labels)) != len(labels) or any(not label.strip() for label in labels):
         raise ValueError("Candidate labels must be non-empty and unique.")
+    thresholds, policy = _resolve_policy_and_thresholds(args)
     baseline = load_model_samples(args.baseline)
     candidates = _candidate_captures(args.candidate)
     suite = load_prompt_cases(args.suite) if args.suite else None
-    reports = evaluate_many(baseline, candidates, suite, _thresholds(args))
+    reports = evaluate_many(baseline, candidates, suite, thresholds, policy=policy)
     return _render_comparison(reports, args)
 
 
@@ -740,7 +796,7 @@ def _render_comparison_rich(
 
 
 def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.Namespace) -> int:
-    sort_by = getattr(args, "sort_by", "drift")
+    sort_by = cast(SortKey, getattr(args, "sort_by", "drift"))
     if args.against is not None:
         rows, changes = compare_with_changes(reports, args.against, sort_by=sort_by)
     else:

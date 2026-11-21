@@ -7,6 +7,7 @@ from dataclasses import replace
 
 from llm_drift_bench.engine import DriftBenchmarkEngine
 from llm_drift_bench.models import DriftBenchmarkReport, DriftThresholds, ModelSample, PromptCase
+from llm_drift_bench.policy import DriftPolicy
 
 
 def evaluate_many(
@@ -14,11 +15,13 @@ def evaluate_many(
     candidates: Iterable[tuple[str, Sequence[ModelSample]]],
     suite: Sequence[PromptCase] | None = None,
     thresholds: DriftThresholds | None = None,
+    *,
+    policy: DriftPolicy | None = None,
 ) -> list[DriftBenchmarkReport]:
     """Evaluate each capture once, preserving its caller-supplied comparison label."""
     if len({sample.model_name for sample in baseline}) > 1:
         raise ValueError("Baseline capture contains multiple model names.")
-    engine = DriftBenchmarkEngine(thresholds)
+    engine = DriftBenchmarkEngine(thresholds, policy=policy)
     labels: set[str] = set()
     reports = []
     for label, samples in candidates:

@@ -9,6 +9,7 @@ from typing import Any
 from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench._matching import index_records, require_same_ids
 from llm_drift_bench.metrics import (
+    _MAX_EDIT_DISTANCE_CHARS,
     compute_composite_drift_score,
     compute_percentile,
     jaccard_similarity,
@@ -25,6 +26,11 @@ from llm_drift_bench.models import (
     PromptCase,
     SampleDriftResult,
 )
+from llm_drift_bench.policy import (
+    DriftPolicy,
+    compute_weighted_composite_drift,
+    evaluate_json_with_policy,
+)
 from llm_drift_bench.validator import validate_output
 
 
@@ -33,6 +39,8 @@ def evaluate_sample_pair(
     candidate: ModelSample,
     prompt_case: PromptCase | None = None,
     thresholds: DriftThresholds | None = None,
+    *,
+    policy: DriftPolicy | None = None,
 ) -> SampleDriftResult:
     """Compare a baseline ModelSample and candidate ModelSample for a single prompt_id.
 
@@ -41,6 +49,7 @@ def evaluate_sample_pair(
         candidate: Candidate model completion sample.
         prompt_case: Optional PromptCase with expected JSON Schema and category.
         thresholds: Optional DriftThresholds configuration.
+        policy: Optional DriftPolicy with custom weights, field rules, and long-text handling.
 
     Returns:
         SampleDriftResult detailing validation, similarity, and composite drift metrics.
@@ -51,7 +60,9 @@ def evaluate_sample_pair(
         raise ValueError("Baseline and candidate prompt IDs must match.")
     if prompt_case is not None and prompt_case.prompt_id != baseline.prompt_id:
         raise ValueError("Prompt case ID must match the sample prompt ID.")
-    active_thresholds = thresholds or DriftThresholds()
+    active_thresholds = thresholds or (
+        policy.thresholds if policy is not None else DriftThresholds()
+    )
     schema = prompt_case.schema if prompt_case is not None else None
     category = prompt_case.category if prompt_case is not None else "general"
 
@@ -60,27 +71,53 @@ def evaluate_sample_pair(
 
     tok_jaccard = jaccard_similarity(baseline.output, candidate.output)
     ngram_sim = ngram_overlap_similarity(baseline.output, candidate.output, n=2)
-    lev_sim = normalized_levenshtein_similarity(baseline.output, candidate.output)
+    lev_skipped = (
+        policy is not None
+        and policy.long_text_mode == "skip_levenshtein"
+        and max(len(baseline.output), len(candidate.output)) > _MAX_EDIT_DISTANCE_CHARS
+    )
+    if lev_skipped:
+        lev_sim = 1.0 if baseline.output == candidate.output else (tok_jaccard + ngram_sim) / 2.0
+    else:
+        lev_sim = normalized_levenshtein_similarity(baseline.output, candidate.output)
 
     struct_sim: float | None = None
     field_match: float | None = None
     num_drift: float | None = None
 
     if base_val.is_valid_json and cand_val.is_valid_json:
-        struct_sim = json_structural_similarity(base_val.parsed_json, cand_val.parsed_json)
-        field_match = json_exact_field_match(base_val.parsed_json, cand_val.parsed_json)
-        num_drift = json_numeric_drift(base_val.parsed_json, cand_val.parsed_json)
+        if policy is not None and policy.field_rules:
+            struct_sim, field_match, num_drift = evaluate_json_with_policy(
+                base_val.parsed_json, cand_val.parsed_json, policy.field_rules
+            )
+        else:
+            struct_sim = json_structural_similarity(base_val.parsed_json, cand_val.parsed_json)
+            field_match = json_exact_field_match(base_val.parsed_json, cand_val.parsed_json)
+            num_drift = json_numeric_drift(base_val.parsed_json, cand_val.parsed_json)
 
-    composite_drift = compute_composite_drift_score(
-        token_jaccard=tok_jaccard,
-        ngram_sim=ngram_sim,
-        levenshtein_sim=lev_sim,
-        json_structural_sim=struct_sim,
-        json_field_match=field_match,
-        json_num_drift=num_drift,
-        baseline_schema_passed=base_val.passed,
-        candidate_schema_passed=cand_val.passed,
-    )
+    if policy is not None:
+        composite_drift = compute_weighted_composite_drift(
+            weights=policy.weights,
+            token_jaccard=tok_jaccard,
+            ngram_sim=ngram_sim,
+            levenshtein_sim=None if lev_skipped else lev_sim,
+            json_structural_sim=struct_sim,
+            json_field_match=field_match,
+            json_num_drift=num_drift,
+            baseline_schema_passed=base_val.passed,
+            candidate_schema_passed=cand_val.passed,
+        )
+    else:
+        composite_drift = compute_composite_drift_score(
+            token_jaccard=tok_jaccard,
+            ngram_sim=ngram_sim,
+            levenshtein_sim=lev_sim,
+            json_structural_sim=struct_sim,
+            json_field_match=field_match,
+            json_num_drift=num_drift,
+            baseline_schema_passed=base_val.passed,
+            candidate_schema_passed=cand_val.passed,
+        )
 
     latency_delta: float | None = None
     if baseline.latency_ms is not None and candidate.latency_ms is not None:
@@ -115,8 +152,16 @@ def evaluate_sample_pair(
 class DriftBenchmarkEngine:
     """Orchestrates benchmark comparisons between baseline and candidate LLM outputs."""
 
-    def __init__(self, thresholds: DriftThresholds | None = None) -> None:
-        self.thresholds = thresholds or DriftThresholds()
+    def __init__(
+        self,
+        thresholds: DriftThresholds | None = None,
+        *,
+        policy: DriftPolicy | None = None,
+    ) -> None:
+        self.policy = policy
+        self.thresholds = thresholds or (
+            policy.thresholds if policy is not None else DriftThresholds()
+        )
 
     def evaluate(
         self,
@@ -157,6 +202,7 @@ class DriftBenchmarkEngine:
                 candidate=cand_sample,
                 prompt_case=prompt_case,
                 thresholds=self.thresholds,
+                policy=self.policy,
             )
             pair_results.append(res)
             if base_sample.latency_ms is not None:
