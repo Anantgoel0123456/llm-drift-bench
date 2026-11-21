@@ -29,21 +29,34 @@ _RULE_ADVICE = {
 def diagnose_report(report: DriftBenchmarkReport) -> list[Finding]:
     """Return actionable observations without recomputing the benchmark verdict."""
     findings: list[Finding] = []
+    conformity_failed = not report.passed and report.candidate_json_conformity_rate < 1.0
     ordered = sorted(report.results, key=lambda row: (-row.composite_drift_score, row.prompt_id))
     for result in ordered:
-        if not result.drifted:
-            continue
         validation = result.candidate_validation
-        if result.baseline_validation.is_valid_json and not validation.is_valid_json:
+        schema_failed = validation.is_valid_json and bool(validation.issues)
+        json_failed_in_failing_suite = conformity_failed and not validation.is_valid_json
+        if not result.drifted and not schema_failed and not json_failed_in_failing_suite:
+            continue
+
+        if not validation.is_valid_json and (
+            result.baseline_validation.is_valid_json or json_failed_in_failing_suite
+        ):
+            evidence = (
+                "Baseline parsed as JSON and candidate did not."
+                if result.baseline_validation.is_valid_json
+                else "Candidate output did not parse as JSON."
+            )
             findings.append(
                 Finding(
                     "invalid_json",
                     result.prompt_id,
-                    "Baseline parsed as JSON and candidate did not.",
+                    evidence,
                     "Check the capture for truncation, malformed JSON or duplicate keys.",
                 )
             )
             continue
+
+        specific_emitted = False
         if validation.issues:
             for issue in validation.issues:
                 suggestion = _RULE_ADVICE.get(
@@ -52,9 +65,11 @@ def diagnose_report(report: DriftBenchmarkReport) -> list[Finding]:
                 findings.append(
                     Finding("schema", result.prompt_id, f"{issue.path}: {issue.rule}", suggestion)
                 )
-            continue
+            specific_emitted = True
+
         if (
-            report.thresholds is not None
+            result.drifted
+            and report.thresholds is not None
             and result.json_numeric_drift is not None
             and result.json_numeric_drift > report.thresholds.max_numeric_relative_drift
         ):
@@ -66,15 +81,17 @@ def diagnose_report(report: DriftBenchmarkReport) -> list[Finding]:
                     "Compare units, decimal placement and rounding against the source record.",
                 )
             )
-            continue
-        findings.append(
-            Finding(
-                "drift",
-                result.prompt_id,
-                f"Composite drift {result.composite_drift_score:.4f}",
-                "Compare the saved baseline and candidate responses for this prompt.",
+            specific_emitted = True
+
+        if result.drifted and not specific_emitted:
+            findings.append(
+                Finding(
+                    "drift",
+                    result.prompt_id,
+                    f"Composite drift {result.composite_drift_score:.4f}",
+                    "Compare the saved baseline and candidate responses for this prompt.",
+                )
             )
-        )
     if not report.passed:
         for reason in report.failure_reasons:
             findings.append(
