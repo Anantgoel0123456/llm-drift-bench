@@ -72,3 +72,29 @@ def test_export_protects_source_reports(tmp_path) -> None:
     source.write_bytes(original)
     assert main(["compare-reports", str(source), FILES[1], "--json-output", str(source)]) == 2
     assert source.read_bytes() == original
+
+
+def test_raw_comparison_breakdowns_and_input_protection(tmp_path) -> None:
+    baseline = tmp_path / "baseline.jsonl"
+    original = (EXAMPLES / "baseline.jsonl").read_bytes()
+    baseline.write_bytes(original)
+    args = ["compare-many", "-b", str(baseline), "-s", str(EXAMPLES / "extraction-suite.json"),
+            "-c", "A", str(EXAMPLES / "candidate-pass.jsonl"),
+            "-c", "B", str(EXAMPLES / "candidate-drift.jsonl")]
+    assert main([*args, "--json-output", str(baseline)]) == 2
+    assert baseline.read_bytes() == original
+    output = tmp_path / "comparison.json"
+    assert main([*args, "--by-category", "--rule-summary", "--numeric-changes", "1",
+                 "--slowdowns", "1", "--no-fail-on-drift", "--json-output", str(output)]) == 0
+    data = json.loads(output.read_text(encoding="utf-8"))
+    assert data["validation_rules"][0]["candidate"] == "B"
+    assert data["numeric_changes"][0]["prompt_id"] == "invoice-01"
+    assert len(data["categories"]) == 4
+
+
+def test_invalid_ranking_limits_preserve_existing_output(tmp_path) -> None:
+    target = tmp_path / "previous.json"
+    target.write_bytes(b"previous")
+    for flag in ("--slowdowns", "--numeric-changes"):
+        assert main(["compare-reports", *FILES, flag, "0", "--json-output", str(target)]) == 2
+    assert target.read_bytes() == b"previous"
