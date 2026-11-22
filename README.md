@@ -2,530 +2,440 @@
 
 # llm-drift-bench
 
-**Catch silent regressions before you swap or quantize your LLM.**
+**Catch silent regressions before you swap, update, or quantize your LLM.**
 
-Offline regression checks for LLM outputs, structured responses, and model changes.
+Lightweight, deterministic CLI and Python library for offline LLM drift detection, JSON Schema conformity, multi-candidate ranking, statistical significance testing, and agent tool-trace auditing.
 
-[![PyPI](https://img.shields.io/pypi/v/llm-drift-bench)](https://pypi.org/project/llm-drift-bench/)
+[![PyPI](https://img.shields.io/pypi/v/llm-drift-bench?color=blue)](https://pypi.org/project/llm-drift-bench/)
 [![CI](https://github.com/anant-goel/llm-drift-bench/actions/workflows/ci.yml/badge.svg)](https://github.com/anant-goel/llm-drift-bench/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
+[![Typing: Typed](https://img.shields.io/badge/typing-strict%20mypy%20%7C%20py.typed-2ea44f)](src/llm_drift_bench/py.typed)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-[Quickstart](#quickstart) · [Examples](examples/README.md) · [Architecture](docs/architecture.md) · [Roadmap](docs/roadmap.md) · [Contribute](CONTRIBUTING.md)
+[Quickstart](#quickstart) · [Capabilities](#capabilities) · [Workflows](#core-workflows) · [CLI Reference](#cli-reference) · [Python API](#python-api--pluggable-scorers) · [CI/CD](#cicd-integration) · [Examples](examples/README.md) · [Architecture](docs/architecture.md)
 
 </div>
 
-> **Release status:** This checkout develops **0.3.0** (`0.3.0.dev0`). Registry publication
-> is a separate step; the PyPI badge shows the published version.
-> Read the [migration notes](docs/migration-0.2.md) before upgrading.
+> [!NOTE]
+> **Branch status:** This `main` checkout develops **0.3.0** (`0.3.0.dev0`). Published PyPI releases are cut separately — see the [Changelog](CHANGELOG.md) and [0.2 migration guide](docs/migration-0.2.md) for version differences.
+
+---
 
 ## See it in 18 seconds
 
 [![Animated walkthrough: an unchanged candidate passes, then changed fields fail](docs/assets/demo.gif)](docs/assets/demo.mp4)
 
-[Watch or download the MP4](docs/assets/demo.mp4) | [Static preview](docs/assets/demo-poster.png) | [Demo inputs](examples/README.md)
+[Watch MP4](docs/assets/demo.mp4) · [Static Preview](docs/assets/demo-poster.png) · [Sample HTML Report](docs/assets/example-report.html) · [Demo Fixtures](examples/README.md)
 
-This edited walkthrough uses actual CLI results from the **0.2.0 development
-checkout** and handwritten fixtures. It is not a real-model benchmark or a
-recording of execution speed. No audio is required. Open the static preview if
-you prefer no animation.
+<sub>Edited from real CLI JSON outputs on handwritten fixtures in <code>examples/</code> (not real model captures or runtime benchmarks). Silent — no audio required.</sub>
 
-## A faster model is only useful if its outputs still work
+---
 
-A quantized model can return valid JSON while changing a price, dropping a field,
-or choosing a different label. A prompt revision can change output formatting
-without improving the underlying task. A model update can affect both.
+## Why `llm-drift-bench`?
 
-`llm-drift-bench` compares saved baseline and candidate responses by prompt ID
-and makes those changes inspectable. It runs locally, with no model API calls,
-API keys, embedding downloads, or GPU requirement. Its runtime dependencies are
-Pydantic and Rich, plus their transitive dependencies.
+A quantized checkpoint (e.g. FP16 -> INT4/Q4_K_M), model version bump, or prompt edit can keep returning syntactically valid JSON while quietly dropping a required field, shifting an invoice total, flipping a classification label, or regressing P95 latency.
 
-| Check | What it tells you |
-| --- | --- |
-| JSON conformity | Whether responses parse and satisfy the supported schema subset |
-| Text similarity | Token, n-gram, and character-level agreement with your baseline |
-| JSON field agreement | Changes to structure, exact leaf values, and numeric values |
-| Recorded latency | P50/P95 differences when complete measurements are supplied |
-| CI gates | Whether a sample or suite exceeds your configured thresholds |
-
-**Agreement is not correctness.** A wrong baseline can agree perfectly with a
-wrong candidate. These metrics are lexical and structural, not a semantic judge.
-
-## From captured responses to a release decision
+`llm-drift-bench` compares captured baseline and candidate responses by `prompt_id` **completely offline** — no LLM judge API calls, no embedding downloads, and no GPU required. Core models are pure stdlib dataclasses with PEP 562 lazy loading (**~8 ms** package import; canonical runs never eagerly import Pydantic or Rich).
 
 ```mermaid
-flowchart TD
-    A[Saved baseline responses] --> C[Match prompt IDs]
-    B[Saved candidate responses] --> C
-    C --> D[Validate and score]
-    D --> E{Thresholds pass?}
-    E -->|Yes| F[Pass CI or application test]
-    E -->|No| G[Inspect failed prompts and reasons]
+flowchart LR
+    A["Capture or export<br/>baseline & candidate JSONL"] --> B["Bootstrap<br/>infer-schema & calibrate"]
+    B --> C["Evaluate<br/>run --config drift.toml"]
+    C --> D{"Gates pass?"}
+    D -->|Pass / Fail| E["Inspect & Decide<br/>diagnose · compare-reports · stats"]
+    E --> F["Ship & Track<br/>PR comment · HTML diffs · JUnit · history"]
 ```
 
-### Evaluate the output your application depends on
+> [!IMPORTANT]
+> **Agreement is not factual correctness.** Metrics are deterministic lexical, structural, numeric, and statistical signals against your baseline — not an LLM-as-a-judge or semantic truth oracle.
 
-| Your workflow | What you can compare today | What needs separate evaluation |
-| --- | --- | --- |
-| Model updates and quantization | Saved responses for the same prompts | General intelligence or factual accuracy |
-| JSON extraction | Required fields, structure, field agreement, numeric changes | Whether extracted facts match the source |
-| RAG applications | Saved final answers or structured extraction outputs | Retrieval relevance, grounding, and citation correctness |
-| Agent workflows | Saved final responses or tool-argument JSON represented as output strings | Tool execution, intermediate traces, permissions, and task completion |
+---
 
-You export the captures; the benchmark evaluates them offline. See
-[workflow recipes](docs/workflows.md) for examples and boundaries.
+## Capabilities
 
-### Available now and planned next
+| Capability | Status (`0.3.0.dev0`) | Highlights |
+| :--- | :---: | :--- |
+| **JSON & Schema Conformity** | Available | Strict extraction (direct, fenced, prose), duplicate-key & `NaN`/`Inf` rejection, safe bounded regex subset |
+| **Composite Drift & Policies** | Available | Token Jaccard, n-gram Dice, exact Levenshtein, JSON structure/field/numeric drift, `drift.toml` weights & per-field rules (`ignore`, `unordered_array`, `tolerance_abs`/`tolerance_rel`) |
+| **Zero-Setup Onboarding** | Available | `infer-schema` generates strict JSON Schemas from captures; `calibrate` auto-tunes `drift.toml` & detects volatile fields |
+| **Endpoint Capture Collector** | Available | Zero-dependency OpenAI-compatible collector (Ollama, vLLM, llama.cpp, OpenAI) with `--concurrency`, `--runs`, `--json-mode`, bounded retries |
+| **Multi-Candidate Ranking** | Available | `compare-many` & `compare-reports` with `--sort-by`, `--against`, `--hotspots`, `--inspect-prompt`, Rich tables & SVG Pareto frontier HTML |
+| **Statistical Rigor** | Available | `stats` with deterministic bootstrap CIs, flaky-prompt detection, paired permutation tests, and exact two-sided McNemar conformity tests |
+| **Drift History & Trends** | Available | Append-only JSONL ledger (`history record\|show`) with `--candidate`/`--tag` filters, terminal Unicode sparklines, and offline SVG trend HTML |
+| **Agent Tool-Trace Audits** | Available | `check-tools --adapter normalized\|openai\|anthropic\|otel` (including OpenAI Responses API), plus retry & secret-leak workflow checks |
+| **Pluggable Scorers** | Available | Pure-stdlib `char_ngram_cosine`, `tfidf_cosine`, and `python_ast` scorers + `register_scorer` & `llm_drift_bench.scorers` entry points |
+| **CI-Native Exports** | Available | Table, Rich, JSON, Markdown, GitHub PR comments (`--previous` deltas), offline HTML (`--include-diffs`), JUnit XML, `--github-summary` |
 
-| Capability | 0.2.0 | Direction |
-| --- | --- | --- |
-| Offline evaluation and JSON checks | Available | Harden schema and numeric handling |
-| CLI and Python test gates | Available | Add CI-native result exports |
-| Per-prompt failure inspection | Available | Canonical scores across CLI formats |
-| Local HTML report | Available | Inspect a saved engine result in a browser |
-| Run history and trends | Planned | Compare versioned results over time |
-| Trace import and correlation | Exploratory | Connect failures to externally captured spans |
-| Live production monitoring | Not implemented | Requires collection, storage, alerting, and operational design |
-
-The next release prioritizes trustworthy results. The local HTML report shows
-the same engine scores and failure decision as the CLI. Live monitoring and
-historical dashboards remain separate future work.
+---
 
 ## Quickstart
 
-Try this checkout from PowerShell with Python 3.10 or newer:
+Requires **Python 3.10+**. Install the latest published release from PyPI or install this checkout in editable mode:
 
-```powershell
+```bash
+# Option A: Install from PyPI
+pip install llm-drift-bench
+
+# Option B: Install latest 0.3.0.dev0 from source
 git clone https://github.com/anant-goel/llm-drift-bench.git
-Set-Location llm-drift-bench
+cd llm-drift-bench
 python -m venv .venv
-& .\.venv\Scripts\python.exe -m pip install -e .
-& .\.venv\Scripts\python.exe -m llm_drift_bench --version
-& .\.venv\Scripts\python.exe -m llm_drift_bench run -b examples/baseline.jsonl -c examples/candidate-pass.jsonl -p examples/extraction-suite.json
+.venv/bin/python -m pip install -e .        # Windows PowerShell: .\.venv\Scripts\python.exe -m pip install -e .
 ```
 
-Expected: `0.3.0.dev0`, followed by a **PASSED** comparison and exit code `0`.
-On Linux/macOS, replace `.\.venv\Scripts\python.exe` with `.venv/bin/python`.
-No virtual-environment activation is needed.
+Run the bundled offline demo (exit `0` on pass, exit `1` on drift):
 
-Now catch a regression:
+```bash
+# 1. Passing comparison (exit 0)
+python -m llm_drift_bench run \
+  -b examples/baseline.jsonl \
+  -c examples/candidate-pass.jsonl \
+  -s examples/extraction-suite.json
 
-```powershell
-& .\.venv\Scripts\python.exe -m llm_drift_bench run -b examples/baseline.jsonl -c examples/candidate-drift.jsonl -p examples/extraction-suite.json --output drift-report.json
-$LASTEXITCODE # Expected: 1
+# 2. Catch a regression and save the report (exit 1)
+python -m llm_drift_bench run \
+  -b examples/baseline.jsonl \
+  -c examples/candidate-drift.jsonl \
+  -s examples/extraction-suite.json \
+  -o drift-report.json
+
+# 3. Explain exactly why it failed (exit 0)
+python -m llm_drift_bench diagnose -i drift-report.json
 ```
 
-These fixtures are **handwritten demonstrations**, not measurements of any real
-model or quantization. [Inspect the inputs and expected reports](examples/README.md).
+<details>
+<summary><strong>Preview actual terminal output (failing run + diagnose)</strong></summary>
 
-To install the published version instead:
-
-```powershell
-python -m pip install "llm-drift-bench==0.1.0"
-python -m llm_drift_bench --help
+```text
+==============================================================================
+ LLM DRIFT BENCHMARK REPORT  [FAILED]
+==============================================================================
+ Baseline Model  : demo-reference
+ Candidate Model : demo-candidate-drift
+ Total Samples   : 2 (Drifted: 2 / 100.0%)
+------------------------------------------------------------------------------
+ Metric                               | Baseline         | Candidate / Value
+------------------------------------------------------------------------------
+ JSON Conformity Rate                 |          100.0% |             50.0%
+ Mean Composite Drift                 |     0.0000 (ref) |             0.6694
+ Max Composite Drift                  |     0.0000 (ref) |             0.9597
+ Mean Token Jaccard Similarity        |     1.0000 (ref) |             0.5238
+ Mean Levenshtein Similarity          |     1.0000 (ref) |             0.5142
+ Mean JSON Structural Similarity      |     1.0000 (ref) |             0.5000
+ Mean JSON Numeric Relative Drift     |     0.0000 (ref) |             0.4444
+ P50 Latency (ms)                     |              n/a |                n/a
+ P95 Latency (ms)                     |              n/a |                n/a
+ Latency regression check: n/a (incomplete measurements).
+------------------------------------------------------------------------------
+ Prompt ID          | Category       | JSON OK | Struct Sim | Drift    | State
+------------------------------------------------------------------------------
+ invoice-01         | extraction     | YES     |     1.0000 |   0.3791 | DRIFT
+ ticket-01          | classification | NO      |     0.0000 |   0.9597 | DRIFT
+==============================================================================
+ Threshold Violations:
+  - 2 of 2 samples failed individual drift checks.
+  - Mean composite drift (0.6694) exceeded threshold (0.2500).
+  - Candidate JSON conformity rate (50.00%) fell below minimum (95.00%).
+  - Mean numeric relative drift (0.4444) exceeded threshold (0.1500).
+==============================================================================
 ```
 
-Published 0.1.0 does not include all changes documented on this branch.
-
-## Bring your own captures
-
-Create a JSON or JSONL file for each comparison target. Each record contains a
-unique, nonempty `prompt_id` and the captured response as an `output` string:
-
-```json
-{"prompt_id":"invoice-01","model_name":"my-baseline","output":"{\"total\":100}"}
+```text
+Benchmark FAILED
+[schema] ticket-01: $.priority: required
+  Try: Restore the required field in the extraction prompt or output mapping.
+[numeric_change] invoice-01: Shared numeric fields have relative drift 0.4444.
+  Try: Compare units, decimal placement and rounding against the source record.
 ```
 
-Optionally include measured `latency_ms` and `tokens_generated`. Missing
-measurements remain unavailable; the tool does not estimate them from text.
-Baseline and candidate must have exactly matching prompt IDs. A supplied suite
-must cover the same IDs, with no duplicates or extra cases.
+</details>
 
-A suite associates those IDs with prompts and schemas:
+---
 
-```json
-[{"prompt_id":"invoice-01","prompt":"Extract the invoice total.","schema":{"type":"object","required":["total"],"properties":{"total":{"type":"number","minimum":0}}}}]
+## Core Workflows
+
+### 1. Zero-Setup Onboarding (`infer-schema` & `calibrate`)
+
+Skip writing JSON Schemas and guessing thresholds by hand:
+
+```bash
+# Auto-infer a strict prompts.json schema suite from captured baseline JSON outputs
+python -m llm_drift_bench infer-schema -i examples/baseline.jsonl -o inferred-prompts.json --strict-additional
+
+# Validate captures immediately against the inferred schema
+python -m llm_drift_bench validate -i examples/baseline.jsonl -p inferred-prompts.json --strict
+
+# Auto-calibrate drift.toml (thresholds + ignore rules for volatile fields like $.timestamp)
+python -m llm_drift_bench calibrate --baseline-a baseline-run1.jsonl --baseline-b baseline-run2.jsonl -o drift.toml
 ```
 
-JSON Schema support is intentionally limited. Unsupported keywords fail
-explicitly. See [current limitations](docs/current-limitations.md) before using
-complex schemas or untrusted regex patterns.
+### 2. Task-Specific `drift.toml` Policies
 
-## Use it in CI
+Customize metric weights, ignore volatile fields, compare order-insensitive arrays, set absolute/relative numeric tolerances, or handle >16,384-char responses (see [examples/drift.toml](examples/drift.toml)):
 
-```powershell
-& .\.venv\Scripts\python.exe -m llm_drift_bench run -b baseline.jsonl -c candidate.jsonl -p prompts.json --max-drift 0.15 --min-conformity 0.98 --max-numeric-drift 0.05 --max-latency-regression 25 --format json --output drift-report.json
-exit $LASTEXITCODE
+```toml
+long_text_mode = "skip_levenshtein" # or "error" (default)
+
+[thresholds]
+max_composite_drift = 0.20
+min_json_conformity_rate = 0.98
+max_numeric_relative_drift = 0.05
+max_latency_regression_pct = 35.0
+
+[fields."$.timestamp"]
+ignore = true
+
+[fields."$.tags"]
+unordered_array = true
+
+[fields."$.confidence"]
+tolerance_abs = 0.03
 ```
 
-| Exit code | Meaning |
-| --- | --- |
-| `0` | Passed |
-| `1` | Drift or a threshold failure |
-| `2` | Usage or input error |
-
-`--fail-on-drift` explicitly enables the default. `--no-fail-on-drift` makes a
-run informational, but its report still records failure. Input errors remain
-errors. A failed individual sample fails the suite even if the mean is low.
-
-| Threshold | Default |
-| --- | ---: |
-| `--max-drift` | 0.25 |
-| `--min-conformity` | 0.95 |
-| `--max-numeric-drift` | 0.15 |
-| `--max-latency-regression` | 50 percent |
-
-Calibrate thresholds using your own tasks. Missing timings skip the latency
-gate, so a passing report does not necessarily certify latency performance.
-
-## Python API
-
-```python
-from llm_drift_bench import DriftBenchmarkEngine, ModelSample, PromptCase
-
-suite = [PromptCase(prompt_id="invoice-01", prompt="Extract total.",
-                    schema={"type": "object", "required": ["total"]})]
-baseline = [ModelSample(prompt_id="invoice-01", output='{"total":100}')]
-candidate = [ModelSample(prompt_id="invoice-01", output='{"total":100}')]
-report = DriftBenchmarkEngine().evaluate(baseline, candidate, suite)
-assert report.passed, report.failure_reasons
+```bash
+python -m llm_drift_bench run \
+  -b examples/baseline.jsonl -c examples/candidate-pass.jsonl \
+  -s examples/extraction-suite.json --config examples/drift.toml
 ```
 
-## Turn a benchmark into an automated test
+### 3. Capture Reproducible Outputs (`capture`)
 
-The development version includes `assert_no_drift`, usable with pytest,
-unittest, or ordinary Python. It uses the canonical engine report and raises
-`AssertionError` when a sample or suite gate fails.
+Collect deterministic JSONL captures directly from any OpenAI-compatible endpoint (**Ollama**, **vLLM**, **llama.cpp server**, **OpenAI**) with bounded concurrency, multi-run repeats, JSON mode, explicit timeouts, bounded retries, and env-var secret handling:
+
+```bash
+python -m llm_drift_bench capture \
+  -s examples/extraction-suite.json \
+  --endpoint http://localhost:11434/v1 \
+  --model llama3:8b-q4_K_M \
+  --seed 42 --concurrency 4 --runs 3 --json-mode \
+  -o candidate.jsonl
+```
+
+### 4. Multi-Candidate Ranking & Visual Reports
+
+Compare multiple quantizations or prompts side-by-side, inspect hotspots, gate on newly regressed prompts, and export zero-JS offline HTML dashboards or compact GitHub PR comments:
+
+```bash
+# Evaluate multiple captures against one baseline and flag regressions vs a reference candidate
+python -m llm_drift_bench compare-many \
+  -b examples/baseline.jsonl -s examples/extraction-suite.json \
+  -c q8 examples/candidate-pass.jsonl \
+  -c q4 examples/candidate-drift.jsonl \
+  --against q8 --hotspots 5 --format rich --html-output comparison.html
+
+# Rank saved reports with an inline SVG Pareto frontier dashboard
+python -m llm_drift_bench compare-reports examples/expected-pass.json examples/expected-drift.json \
+  --sort-by passed --by-category --rule-summary --numeric-changes 5 --html-output pareto.html
+
+# Export a compact GitHub PR comment with deltas vs a previous run
+python -m llm_drift_bench report -i examples/expected-drift.json \
+  --format pr-comment --previous examples/expected-pass.json
+
+# Export a standalone offline HTML report with collapsible side-by-side JSON field diffs
+python -m llm_drift_bench run \
+  -b examples/baseline.jsonl -c examples/candidate-drift.jsonl \
+  -s examples/extraction-suite.json --format html --include-diffs --no-fail-on-drift > report.html
+```
+
+### 5. Statistical Significance & Drift History (`stats` & `history`)
+
+Distinguish real regressions from sampling variance and track model quality across releases:
+
+```bash
+# Bootstrap CIs, flaky prompt detection, paired permutation & exact McNemar conformity tests
+python -m llm_drift_bench stats run1.json run2.json run3.json \
+  --compare-against baseline-ref.json --confidence 0.95
+
+# Append runs to an audit ledger and render terminal sparklines or offline SVG trend charts
+python -m llm_drift_bench history record --ledger drift-history.jsonl -i examples/expected-pass.json --tag q8 --git-sha abc1234
+python -m llm_drift_bench history show --ledger drift-history.jsonl --candidate demo-candidate-pass --format text
+python -m llm_drift_bench history show --ledger drift-history.jsonl --format html -o trends.html
+```
+
+### 6. Offline Agent Tool-Trace Audits (`check-tools`)
+
+Verify that an agent read required content before editing — directly on normalized traces, **OpenAI** Chat/Responses transcripts, **Anthropic/Claude** `tool_use`/`tool_result` logs, or **OpenTelemetry** GenAI spans — and optionally attach the saved evidence to reports with `--tool-check` (never alters the drift verdict):
+
+```bash
+python -m llm_drift_bench check-tools \
+  -i transcript.json --adapter openai \
+  --resource src/app.py@v1 --start 0 --end 500 --trace-complete \
+  -o tool-check.json
+```
+
+Exit codes for `check-tools`: `0` PASS, `1` FAIL, `3` UNKNOWN (incomplete/insufficient evidence — never treated as PASS), `2` input error. See [docs/tool-events.md](docs/tool-events.md) for the full schema and Python workflow checks (`check_max_tool_retries`, `check_no_secret_in_tool_args`).
+
+---
+
+## CLI Reference
+
+Run `python -m llm_drift_bench <command> --help` for full options on any command.
+
+| Command | Purpose |
+| :--- | :--- |
+| `run` | Compare baseline and candidate captures (`--config`, `--long-text-mode`, `--include-diffs`, `--format`, `--junit-output`, `--github-summary`) |
+| `validate` | Validate captures for JSON syntax and JSON Schema conformity (`--strict`) |
+| `report` | Render a saved report as `markdown`, `console`/`table`, `json`, `html`, `junit`, or `pr-comment` (`--previous`, `--tool-check`) |
+| `diagnose` | Explain why a saved comparison failed (`--scope`, `--kind`, `--prompt-id`, optional local OpenVINO `--ai-model`) |
+| `compare-many` | Evaluate 2+ labeled candidate captures against one baseline (`--sort-by`, `--against`, `--hotspots`, `--format rich`, `--html-output`) |
+| `compare-reports` | Rank saved candidate reports and export SVG Pareto frontier dashboards |
+| `check-tools` | Offline read-before-edit checks on normalized, OpenAI, Anthropic, or OTel traces (`--adapter`) |
+| `stats` | Multi-run bootstrap CIs, flaky-prompt detection, paired permutation, and exact two-sided McNemar tests |
+| `history` | Record reports to a JSONL drift ledger (`record`) and render filtered sparklines or SVG trend HTML (`show`) |
+| `capture` | Capture reproducible JSONL outputs from OpenAI-compatible endpoints (`--concurrency`, `--runs`, `--json-mode`) |
+| `infer-schema` | Auto-infer a supported-subset JSON Schema prompt suite from baseline captures |
+| `calibrate` | Auto-calibrate `drift.toml` thresholds and detect volatile JSON fields from baseline noise runs |
+| `init-sample` | Scaffold starter prompt, baseline, and candidate datasets in a target directory |
+| `ai-devices` | List devices visible to the optional local OpenVINO runtime |
+
+**Standard exit codes:** `0` passed / succeeded · `1` drift or threshold failure (suppressible via `--no-fail-on-drift`, report still records failure) · `2` usage or input error · `3` (`check-tools` only) `UNKNOWN`.
+
+---
+
+## Python API & Pluggable Scorers
+
+### Automated Regression Test Gate (`pytest` / `unittest`)
+
+`assert_no_drift(report)` enforces the canonical engine verdict and prints suite failure reasons plus up to 5 failing prompt IDs without leaking raw captured responses:
 
 ```python
 from pathlib import Path
 from llm_drift_bench import (
-    DriftBenchmarkEngine, assert_no_drift, load_model_samples, load_prompt_cases,
+    DriftBenchmarkEngine,
+    assert_no_drift,
+    load_model_samples,
+    load_policy,
+    load_prompt_cases,
 )
 
 
-def test_saved_outputs_do_not_regress():
-    fixtures = Path("examples")  # Run from the repository root.
-    report = DriftBenchmarkEngine().evaluate(
-        load_model_samples(fixtures / "baseline.jsonl"),
-        load_model_samples(fixtures / "candidate-pass.jsonl"),
-        load_prompt_cases(fixtures / "extraction-suite.json"),
+def test_quantized_candidate_does_not_regress() -> None:
+    fixtures = Path("examples")
+    engine = DriftBenchmarkEngine(policy=load_policy(fixtures / "drift.toml"))
+    report = engine.evaluate(
+        baseline_samples=load_model_samples(fixtures / "baseline.jsonl"),
+        candidate_samples=load_model_samples(fixtures / "candidate-pass.jsonl"),
+        prompt_cases=load_prompt_cases(fixtures / "extraction-suite.json"),
     )
     assert_no_drift(report)
 ```
 
-Switch the candidate to `candidate-drift.jsonl` to see a failing assertion.
-Failure messages include suite reasons and up to five failed prompt IDs, without
-printing captured response bodies. The helper does not recompute scores or
-add new checks; missing timings still mean the latency gate may be skipped.
-It is not available in published 0.1.0.
+### Pluggable Scorers (`scorers.py`)
 
-## Commands and reporting
-
-| Command | Purpose |
-| --- | --- |
-| `run` | Compare captured baseline and candidate outputs (`--config`, `--include-diffs`, `--format pr-comment`) |
-| `validate --strict` | Fail when captured outputs do not conform to JSON / JSON Schema |
-| `report` | Render a saved result as Markdown, Rich console, JSON, HTML, JUnit, or PR comment |
-| `diagnose` | Explain why a saved comparison failed (plus optional local OpenVINO advisor) |
-| `compare-many` | Evaluate multiple candidate captures at once (`--sort-by`, `--format rich`, `--html-output`) |
-| `compare-reports` | Rank saved candidate reports and export SVG Pareto HTML dashboards |
-| `stats` | Compute bootstrap CIs, multi-run flakiness, paired permutation, and exact McNemar tests |
-| `history` | Append runs to a JSONL drift ledger and render terminal sparklines or SVG trend HTML (`--candidate`, `--tag`) |
-| `capture` | Collect reproducible JSONL captures from OpenAI-compatible endpoints (`--concurrency`, `--runs`, `--json-mode`) |
-| `infer-schema` | Auto-infer a JSON Schema prompt suite from captured baseline JSON outputs |
-| `calibrate` | Auto-calibrate `drift.toml` thresholds and detect volatile fields from repeated baseline runs |
-| `check-tools` | Run offline read-before-edit checks on normalized, OpenAI, Anthropic, or OTel traces (`--adapter`) |
-| `init-sample --dir demo` | Create illustrative starter files |
-| `ai-devices` | List devices visible to the optional OpenVINO runtime |
-
-All `run` formats now render the same engine result: table, JSON, Rich, Markdown,
-and HTML. Saved engine reports preserve scores, thresholds, and failure reasons.
-Legacy evaluator reports retain their original scoring semantics and are not
-converted into engine reports.
-For all options, run `python -m llm_drift_bench <command> --help`.
-
-## Inspect results in your browser
-
-Generate a report, then render it as a standalone HTML file:
-
-```powershell
-& .\.venv\Scripts\python.exe -m llm_drift_bench run -b examples/baseline.jsonl -c examples/candidate-drift.jsonl -p examples/extraction-suite.json -o drift-report.json
-# Exit 1 is expected for this failing fixture; the JSON report is still saved.
-& .\.venv\Scripts\python.exe -m llm_drift_bench report -i drift-report.json --format html -o drift-report.html
-Start-Process -FilePath (Resolve-Path -LiteralPath drift-report.html).Path
-```
-
-The report includes the pass/fail result, summary metrics, per-prompt rows,
-thresholds, failure reasons, and skipped-latency notices. It contains no scripts
-or external assets and works offline. This is a saved report, not a live dashboard.
-`run --output` always saves JSON, regardless of its stdout format; use
-`report --format html --output` to save HTML.
-
-[Download an example HTML report](docs/assets/example-report.html).
-
-## Help make model changes safer
-
-### Check an agent's workflow offline
-
-The development Python API includes `check_read_before_edit`: verify that a
-required file section was returned before an agent's first edit attempt.
-It consumes normalized tool events and returns PASS, FAIL, or UNKNOWN.
-Repeated reads count only once; incomplete traces cannot pass.
-This checks content delivery, not comprehension, and does not collect live traces.
-Run it with `llm-drift-bench check-tools`, then attach the saved verdict to HTML or
-Markdown reports with `--tool-check`. See the
-[tool-event guide and example](docs/tool-events.md).
-
-Useful contributions include a small failing capture, a reproducible bug report,
-a tested edge-case fix, or clearer documentation. Start with the
-[contributor guide](CONTRIBUTING.md) and [roadmap](docs/roadmap.md).
-
-If the tool catches a real regression, share a sanitized reproduction and the
-benchmark version. Reproducible examples help other users more than a score
-without its inputs.
-
-[Changelog](CHANGELOG.md) · [Migration guide](docs/migration-0.2.md) · [MIT license](LICENSE)
-
-## JUnit reports for CI (0.3.0 development)
-
-Generate JSON and JUnit XML together while viewing the comparison in your terminal:
-
-```powershell
-& .\.venv\Scripts\python.exe -m llm_drift_bench run -s examples/extraction-suite.json -b examples/baseline.jsonl -c examples/candidate-pass.jsonl -o result.json --junit-output junit.xml
-```
-
-From the repository root, try the exporter with a bundled report:
-
-```powershell
-& .\.venv\Scripts\python.exe -m llm_drift_bench report -i examples/expected-pass.json --format junit -o junit.xml
-Get-Content junit.xml
-```
-
-To generate a new result from captures and export it:
-
-```powershell
-llm-drift-bench run -b examples/baseline.jsonl -c examples/candidate-drift.jsonl -p examples/extraction-suite.json -o result.json
-$DriftExit = $LASTEXITCODE
-llm-drift-bench report -i result.json --format junit -o junit.xml
-# Preserve $DriftExit as the CI gate; rendering a saved report exits 0.
-```
-
-JUnit contains one test per prompt plus a `benchmark_gate` test. A failing
-benchmark therefore produces an extra failure in addition to any drifted prompts.
-This preserves suite-only latency failures. Model latencies are not test execution
-times, so no `time` attributes are invented. Raw captured responses are excluded;
-prompt IDs and failure reasons are included. XML-invalid characters are replaced.
-Legacy evaluator reports and `--tool-check` attachments are not supported in this
-format. `run --format junit` writes XML to stdout; its `-o` still saves JSON.
-
-In GitHub Actions, add `--github-summary` to a `run` command to append the verdict,
-drifted prompt count, mean drift and candidate conformity to the job summary.
-The usual drift exit code still applies.
-
-## Compare several captures at once
-
-Evaluate a common baseline against two or more candidate files. Each repeated
-`--candidate` takes a unique label and a path. These labels distinguish runs
-even when their captures record the same model name. The examples use synthetic data.
-
-```powershell
-python -m llm_drift_bench compare-many -b examples/baseline.jsonl -s examples/extraction-suite.json --candidate reference-like examples/candidate-pass.jsonl --candidate changed examples/candidate-drift.jsonl --against reference-like
-```
-
-The example ranks the candidates and lists the invoice and ticket as newly
-drifting for `changed`. A prompt change means its individual drift verdict
-flipped between the named candidates. Both candidates were evaluated against
-the common baseline. Scores can move without crossing a gate.
-
-Use the same threshold flags as `run`. Exit codes are 0 for a passing batch,
-1 when any candidate fails and 2 for invalid input. `--no-fail-on-drift`
-makes a failed verdict informational. Use `--format json` for automation.
-
-## Compare saved candidate reports
-
-Use one saved engine report per model or quantization. The command ranks candidates
-by increasing mean composite drift, breaking ties by candidate name. Each row also
-shows the recorded verdict, conformity, P95 latency and the highest-drift prompt.
-
-```powershell
-python -m llm_drift_bench compare-reports examples/expected-pass.json examples/expected-drift.json
-python -m llm_drift_bench compare-reports examples/expected-pass.json examples/expected-drift.json --format json --fail-on-drift
-```
-
-The first command exits 0 after rendering. The second exits 1 because a candidate
-failed its gates. Invalid inputs exit 2. Supply distinct candidate names, matching
-baseline names, known and identical thresholds, and the same prompt IDs, categories
-and baseline validation evidence. Use the same baseline capture and suite for every
-run. Saved reports do not include the original response or schema content needed
-to verify byte-for-byte identity. Agreement with a baseline does not measure accuracy.
-
-### See where candidates regress
-
-Compare two saved reports from PowerShell and keep a JSON copy for CI.
-
-```powershell
-python -m llm_drift_bench compare-reports examples/expected-pass.json examples/expected-drift.json `
-    --by-category --rule-summary --slowdowns 5 --numeric-changes 5 --json-output comparison.json
-```
-
-The example reports one missing required field and ranks `invoice-01` first for numeric
-drift. The latency list is empty because these captures have no paired timings.
-Category rows show the prompt count, drifted count, and mean composite drift for each
-candidate. Rule summaries count both individual issues and distinct affected prompts.
-Both rankings take the top N positive measurements across all candidates. You can use
-the same flags with `compare-many` on raw captures. With `compare-reports`, add `--fail-on-drift` to exit with code 1 when a candidate
-fails. The JSON file is written in either mode.
-
-### Find repeated failures and inspect one prompt
-
-```powershell
-python -m llm_drift_bench compare-reports examples/expected-pass.json examples/expected-drift.json --hotspots 2 --inspect-prompt ticket-01
-```
-
-Both comparison commands accept these options. Hotspots count the candidates
-whose individual prompt check failed. Ties are ordered by the highest drift
-among those failures, then by prompt ID. Repeat `--inspect-prompt` to see scores,
-numeric drift, latency differences, and validation paths and rules across all
-candidates. The ticket example shows the missing `$.priority` field. JSON output
-includes `hotspots` and `prompt_details` only when requested. These display
-options preserve the comparison's exit code.
-
-### Gate on new prompt failures
-
-Both comparison commands support `--against LABEL`. For a gate focused on
-new regressions, use `--fail-on-regression --against LABEL` with
-`compare-reports`, or add `--no-fail-on-drift` with `compare-many`.
-Unchanged prompt failures and aggregate-only failures do not trip this
-specific gate. `--change-type regressed`, repeatable `--change-category`,
-and `--change-limit N` control the displayed details. The gate still checks
-all prompt transitions. JSON conformity rates use each run's set of relevant
-JSON prompts, which can vary if the suite does not require JSON everywhere.
-
-## Explain a saved comparison
-
-Run these commands from the repository root to inspect the two shipped examples.
-
-```powershell
-python -m llm_drift_bench diagnose -i examples/expected-drift.json
-python -m llm_drift_bench diagnose -i examples/expected-pass.json --format json
-```
-
-The failing example identifies the missing priority field on `ticket-01` and a
-numeric change on `invoice-01`. Each finding suggests a check you can perform.
-Missing timings also appear on a passing report. Use `--limit 5` to shorten the
-output. Diagnosis exits 0 when it renders successfully, including for a failed
-comparison. Use the benchmark run command for CI gating.
-
-For a single prompt or a class of observations:
-
-```powershell
-python -m llm_drift_bench diagnose -i examples/expected-drift.json --prompt-id invoice-01
-python -m llm_drift_bench diagnose -i examples/expected-drift.json --scope suite --kind missing_latency --format json
-```
-
-Repeat `--prompt-id` or `--kind` to include several values. Different filters
-intersect. The advisor receives the matching findings before the display limit.
-JSON output includes the matching count and the number omitted by the limit.
-The verdict always describes the complete benchmark.
-
-### Optional local AI suggestions
-
-From a source checkout, install the AI extra in an environment supported by
-OpenVINO GenAI. Supply a compatible, already exported OpenVINO language model
-directory containing its model and tokenizer. Device availability depends on the
-model, installed runtime, hardware and drivers. Run device discovery first.
-
-```powershell
-python -m pip install ".[ai]"
-python -m llm_drift_bench ai-devices
-python -m llm_drift_bench diagnose -i examples/expected-drift.json --ai-model "D:\Models\my-openvino-model" --device CPU
-```
-
-Choose CPU (default), GPU or NPU. The GPU and NPU paths use OpenVINO-supported
-hardware. The model receives category counts and a fixed menu of checks. Prompt-specific checks take priority. A single eligible check is returned directly.
-For competing checks, CPU runtimes with structured output select one allowed category.
-Other runtimes can prioritize up to three. If it returns an invalid selection, the CLI shows checks
-for individual prompts first, followed by suite and timing checks. Captured
-responses, prompt IDs and field values stay out of its input.
-It cannot change the verdict or edit files. If inference fails, the command
-returns 2 and still shows the deterministic findings.
-
-## Advanced evaluation workflows (`0.3.0.dev0`)
-
-### Task-specific `drift.toml` policies (weights & per-field tolerances)
-
-Ignore volatile fields (`$.timestamp`, `$.request_id`), treat arrays as order-insensitive (`unordered_array = true`), set per-field numeric tolerances, or tune metric weights in `drift.toml` (see [examples/drift.toml](examples/drift.toml)):
-
-```powershell
-python -m llm_drift_bench run -b examples/baseline.jsonl -c examples/candidate-pass.jsonl -s examples/extraction-suite.json --config examples/drift.toml
-```
-
-For responses longer than 16,384 characters, add `--long-text-mode skip_levenshtein` (or set `long_text_mode = "skip_levenshtein"` in `drift.toml`).
-
-### Zero-setup onboarding: `infer-schema` and `calibrate`
-
-Generate strict JSON Schemas straight from existing baseline captures, and auto-calibrate a `drift.toml` policy (including auto-detected volatile fields like timestamps or request IDs) from repeated baseline runs:
-
-```powershell
-# Infer a ready-to-use prompts.json suite from captured baseline JSON outputs
-python -m llm_drift_bench infer-schema -i examples/baseline.jsonl -o inferred-prompts.json --strict-additional
-
-# Calibrate drift.toml thresholds + ignore volatile fields from two baseline runs
-python -m llm_drift_bench calibrate --baseline-a baseline-run1.jsonl --baseline-b baseline-run2.jsonl -o drift.toml
-```
-
-### Pluggable scorers (`scorers.py`)
-
-Use pure-stdlib offline scorers directly or register custom scorers (also auto-discovered via `llm_drift_bench.scorers` package entry points):
+Use built-in zero-dependency scorers or register your own (third-party packages are also auto-discovered via the `llm_drift_bench.scorers` entry-point group):
 
 ```python
-from llm_drift_bench import get_scorer, list_scorers, python_ast_similarity, register_scorer
+from llm_drift_bench import (
+    char_ngram_cosine_similarity,
+    get_scorer,
+    list_scorers,
+    python_ast_similarity,
+    register_scorer,
+    tfidf_cosine_similarity,
+)
 
 print(list_scorers())  # ('char_ngram_cosine', 'python_ast', 'tfidf_cosine')
-score = python_ast_similarity("def f(x): return x + 1", "def g(y): return y + 1")  # 1.0
+
+# Identifier-invariant structural similarity for generated Python code
+assert python_ast_similarity("def add(x, y): return x + y", "def sum2(a, b): return a + b") == 1.0
+
+# Pure-stdlib character n-gram & TF-IDF cosine scorers
+res = get_scorer("tfidf_cosine").score("invoice total 100 usd", "invoice total 100 dollars")
+print(res.score, res.details)
 ```
 
-### PR comments, opt-in HTML diffs, and SVG Pareto dashboards
+---
 
-```powershell
-# Compact GitHub PR comment with deltas vs a previous report
-python -m llm_drift_bench report -i examples/expected-drift.json --format pr-comment --previous examples/expected-pass.json
+## CI/CD Integration
 
-# Opt-in side-by-side collapsible JSON field diffs in offline HTML
-python -m llm_drift_bench run -b examples/baseline.jsonl -c examples/candidate-drift.jsonl -s examples/extraction-suite.json --format html --include-diffs --no-fail-on-drift
+Drop `llm-drift-bench` directly into GitHub Actions with JUnit test reporting, native Job Summaries, and PR comment output:
 
-# Multi-candidate ranking with inline SVG Pareto chart and Rich console tables
-python -m llm_drift_bench compare-reports examples/expected-pass.json examples/expected-drift.json --sort-by passed --format rich --html-output comparison.html
+```yaml
+- name: Run LLM drift regression gate
+  run: |
+    llm-drift-bench run \
+      -b benchmarks/baseline.jsonl \
+      -c benchmarks/candidate.jsonl \
+      -s benchmarks/prompts.json \
+      --config drift.toml \
+      -o drift-report.json \
+      --junit-output junit.xml \
+      --github-summary
+
+- name: Render PR comment (even on failure)
+  if: always()
+  run: |
+    llm-drift-bench report -i drift-report.json --format pr-comment -o pr-comment.md
 ```
 
-### Multi-run statistics & significance testing (`stats`)
+---
 
-```powershell
-python -m llm_drift_bench stats run1.json run2.json run3.json --compare-against baseline-ref.json --confidence 0.95
+## Reference Details
+
+<details>
+<summary><strong>Input capture & prompt suite formats</strong></summary>
+
+**Capture files (`.jsonl` or `.json`)** — Each record requires a unique, non-empty `prompt_id` and a string `output`. Structured values must be JSON-serialized strings (`json.dumps`), never raw objects or `null`. Optional `latency_ms` and `tokens_generated` are preserved as `null` when missing (never estimated).
+
+```json
+{"prompt_id": "invoice-01", "model_name": "llama-3-8b-fp16", "latency_ms": 142.5, "output": "{\"total\": 100.0}"}
 ```
 
-### Drift history ledger & trend charts (`history`)
+**Prompt suite (`.json` or `.jsonl`)** — Associates each `prompt_id` with a `prompt`, optional `category`, and optional `schema`:
 
-```powershell
-python -m llm_drift_bench history record --ledger drift-history.jsonl -i examples/expected-pass.json --tag q8 --git-sha abc1234
-python -m llm_drift_bench history show --ledger drift-history.jsonl --format text
-python -m llm_drift_bench history show --ledger drift-history.jsonl --format html -o trends.html
+```json
+[
+  {
+    "prompt_id": "invoice-01",
+    "category": "extraction",
+    "prompt": "Extract the invoice total.",
+    "schema": {
+      "type": "object",
+      "required": ["total"],
+      "properties": { "total": { "type": "number", "minimum": 0 } }
+    }
+  }
+]
 ```
 
-### OpenAI-compatible capture collector (`capture`)
+Baseline, candidate, and any supplied suite must share identical prompt ID sets (no silent drops or duplicate IDs). Unsupported JSON Schema keywords fail explicitly — see [docs/current-limitations.md](docs/current-limitations.md).
 
-Capture reproducible `.jsonl` outputs directly from Ollama, vLLM, llama.cpp server, or OpenAI with bounded concurrency (`--concurrency`), multi-run capture (`--runs`), JSON mode (`--json-mode`), explicit timeouts, bounded retries, and env-var secret handling (no extra runtime dependencies):
+</details>
 
-```powershell
-python -m llm_drift_bench capture --suite examples/extraction-suite.json --endpoint http://localhost:11434/v1 --model llama3:8b-q4_K_M --seed 42 --concurrency 4 --runs 3 --json-mode -o candidate.jsonl
-```
+<details>
+<summary><strong>Default drift thresholds & failure semantics</strong></summary>
 
-### Agent trace adapters (`check-tools --adapter`)
+| Flag / `drift.toml` Key | Default | Meaning |
+| :--- | ---: | :--- |
+| `--max-drift` / `max_composite_drift` | `0.25` | Max composite drift per prompt and suite mean |
+| `--min-conformity` / `min_json_conformity_rate` | `0.95` | Min candidate JSON Schema conformity rate |
+| `--max-numeric-drift` / `max_numeric_relative_drift` | `0.15` | Max relative drift on shared numeric JSON fields |
+| `--max-latency-regression` / `max_latency_regression_pct` | `50.0%` | Max P95 latency increase (skipped if timings incomplete) |
 
-Run offline read-before-edit checks directly on OpenAI Chat/Responses transcripts, Anthropic/Claude `tool_use`/`tool_result` logs, or OpenTelemetry GenAI spans:
+A failed individual sample fails the suite even when aggregate means stay under threshold.
 
-```powershell
-python -m llm_drift_bench check-tools -i transcript.json --adapter openai --resource file.py@v1 --end 500 --trace-complete
-```
+</details>
+
+<details>
+<summary><strong>Optional extras (local OpenVINO AI advisor & Opik adapter)</strong></summary>
+
+- **Local OpenVINO advisor (`pip install "llm-drift-bench[ai]"`)**: Prioritize diagnostic next steps offline using a local exported OpenVINO GenAI model directory without sending raw captured outputs or prompt IDs to the model:
+  ```bash
+  llm-drift-bench ai-devices
+  llm-drift-bench diagnose -i drift-report.json --ai-model /path/to/openvino-model --device CPU
+  ```
+- **Opik integration (`pip install "llm-drift-bench[opik]"`)**: Export `EvidenceScore` verdicts via `score.to_opik()` while keeping unavailable evidence explicit.
+
+</details>
+
+---
+
+## Documentation & Community
+
+- [Examples & Hands-On Playground](examples/README.md) — Reproducible offline fixtures, `drift.toml`, and Python batch examples
+- [Architecture](docs/architecture.md) — Module map, lazy-loading design, scoring formulas, and schema subset
+- [Workflow Recipes](docs/workflows.md) — Quantization, JSON extraction, RAG, and agent evaluation boundaries
+- [Tool-Event Checks](docs/tool-events.md) — Normalized trace format, vendor adapters, and PASS/FAIL/UNKNOWN semantics
+- [Current Limitations](docs/current-limitations.md) — Schema subset, regex safety policy, and size caps
+- [Roadmap](docs/roadmap.md) · [Migration Guide (0.2)](docs/migration-0.2.md) · [Publishing](docs/publishing.md) · [Changelog](CHANGELOG.md)
+- [Contributing](CONTRIBUTING.md) · [MIT License](LICENSE)
