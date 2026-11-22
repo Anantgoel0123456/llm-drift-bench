@@ -36,25 +36,29 @@ This is a prioritized plan, not a list of shipped capabilities or release dates.
 
 The CI version constraint and integral-float schema-limit issues are fixed locally.
 
-## 0.3.0 development
+## 0.3.0 development (implemented on `main`)
 
-- [x] JUnit XML exports with per-prompt cases and an overall benchmark gate.
-- [x] GitHub step summaries with `run --github-summary`.
-- [x] Evaluate several candidate captures against one baseline with `compare-many` and identify newly drifted or recovered prompts.
+- [x] JUnit XML exports with per-prompt cases and an overall benchmark gate (`--junit-output`, `--format junit`).
+- [x] GitHub step summaries (`run --github-summary`) and compact PR comments (`--format pr-comment --previous`).
+- [x] Evaluate and rank multiple candidates (`compare-many`, `compare-reports`, `--sort-by`, `--format rich`, `--against`, `--hotspots`, `--inspect-prompt`, offline SVG Pareto frontier HTML).
+- [x] Configurable evaluation policies (`drift.toml` / `drift.json`): custom metric weights, per-JSONPath `ignore` / `unordered_array` / `tolerance_abs` / `tolerance_rel` rules, and `--long-text-mode skip_levenshtein`.
+- [x] Zero-dependency OpenAI-compatible capture collector (`capture` with `--concurrency`, `--runs`, `--json-mode`, bounded retries, timeouts, and env-var secret handling).
+- [x] Multi-run statistics (`stats`): deterministic bootstrap confidence intervals, flaky-prompt detection, paired sign-flip permutation tests, and exact two-sided McNemar conformity tests.
+- [x] Append-only drift history ledger (`history record|show`) with `--candidate`/`--tag` filters, Unicode sparklines, and offline SVG trend HTML.
+- [x] Offline vendor transcript adapters (`adapters.py` + `check-tools --adapter normalized|openai|anthropic|otel`, including OpenAI Responses API) plus retry and secret-leak workflow checks.
+- [x] Automatic JSON Schema inference (`infer-schema`) and threshold auto-calibration + volatile field detection (`calibrate`).
+- [x] Pluggable scorer registry (`scorers.py`: `char_ngram_cosine`, `tfidf_cosine`, `python_ast`, and `llm_drift_bench.scorers` entry-point discovery).
+- [x] Lightweight PEP 562 lazy exports and lazy CLI/Rich/Pydantic loading (~8 ms package import).
 
-## Planned features
+## Future exploration
 
 | Feature | Value | Relative effort |
-| --- | --- | --- |
-| Configurable weights and drift.toml | Reuse task-specific evaluation policies | Medium |
-| Endpoint collection with provenance | Capture reproducible inputs | Large |
-| Optional embeddings | Add a distinct semantic signal | Large |
-| Run history and trends | Compare versioned runs over time | Large |
-| Trace import and correlation | Link failures to externally captured spans | Large |
+| :--- | :--- | :--- |
+| Optional embedding scorers | Add an opt-in semantic similarity signal alongside lexical scorers | Medium |
+| Hosted CI benchmark case study | Publish a reproducible real-model quantization benchmark report | Medium |
+| Versioned report schema migrations | Formal schema version tags for long-lived history ledgers | Small |
 
-Collection needs explicit timeouts, bounded retries, secret handling, model and
-sampling metadata, and documented token accounting. Embedding scores must not
-silently change the interpretation of existing lexical scores.
+Embedding scorers (when added as an optional extra or pluggable scorer) must never silently alter existing deterministic lexical scores.
 
 ## Build useful community evidence
 
