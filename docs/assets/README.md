@@ -1,21 +1,26 @@
-# Demo media
+# Demo & Documentation Assets
 
-- `demo.mp4`: 18 seconds, 1280 x 720, H.264, 20 fps, silent.
-- `demo.gif`: 18-second looping README preview, 960 x 540.
-- `demo-poster.png`: static alternative.
-- `demo-provenance.json`: captured CLI commands, exit codes, and full reports.
+Static previews, animated walkthroughs, and sample reports referenced by the repository [README](../../README.md).
 
-The walkthrough is edited from actual CLI JSON results. It uses handwritten
-fixtures from `examples/`, not real model captures, and its pacing does not
-represent benchmark runtime. The commands shown across multiple visual lines
-are one command, not PowerShell scripts to paste line by line.
+## Files in this directory
 
-Regenerate with `python scripts/render_demo.py` using an environment containing
-Pillow, imageio, imageio-ffmpeg, and numpy. These are media-generation dependencies,
-not runtime dependencies of llm-drift-bench. The script invokes the local source,
-checks pass/fail exit codes, and saves the captured data before rendering.
+| File | Description |
+| :--- | :--- |
+| `demo.mp4` | 18-second silent walkthrough (1280 × 720, H.264, 20 fps). |
+| `demo.gif` | 18-second looping README preview (960 × 540) rendered directly on GitHub. |
+| `demo-poster.png` | Static poster alternative for readers who prefer no animation. |
+| `demo-provenance.json` | Captured CLI commands, exit codes, and full JSON reports used to render the demo. |
+| `example-report.html` | Self-contained offline HTML report generated from the bundled example fixtures (no external assets or JS). |
+| `github-issues.png` | Screenshot asset used in repository documentation. |
 
-The README embeds a GIF because it renders directly on GitHub. Its MP4 link
-opens the repository's video file. For a native inline video player, the
-maintainer can upload the MP4 through GitHub's Markdown editor and use the
-resulting attachment URL. No attachment upload is performed by this script.
+## Provenance & regeneration
+
+The walkthrough is edited from actual CLI JSON results on the handwritten fixtures in `examples/` — not real model captures or runtime benchmarks. Multi-line commands shown in the animation represent single CLI invocations.
+
+To regenerate the video and GIF locally (requires media-only dependencies `Pillow`, `imageio`, `imageio-ffmpeg`, and `numpy`, which are **not** runtime dependencies of `llm-drift-bench`):
+
+```bash
+python scripts/render_demo.py
+```
+
+The script invokes the local source package, verifies pass/fail exit codes, saves `demo-provenance.json`, and renders the media files without performing any external uploads.
