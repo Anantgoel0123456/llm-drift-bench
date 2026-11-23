@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import math
 from collections import defaultdict
 from collections.abc import Sequence
@@ -47,6 +48,20 @@ def _collapse_types(types: set[str]) -> str | list[str]:
     return ordered[0] if len(ordered) == 1 else ordered
 
 
+def _apply_strict_additional(node: dict[str, Any]) -> dict[str, Any]:
+    if "object" in _normalize_types(node.get("type")):
+        node["additionalProperties"] = False
+        props = node.get("properties")
+        if isinstance(props, dict):
+            for child in props.values():
+                if isinstance(child, dict):
+                    _apply_strict_additional(child)
+    items = node.get("items")
+    if isinstance(items, dict):
+        _apply_strict_additional(items)
+    return node
+
+
 def merge_schemas(
     schemas: Sequence[dict[str, Any]],
     *,
@@ -56,7 +71,8 @@ def merge_schemas(
     if not schemas:
         return {}
     if len(schemas) == 1:
-        return dict(schemas[0])
+        cloned = copy.deepcopy(schemas[0])
+        return _apply_strict_additional(cloned) if strict_additional else cloned
 
     all_types: set[str] = set()
     for schema in schemas:

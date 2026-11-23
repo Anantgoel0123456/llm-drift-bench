@@ -174,3 +174,14 @@ def test_cli_infer_schema_stdout_and_input_protection(
     # Cannot overwrite input capture file.
     assert main(["infer-schema", "-i", str(sample_file), "-o", str(sample_file)]) == 2
     assert "input file" in capsys.readouterr().err
+
+
+def test_merge_schemas_single_schema_deepcopy_and_strict_additional() -> None:
+    original = infer_schema_from_value({"meta": {"id": 1}}, strict_additional=False)
+    strict = merge_schemas([original], strict_additional=True)
+    assert strict["additionalProperties"] is False
+    assert strict["properties"]["meta"]["additionalProperties"] is False
+    assert "additionalProperties" not in original
+    strict["properties"]["meta"]["properties"]["id"]["type"] = "string"
+    assert original["properties"]["meta"]["properties"]["id"]["type"] == "integer"
+
