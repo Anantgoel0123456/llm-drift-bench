@@ -31,8 +31,13 @@ def _event_from_record(record: Any, position: str, sequence: int | None) -> Tool
         raise ValueError(f"{position}: each event must be a JSON object.")
     unknown = sorted(set(record) - EVENT_FIELDS)
     if unknown:
+        hint = (
+            " For vendor transcripts, pass --adapter openai|anthropic|otel."
+            if any(k in record for k in ("messages", "output", "spans", "resourceSpans"))
+            else ""
+        )
         raise ValueError(
-            f"{position}: unknown event field(s) {unknown}; allowed {sorted(EVENT_FIELDS)}."
+            f"{position}: unknown event field(s) {unknown}; allowed {sorted(EVENT_FIELDS)}.{hint}"
         )
     missing = [name for name in ("kind", "resource") if name not in record]
     if missing:
@@ -161,7 +166,11 @@ class ToolCheckRecord:
                 "Unrecognized tool check file: "
                 f"missing {sorted(_CHECK_KEYS - keys)}, unexpected {sorted(keys - _CHECK_KEYS)}."
             )
-        if data["format"] != CHECK_FORMAT or data["version"] != CHECK_VERSION:
+        if (
+            data["format"] != CHECK_FORMAT
+            or type(data["version"]) is not int
+            or data["version"] != CHECK_VERSION
+        ):
             raise ValueError(f"Tool check file must be {CHECK_FORMAT} version {CHECK_VERSION}.")
         if data["check"] != "read_before_edit":
             raise ValueError("Only read_before_edit tool checks are supported.")

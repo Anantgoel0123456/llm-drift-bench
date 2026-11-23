@@ -136,6 +136,7 @@ def test_saved_check_round_trips(tmp_path: Path) -> None:
         {"reason": ""},
         {"resource": " "},
         {"version": 2},
+        {"version": True},
         {"format": "other"},
         {"check": "something_else"},
         {"extra": 1},
