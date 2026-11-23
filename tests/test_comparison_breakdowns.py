@@ -118,3 +118,19 @@ def test_comparison_json_output_creates_nested_parent_directories(tmp_path) -> N
     assert nested.is_file()
     data = json.loads(nested.read_text(encoding="utf-8"))
     assert len(data["candidates"]) == 2
+
+
+def test_boolean_ranking_limits_are_rejected() -> None:
+    import pytest
+
+    from llm_drift_bench._breakdowns import latency_increases, numeric_changes
+    from llm_drift_bench.comparison import _hotspots
+
+    reports = [load_engine_report(path) for path in FILES]
+    with pytest.raises(ValueError, match="positive"):
+        latency_increases(reports, True)
+    with pytest.raises(ValueError, match="positive"):
+        numeric_changes(reports, True)
+    with pytest.raises(ValueError, match="positive"):
+        _hotspots(reports, True)
+

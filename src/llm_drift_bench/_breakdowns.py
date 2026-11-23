@@ -62,7 +62,7 @@ class LatencyIncrease:
 
 
 def latency_increases(reports: Sequence[DriftBenchmarkReport], limit: int) -> list[LatencyIncrease]:
-    if limit < 1:
+    if isinstance(limit, bool) or limit < 1:
         raise ValueError("--slowdowns must be positive.")
     rows = (LatencyIncrease(report.candidate_model, row.prompt_id, row.latency_delta_ms)
             for report in reports for row in report.results
@@ -79,7 +79,7 @@ class NumericChange:
 
 
 def numeric_changes(reports: Sequence[DriftBenchmarkReport], limit: int) -> list[NumericChange]:
-    if limit < 1:
+    if isinstance(limit, bool) or limit < 1:
         raise ValueError("--numeric-changes must be positive.")
     rows = (NumericChange(report.candidate_model, row.prompt_id, row.json_numeric_drift)
             for report in reports for row in report.results

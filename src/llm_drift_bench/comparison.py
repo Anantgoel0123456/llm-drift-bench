@@ -147,7 +147,7 @@ class PromptHotspot:
 
 
 def _hotspots(reports: Sequence[DriftBenchmarkReport], limit: int) -> list[PromptHotspot]:
-    if limit < 1:
+    if isinstance(limit, bool) or limit < 1:
         raise ValueError("--hotspots must be positive.")
     counts: dict[str, PromptHotspot] = {}
     for report in reports:
