@@ -70,3 +70,34 @@ def test_diagnose_reports_non_drifted_conformity_failures_and_cooccurring_numeri
     )
     both_codes = [f.code for f in diagnose_report(rep_both) if f.prompt_id == "p_both"]
     assert "schema" in both_codes and "numeric_change" in both_codes
+
+
+def test_diagnose_report_gives_specific_advice_for_bounds_pattern_and_const() -> None:
+    from llm_drift_bench.diagnostics import diagnose_report
+    from llm_drift_bench.engine import DriftBenchmarkEngine
+    from llm_drift_bench.models import ModelSample, PromptCase
+
+    suite = [
+        PromptCase(
+            prompt_id="p1",
+            prompt="Extract",
+            schema={
+                "type": "object",
+                "properties": {
+                    "score": {"type": "number", "minimum": 0},
+                    "code": {"type": "string", "pattern": "^INV-[0-9]+$"},
+                    "tags": {"type": "array", "minItems": 1},
+                    "version": {"const": 2},
+                },
+            },
+        )
+    ]
+    base = [ModelSample("p1", '{"score": 1, "code": "INV-1", "tags": ["a"], "version": 2}')]
+    cand = [ModelSample("p1", '{"score": -5, "code": "BAD", "tags": [], "version": 1}')]
+    report = DriftBenchmarkEngine().evaluate(base, cand, suite)
+    findings = {f.evidence: f.suggestion for f in diagnose_report(report) if f.code == "schema"}
+    assert "lower-bound" in findings["$.score: minimum"]
+    assert "regex pattern" in findings["$.code: pattern"]
+    assert "empty or truncated list" in findings["$.tags: minItems"]
+    assert "constant value" in findings["$.version: const"]
+

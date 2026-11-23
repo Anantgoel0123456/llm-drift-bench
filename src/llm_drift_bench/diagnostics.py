@@ -19,10 +19,20 @@ class Finding:
 
 _RULE_ADVICE = {
     "invalid_schema": "Correct the schema definition and rerun both captures against it.",
+    "unsupported_keyword": "Replace unsupported JSON Schema keywords with the supported subset.",
     "additionalProperties": "Review unexpected keys against the allowed object properties.",
     "enum": "Compare the generated label with the allowed labels and their casing.",
+    "const": "Check whether the output drifted from the required constant value.",
     "type": "Check serialization of the field against its declared JSON type.",
     "required": "Restore the required field in the extraction prompt or output mapping.",
+    "minimum": "Verify numeric scaling, sign, and lower-bound enforcement in the prompt.",
+    "maximum": "Verify numeric scaling and upper-bound enforcement in the prompt.",
+    "minLength": "Check whether the model truncated or omitted required text content.",
+    "maxLength": "Tighten verbosity constraints or max_tokens to keep strings within maxLength.",
+    "pattern": "Compare the formatted string against the required regex pattern.",
+    "pattern_limit": "Trim oversized field output before regex matching (16,384-char cap).",
+    "minItems": "Check whether the model returned an empty or truncated list.",
+    "maxItems": "Constrain list cardinality in the prompt to stay within maxItems.",
 }
 
 
