@@ -14,7 +14,10 @@ from llm_drift_bench.history import (
     export_history_html,
     format_history_text,
     load_history,
+    prune_history,
+    record_report,
     sparkline,
+    summarize_history,
 )
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
@@ -205,4 +208,42 @@ def test_history_trend_regression_detection_and_svg_tooltips(
     assert main(["history", "check", "--ledger", str(ledger), "--format", "json"]) == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["regressed"] is True
+
+
+def test_history_summary_prune_and_input_guards(tmp_path: Path) -> None:
+    from llm_drift_bench.report_io import load_engine_report
+
+    ledger = tmp_path / "compact.jsonl"
+    pass_rep = load_engine_report(EXAMPLES / "expected-pass.json")
+    drift_rep = load_engine_report(EXAMPLES / "expected-drift.json")
+
+    for tag in ("r1", "r2", "r3"):
+        record_report(ledger, pass_rep, tag=tag)
+    for tag in ("d1", "d2"):
+        record_report(ledger, drift_rep, tag=tag)
+
+    entries = load_history(ledger)
+    summary = summarize_history(entries)
+    assert summary["total_entries"] == 5
+    assert summary["candidates"]["demo-candidate-pass"]["pass_rate"] == 1.0
+    assert summary["candidates"]["demo-candidate-drift"]["pass_rate"] == 0.0
+
+    # Keep latest 1 per candidate -> 2 kept, 3 removed, preserving exact tags r3 & d2.
+    kept, removed = prune_history(ledger, keep_last=1, per_candidate=True)
+    assert (kept, removed) == (2, 3)
+    after = load_history(ledger)
+    assert [e.tag for e in after] == ["r3", "d2"]
+
+    # Global prune keeps only latest 1 overall.
+    kept2, removed2 = prune_history(ledger, keep_last=1, per_candidate=False)
+    assert (kept2, removed2) == (1, 1)
+    assert [e.tag for e in load_history(ledger)] == ["d2"]
+
+    with pytest.raises(ValueError, match="positive integer"):
+        prune_history(ledger, keep_last=True)
+    with pytest.raises(TypeError, match="DriftBenchmarkReport"):
+        record_report(ledger, {"passed": True})  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="finite"):
+        sparkline([0.1, float("nan")])
+
 

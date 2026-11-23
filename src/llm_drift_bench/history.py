@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 
 from llm_drift_bench._file_io import parse_source_json, read_utf8
@@ -140,6 +143,8 @@ def record_report(
     recorded_at: str | None = None,
 ) -> HistoryEntry:
     """Append one HistoryEntry for a validated DriftBenchmarkReport to a JSONL ledger."""
+    if not isinstance(report, DriftBenchmarkReport):
+        raise TypeError("record_report requires a canonical DriftBenchmarkReport instance.")
     entry = HistoryEntry.from_report(report, tag=tag, git_sha=git_sha, recorded_at=recorded_at)
     target = Path(ledger_path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -172,14 +177,15 @@ def sparkline(
     """Render a compact Unicode sparkline string for a numeric sequence."""
     if not values:
         return ""
-    lo = min(values) if low is None else low
-    hi = max(values) if high is None else high
+    cleaned = [finite_number(v) for v in values]
+    lo = min(cleaned) if low is None else finite_number(low)
+    hi = max(cleaned) if high is None else finite_number(high)
     span = hi - lo
     if span <= 0:
-        return _SPARK_BARS[len(_SPARK_BARS) // 2] * len(values)
+        return _SPARK_BARS[len(_SPARK_BARS) // 2] * len(cleaned)
     chars: list[str] = []
     last_idx = len(_SPARK_BARS) - 1
-    for value in values:
+    for value in cleaned:
         norm = max(0.0, min(1.0, (value - lo) / span))
         chars.append(_SPARK_BARS[round(norm * last_idx)])
     return "".join(chars)
@@ -420,3 +426,68 @@ th{{color:#7dd3fc}}.muted{{color:#a8bad2}}
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(html, encoding="utf-8")
     return html
+
+
+def summarize_history(entries: Sequence[HistoryEntry]) -> dict[str, Any]:
+    """Compute per-candidate pass rate, drift range, and latest-vs-first trend stats."""
+    grouped: dict[str, list[HistoryEntry]] = defaultdict(list)
+    for entry in entries:
+        grouped[entry.candidate_model].append(entry)
+
+    candidates: dict[str, dict[str, Any]] = {}
+    for cand in sorted(grouped):
+        runs = grouped[cand]
+        drifts = [r.mean_composite_drift for r in runs]
+        passed_n = sum(1 for r in runs if r.passed)
+        candidates[cand] = {
+            "runs": len(runs),
+            "passed_runs": passed_n,
+            "pass_rate": round(passed_n / len(runs), 4),
+            "min_mean_drift": round(min(drifts), 4),
+            "max_mean_drift": round(max(drifts), 4),
+            "latest_mean_drift": round(runs[-1].mean_composite_drift, 4),
+            "drift_change_since_first": round(
+                runs[-1].mean_composite_drift - runs[0].mean_composite_drift, 4
+            ),
+            "latest_conformity": round(runs[-1].candidate_json_conformity_rate, 4),
+            "latest_passed": runs[-1].passed,
+        }
+    return {
+        "total_entries": len(entries),
+        "candidates": candidates,
+    }
+
+
+def prune_history(
+    ledger_path: str | Path,
+    *,
+    keep_last: int,
+    per_candidate: bool = True,
+) -> tuple[int, int]:
+    """Atomically compact a JSONL ledger, keeping the newest `keep_last` runs."""
+    if type(keep_last) is not int or keep_last < 1:
+        raise ValueError("keep_last must be a positive integer.")
+    source = Path(ledger_path)
+    entries = load_history(source)
+    if per_candidate:
+        seen_per_cand: dict[str, int] = defaultdict(int)
+        kept_rev: list[HistoryEntry] = []
+        for entry in reversed(entries):
+            if seen_per_cand[entry.candidate_model] < keep_last:
+                seen_per_cand[entry.candidate_model] += 1
+                kept_rev.append(entry)
+        kept = list(reversed(kept_rev))
+    else:
+        kept = entries[-keep_last:]
+
+    removed = len(entries) - len(kept)
+    payload = "".join(json.dumps(e.to_dict()) + "\n" for e in kept)
+    source.parent.mkdir(parents=True, exist_ok=True)
+    with NamedTemporaryFile(dir=source.parent, delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+    try:
+        tmp_path.write_text(payload, encoding="utf-8")
+        os.replace(tmp_path, source)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+    return len(kept), removed
