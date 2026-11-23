@@ -192,3 +192,63 @@ def test_unordered_array_rule_large_float_tolerance_and_single_quote_toml() -> N
     c2 = [ModelSample(prompt_id="p1", output='{"tags": ["c", "b", "a"]}')]
     rep2 = DriftBenchmarkEngine(policy=policy).evaluate(b2, c2)
     assert rep2.passed and rep2.mean_composite_drift == 0.0
+
+
+def test_wildcard_array_field_rules_and_precedence(tmp_path: Path) -> None:
+    toml_file = tmp_path / "wildcard.toml"
+    toml_file.write_text(
+        """
+[weights]
+text_weight = 0.0
+json_weight = 1.0
+
+[fields."$.items[*].meta"]
+ignore = true
+
+[fields."$.items[*].tags"]
+unordered_array = true
+
+[fields."$.items[*].score"]
+tolerance_abs = 0.05
+
+[fields."$.items[0].score"]
+tolerance_abs = 0.001
+""".strip() + "\n",
+        encoding="utf-8",
+    )
+    policy = load_policy(toml_file)
+
+    base_payload = {
+        "items": [
+            {"score": 0.90, "tags": ["a", "b"], "meta": {"ts": "t1"}},
+            {"score": 0.80, "tags": ["x", "y"], "meta": {"ts": "t2"}},
+        ]
+    }
+    cand_payload = {
+        "items": [
+            {"score": 0.90, "tags": ["b", "a"], "meta": {"ts": "changed-1"}},
+            {"score": 0.83, "tags": ["y", "x"], "meta": {"ts": "changed-2"}},
+        ]
+    }
+    rep = DriftBenchmarkEngine(policy=policy).evaluate(
+        [ModelSample(prompt_id="p1", output=json.dumps(base_payload))],
+        [ModelSample(prompt_id="p1", output=json.dumps(cand_payload))],
+    )
+    assert rep.passed
+    assert rep.mean_composite_drift == 0.0
+    assert rep.mean_json_numeric_drift == 0.0
+
+    # Exact rule $.items[0].score (tol=0.001) beats wildcard $.items[*].score (tol=0.05).
+    cand_strict = {
+        "items": [
+            {"score": 0.93, "tags": ["a", "b"], "meta": {"ts": "x"}},
+            {"score": 0.80, "tags": ["x", "y"], "meta": {"ts": "y"}},
+        ]
+    }
+    rep_strict = DriftBenchmarkEngine(policy=policy).evaluate(
+        [ModelSample(prompt_id="p1", output=json.dumps(base_payload))],
+        [ModelSample(prompt_id="p1", output=json.dumps(cand_strict))],
+    )
+    assert rep_strict.results[0].json_numeric_drift is not None
+    assert rep_strict.results[0].json_numeric_drift > 0.0
+

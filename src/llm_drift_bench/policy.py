@@ -6,7 +6,7 @@ import importlib
 import json
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -267,11 +267,51 @@ def load_policy(path: str | Path) -> DriftPolicy:
     )
 
 
-def _path_is_ignored(path: str, ignored_prefixes: tuple[str, ...]) -> bool:
-    for prefix in ignored_prefixes:
-        if path == prefix or path.startswith(prefix + ".") or path.startswith(prefix + "["):
+def _compile_path_pattern(rule_path: str, *, allow_subtree: bool) -> re.Pattern[str]:
+    parts = [re.escape(seg) for seg in rule_path.split("[*]")]
+    body = r"\[\d+\]".join(parts)
+    suffix = r"(?:$|[.\[])" if allow_subtree else r"$"
+    return re.compile(f"^{body}{suffix}")
+
+
+def path_is_ignored(path: str, ignored_rules: Sequence[str] | tuple[str, ...]) -> bool:
+    """Return True if path matches any ignored rule exactly or as a descendant."""
+    for rule_path in ignored_rules:
+        if "[*]" in rule_path:
+            if _compile_path_pattern(rule_path, allow_subtree=True).match(path):
+                return True
+        elif (
+            path == rule_path
+            or path.startswith(rule_path + ".")
+            or path.startswith(rule_path + "[")
+        ):
             return True
     return False
+
+
+def _path_matches_exact(path: str, rule_paths: frozenset[str]) -> bool:
+    if path in rule_paths:
+        return True
+    for rule_path in rule_paths:
+        if "[*]" in rule_path and _compile_path_pattern(rule_path, allow_subtree=False).match(path):
+            return True
+    return False
+
+
+def match_field_rule(path: str, field_rules: Mapping[str, FieldRule]) -> FieldRule | None:
+    """Resolve the most specific FieldRule for a concrete JSONPath (exact beats [*])."""
+    direct = field_rules.get(path)
+    if direct is not None:
+        return direct
+    wildcard_candidates = [
+        (rule_path, rule) for rule_path, rule in field_rules.items() if "[*]" in rule_path
+    ]
+    # Prefer fewer wildcards (more concrete indices), then longer pattern, then lexicographical.
+    wildcard_candidates.sort(key=lambda item: (item[0].count("[*]"), -len(item[0]), item[0]))
+    for rule_path, rule in wildcard_candidates:
+        if _compile_path_pattern(rule_path, allow_subtree=False).match(path):
+            return rule
+    return None
 
 
 def _normalize_unordered_arrays(
@@ -294,7 +334,7 @@ def _normalize_unordered_arrays(
             _normalize_unordered_arrays(item, unordered_paths, f"{prefix}[{i}]")
             for i, item in enumerate(data)
         ]
-        if prefix in unordered_paths:
+        if _path_matches_exact(prefix, unordered_paths):
             return sorted(items, key=lambda elem: json.dumps(elem, sort_keys=True))
         return items
     return data
@@ -347,8 +387,8 @@ def evaluate_json_with_policy(
                 finite_number(value)
 
     ignored = tuple(path for path, rule in field_rules.items() if rule.ignore)
-    flat_a = {k: v for k, v in flat_a_raw.items() if not _path_is_ignored(k, ignored)}
-    flat_b = {k: v for k, v in flat_b_raw.items() if not _path_is_ignored(k, ignored)}
+    flat_a = {k: v for k, v in flat_a_raw.items() if not path_is_ignored(k, ignored)}
+    flat_b = {k: v for k, v in flat_b_raw.items() if not path_is_ignored(k, ignored)}
 
     if not flat_a and not flat_b:
         return 1.0, 1.0, None
@@ -366,7 +406,7 @@ def evaluate_json_with_policy(
         if path not in flat_a or path not in flat_b:
             continue
         val_a, val_b = flat_a[path], flat_b[path]
-        rule = field_rules.get(path)
+        rule = match_field_rule(path, field_rules)
         both_numeric = (
             isinstance(val_a, (int, float))
             and not isinstance(val_a, bool)
