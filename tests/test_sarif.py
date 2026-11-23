@@ -31,8 +31,17 @@ def test_export_sarif_report_passing_and_drifted(tmp_path: Path) -> None:
     results = doc["runs"][0]["results"]
     rule_ids = {item["ruleId"] for item in results}
     assert {"DRIFT001", "DRIFT002", "DRIFT004"}.issubset(rule_ids)
+    assert doc["runs"][0]["invocations"] == [{"executionSuccessful": True}]
+    hashes = [item["partialFingerprints"]["primaryLocationLineHash"] for item in results]
+    assert len(hashes) == len(set(hashes))
+    assert all(len(h) == 32 for h in hashes)
+    # Deterministic across repeated exports.
+    assert export_sarif_report(drifted, artifact_uri="extraction-suite.json") == raw
     # Never leaks raw response body text in SARIF annotations.
     assert "INV-2026" not in raw
+
+    with pytest.raises(ValueError, match="artifact_uri"):
+        export_sarif_report(drifted, artifact_uri="   ")
 
 
 def test_cli_run_and_report_sarif_output(

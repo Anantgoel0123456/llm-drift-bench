@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,11 @@ _SARIF_RULES: list[dict[str, Any]] = [
 ]
 
 
+def _partial_fingerprint(rule_id: str, subject: str, baseline: str, candidate: str) -> str:
+    payload = f"{rule_id}\0{subject}\0{baseline}\0{candidate}".encode()
+    return hashlib.sha256(payload).hexdigest()[:32]
+
+
 def export_sarif_report(
     report: DriftBenchmarkReport,
     output_path: str | Path | None = None,
@@ -54,6 +60,8 @@ def export_sarif_report(
     """
     if not isinstance(report, DriftBenchmarkReport):
         raise ValueError("SARIF export requires a canonical engine report.")
+    if not isinstance(artifact_uri, str) or not artifact_uri.strip():
+        raise ValueError("artifact_uri must be a non-empty string.")
 
     results: list[dict[str, Any]] = []
     thresholds = report.thresholds
@@ -83,52 +91,43 @@ def export_sarif_report(
             props["json_numeric_drift"] = round(row.json_numeric_drift, 4)
 
         if not row.candidate_validation.passed:
+            rule_id = "DRIFT001"
             issue_summary = "; ".join(
                 f"{iss.path}: {iss.rule}" for iss in row.candidate_validation.issues
             ) or "invalid JSON"
-            results.append({
-                "ruleId": "DRIFT001",
-                "level": "error",
-                "message": {
-                    "text": (
-                        f"Prompt {row.prompt_id!r} failed JSON/schema validation "
-                        f"({issue_summary}); composite drift {row.composite_drift_score:.4f}."
-                    )
-                },
-                "locations": loc,
-                "properties": props,
-            })
+            msg = (
+                f"Prompt {row.prompt_id!r} failed JSON/schema validation "
+                f"({issue_summary}); composite drift {row.composite_drift_score:.4f}."
+            )
         elif (
             thresholds is not None
             and row.json_numeric_drift is not None
             and row.json_numeric_drift > thresholds.max_numeric_relative_drift
         ):
-            results.append({
-                "ruleId": "DRIFT002",
-                "level": "error",
-                "message": {
-                    "text": (
-                        f"Prompt {row.prompt_id!r} numeric relative drift "
-                        f"{row.json_numeric_drift:.4f} exceeded threshold "
-                        f"{thresholds.max_numeric_relative_drift:.4f}."
-                    )
-                },
-                "locations": loc,
-                "properties": props,
-            })
+            rule_id = "DRIFT002"
+            msg = (
+                f"Prompt {row.prompt_id!r} numeric relative drift "
+                f"{row.json_numeric_drift:.4f} exceeded threshold "
+                f"{thresholds.max_numeric_relative_drift:.4f}."
+            )
         else:
-            results.append({
-                "ruleId": "DRIFT003",
-                "level": "error",
-                "message": {
-                    "text": (
-                        f"Prompt {row.prompt_id!r} composite drift "
-                        f"{row.composite_drift_score:.4f} exceeded drift threshold."
-                    )
-                },
-                "locations": loc,
-                "properties": props,
-            })
+            rule_id = "DRIFT003"
+            msg = (
+                f"Prompt {row.prompt_id!r} composite drift "
+                f"{row.composite_drift_score:.4f} exceeded drift threshold."
+            )
+        results.append({
+            "ruleId": rule_id,
+            "level": "error",
+            "message": {"text": msg},
+            "locations": loc,
+            "partialFingerprints": {
+                "primaryLocationLineHash": _partial_fingerprint(
+                    rule_id, row.prompt_id, report.baseline_model, report.candidate_model
+                )
+            },
+            "properties": props,
+        })
 
     if not report.passed:
         for reason in report.failure_reasons or ("Benchmark thresholds failed.",):
@@ -142,6 +141,11 @@ def export_sarif_report(
                         "logicalLocations": [{"name": "benchmark_gate", "kind": "suite"}],
                     }
                 ],
+                "partialFingerprints": {
+                    "primaryLocationLineHash": _partial_fingerprint(
+                        "DRIFT004", reason, report.baseline_model, report.candidate_model
+                    )
+                },
                 "properties": {
                     "baseline_model": report.baseline_model,
                     "candidate_model": report.candidate_model,
@@ -165,6 +169,7 @@ def export_sarif_report(
                         "rules": _SARIF_RULES,
                     }
                 },
+                "invocations": [{"executionSuccessful": True}],
                 "properties": {
                     "baseline_model": report.baseline_model,
                     "candidate_model": report.candidate_model,
