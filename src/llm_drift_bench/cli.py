@@ -1540,6 +1540,98 @@ def _handle_calibrate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_diff_subparser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    parser = subparsers.add_parser(
+        "diff",
+        help="Show semantic JSON field-level or unified text diffs between two captures.",
+    )
+    parser.add_argument(
+        "-b", "--baseline", required=True, help="Baseline capture (.json/.jsonl)."
+    )
+    parser.add_argument(
+        "-c", "--candidate", required=True, help="Candidate capture (.json/.jsonl)."
+    )
+    parser.add_argument(
+        "--config",
+        metavar="FILE",
+        default=None,
+        help="Optional drift.toml/drift.json policy for ignore, unordered_array, and tolerances.",
+    )
+    parser.add_argument(
+        "--prompt-id",
+        action="append",
+        metavar="ID",
+        help="Inspect only the specified prompt_id (repeatable).",
+    )
+    parser.add_argument(
+        "--only-changed",
+        action="store_true",
+        help="Hide identical prompts and show only prompts with differences.",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Show at most N prompt diffs.",
+    )
+    parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format: text (default) or json.",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Optional file path to save the rendered diff output.",
+    )
+
+
+def _handle_diff(args: argparse.Namespace) -> int:
+    if args.limit is not None and args.limit < 1:
+        raise ValueError("--limit must be a positive integer.")
+    _protect_inputs(args.output, args.baseline, args.candidate, args.config)
+
+    from llm_drift_bench.diffing import diff_captures, format_diffs_text
+    from llm_drift_bench.engine import load_model_samples
+    from llm_drift_bench.policy import load_policy
+
+    policy = load_policy(args.config) if args.config else None
+    baseline = load_model_samples(args.baseline)
+    candidate = load_model_samples(args.candidate)
+    diffs = diff_captures(
+        baseline,
+        candidate,
+        policy=policy,
+        prompt_ids=args.prompt_id,
+        only_changed=args.only_changed,
+    )
+    total_matched = len(diffs)
+    displayed = diffs[: args.limit] if args.limit is not None else diffs
+    omitted = total_matched - len(displayed)
+
+    if args.format == "json":
+        payload = {
+            "total_matched": total_matched,
+            "changed_prompts": sum(1 for item in diffs if item.changed),
+            "omitted": omitted,
+            "diffs": [item.to_dict() for item in displayed],
+        }
+        rendered = json.dumps(payload, indent=2) + "\n"
+    else:
+        rendered = format_diffs_text(displayed) + "\n"
+        if omitted:
+            rendered += f"{omitted} additional prompt diff(s) omitted.\n"
+
+    if args.output:
+        _atomic_write_text(Path(args.output), rendered)
+    print(rendered, end="")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build and return the top-level CLI ArgumentParser."""
     parser = argparse.ArgumentParser(
@@ -1557,6 +1649,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
     _add_run_subparser(subparsers)
+    _add_diff_subparser(subparsers)
     _add_validate_subparser(subparsers)
     _add_report_subparser(subparsers)
     diagnosis = subparsers.add_parser("diagnose", help="Explain a saved engine report.")
@@ -1608,6 +1701,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _handle_diagnose(args)
         if args.command == "run":
             return _handle_run(args)
+        if args.command == "diff":
+            return _handle_diff(args)
         if args.command == "report":
             return _handle_report(args)
         if args.command == "validate":
