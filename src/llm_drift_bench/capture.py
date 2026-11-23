@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -37,6 +38,7 @@ class CaptureConfig:
     system_prompt: str | None = None
     json_mode: bool = False
     concurrency: int = 1
+    extra_headers: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         parsed = urllib.parse.urlparse(self.endpoint)
@@ -68,6 +70,15 @@ class CaptureConfig:
             raise ValueError("json_mode must be a boolean.")
         if isinstance(self.concurrency, bool) or not 1 <= self.concurrency <= 32:
             raise ValueError("concurrency must be an integer between 1 and 32.")
+        for name, val in self.extra_headers:
+            if not isinstance(name, str) or not name.strip() or not isinstance(val, str):
+                raise ValueError("extra_headers entries must be (non-empty name, string value).")
+            if any(ch in name or ch in val for ch in ("\r", "\n")):
+                raise ValueError(f"Header {name!r} must not contain CR or LF characters.")
+            if self.api_key_env and name.strip().lower() == "authorization":
+                raise ValueError(
+                    "Do not pass an Authorization header when --api-key-env is set."
+                )
 
     @property
     def chat_completions_url(self) -> str:
@@ -153,18 +164,41 @@ def _extract_completion(
     return content, tokens, finish_reason, fingerprint
 
 
+def parse_header_spec(raw: str) -> tuple[str, str]:
+    """Parse a 'Name: Value' or 'Name=Value' CLI header specification."""
+    colon_idx = raw.find(":")
+    eq_idx = raw.find("=")
+    if colon_idx == -1 and eq_idx == -1:
+        raise ValueError(f"Header must use 'Name: Value' or 'Name=Value' syntax: {raw!r}.")
+    if colon_idx != -1 and (eq_idx == -1 or colon_idx < eq_idx):
+        name, val = raw[:colon_idx], raw[colon_idx + 1 :]
+    else:
+        name, val = raw[:eq_idx], raw[eq_idx + 1 :]
+    name = name.strip()
+    val = val.strip()
+    if not name:
+        raise ValueError(f"Header name cannot be empty: {raw!r}.")
+    if any(ch in name or ch in val for ch in ("\r", "\n")):
+        raise ValueError(f"Header {name!r} must not contain CR or LF characters.")
+    return name, val
+
+
 def capture_suite(
     prompts: Sequence[PromptCase],
     config: CaptureConfig,
     *,
     transport: Transport | None = None,
     sleep_fn: Callable[[float], None] = time.sleep,
+    existing_samples: Sequence[ModelSample] = (),
+    on_sample: Callable[[ModelSample], None] | None = None,
 ) -> list[ModelSample]:
     """Capture responses for every PromptCase from an OpenAI-compatible chat endpoint."""
     if not prompts:
         raise ValueError("Prompt suite cannot be empty.")
 
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    for h_name, h_val in config.extra_headers:
+        headers[h_name.strip()] = h_val
     if config.api_key_env:
         token = os.environ.get(config.api_key_env)
         if not token:
@@ -175,6 +209,20 @@ def capture_suite(
 
     send = transport or _default_transport
     url = config.chat_completions_url
+    callback_lock = threading.Lock()
+
+    completed: dict[str, ModelSample] = {}
+    for sample in existing_samples:
+        if sample.model_name != config.model:
+            raise ValueError(
+                f"Existing sample {sample.prompt_id!r} belongs to model "
+                f"{sample.model_name!r}, expected {config.model!r}."
+            )
+        completed[sample.prompt_id] = sample
+
+    pending = [prompt for prompt in prompts if prompt.prompt_id not in completed]
+    if not pending:
+        return [completed[prompt.prompt_id] for prompt in prompts]
 
     def _capture_one(prompt: PromptCase) -> ModelSample:
         body = _build_request_body(prompt, config)
@@ -220,7 +268,7 @@ def capture_suite(
             "finish_reason": finish_reason,
             "system_fingerprint": fingerprint,
         }
-        return ModelSample(
+        sample = ModelSample(
             prompt_id=prompt.prompt_id,
             output=content,
             model_name=config.model,
@@ -228,11 +276,20 @@ def capture_suite(
             tokens_generated=comp_tokens,
             metadata={k: v for k, v in metadata.items() if v is not None},
         )
+        if on_sample is not None:
+            with callback_lock:
+                on_sample(sample)
+        return sample
 
-    if config.concurrency == 1 or len(prompts) == 1:
-        return [_capture_one(prompt) for prompt in prompts]
-    with ThreadPoolExecutor(max_workers=min(config.concurrency, len(prompts))) as pool:
-        return list(pool.map(_capture_one, prompts))
+    if config.concurrency == 1 or len(pending) == 1:
+        captured = [_capture_one(prompt) for prompt in pending]
+    else:
+        with ThreadPoolExecutor(max_workers=min(config.concurrency, len(pending))) as pool:
+            captured = list(pool.map(_capture_one, pending))
+
+    for sample in captured:
+        completed[sample.prompt_id] = sample
+    return [completed[prompt.prompt_id] for prompt in prompts]
 
 
 def serialize_samples_jsonl(samples: Sequence[ModelSample]) -> str:

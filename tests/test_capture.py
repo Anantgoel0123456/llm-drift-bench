@@ -9,7 +9,12 @@ from typing import Any
 
 import pytest
 
-from llm_drift_bench.capture import CaptureConfig, capture_suite, serialize_samples_jsonl
+from llm_drift_bench.capture import (
+    CaptureConfig,
+    capture_suite,
+    parse_header_spec,
+    serialize_samples_jsonl,
+)
 from llm_drift_bench.cli import main
 from llm_drift_bench.engine import load_model_samples
 from llm_drift_bench.models import PromptCase
@@ -172,3 +177,97 @@ def test_capture_concurrency_json_mode_and_multi_runs(
     assert (tmp_path / "batch-run2.jsonl").is_file()
     assert len(seen_payloads) == 4
     assert all(p.get("response_format") == {"type": "json_object"} for p in seen_payloads)
+
+
+def test_capture_resume_checkpointing_and_custom_headers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert parse_header_spec("X-Title: MyBench") == ("X-Title", "MyBench")
+    assert parse_header_spec("HTTP-Referer=https://example.com") == (
+        "HTTP-Referer",
+        "https://example.com",
+    )
+    with pytest.raises(ValueError, match="CR or LF"):
+        parse_header_spec("X-Bad: foo\r\nEvil: bar")
+    with pytest.raises(ValueError, match="Authorization"):
+        CaptureConfig(
+            endpoint="http://localhost:11434/v1",
+            model="m",
+            api_key_env="KEY",
+            extra_headers=(("Authorization", "Bearer nope"),),
+        )
+
+    out_file = tmp_path / "resumed.jsonl"
+    calls = {"count": 0}
+    seen_headers: list[dict[str, str]] = []
+
+    def flaky_transport(
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        timeout: float,
+    ) -> dict[str, Any]:
+        calls["count"] += 1
+        seen_headers.append(dict(headers))
+        if calls["count"] == 2:
+            raise urllib.error.HTTPError(
+                url, 400, "Bad Request", hdrs={}, fp=io.BytesIO(b"")  # type: ignore[arg-type]
+            )
+        return {
+            "choices": [{"message": {"content": f'{{"call": {calls["count"]}}}'}}],
+            "usage": {"completion_tokens": 5},
+        }
+
+    monkeypatch.setattr("llm_drift_bench.capture._default_transport", flaky_transport)
+
+    # First run captures prompt 1 to checkpoint then fails on prompt 2 (HTTP 400 non-retryable).
+    rc_fail = main([
+        "capture",
+        "-s", str(EXAMPLES / "extraction-suite.json"),
+        "--endpoint", "http://localhost:11434/v1",
+        "--model", "llama3:8b",
+        "--header", "X-Title: DriftBench",
+        "--header", "HTTP-Referer=https://example.com",
+        "--resume",
+        "-o", str(out_file),
+    ])
+    assert rc_fail == 2
+    assert "HTTP 400" in capsys.readouterr().err
+    partial = load_model_samples(out_file)
+    assert len(partial) == 1
+    assert seen_headers[0]["X-Title"] == "DriftBench"
+    assert seen_headers[0]["HTTP-Referer"] == "https://example.com"
+
+    # Second run with --resume skips prompt 1 and only calls endpoint for prompt 2!
+    rc_ok = main([
+        "capture",
+        "-s", str(EXAMPLES / "extraction-suite.json"),
+        "--endpoint", "http://localhost:11434/v1",
+        "--model", "llama3:8b",
+        "--header", "X-Title: DriftBench",
+        "--resume",
+        "-o", str(out_file),
+    ])
+    assert rc_ok == 0
+    assert "(resumed 1)" in capsys.readouterr().out
+    final = load_model_samples(out_file)
+    assert len(final) == 2
+    assert calls["count"] == 3  # 1 succeeded + 1 failed + 1 resumed
+
+
+def test_capture_error_branches_and_validation() -> None:
+    cfg = CaptureConfig(endpoint="http://localhost:11434/v1", model="m", max_retries=1)
+    prompts = [PromptCase(prompt_id="p1", prompt="hi")]
+
+    def timeout_transport(*_: Any) -> dict[str, Any]:
+        raise TimeoutError("timed out")
+
+    with pytest.raises(RuntimeError, match="localhost:11434"):
+        capture_suite(prompts, cfg, transport=timeout_transport, sleep_fn=lambda _: None)
+
+    with pytest.raises(ValueError, match="missing non-empty 'choices'"):
+        capture_suite(prompts, cfg, transport=lambda *_: {})
+
+    with pytest.raises(ValueError, match="empty"):
+        capture_suite([], cfg)
+

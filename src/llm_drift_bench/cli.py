@@ -1330,6 +1330,18 @@ def _add_capture_subparser(
         help="Number of repeated captures (1..20; >1 writes <stem>-runN.jsonl).",
     )
     parser.add_argument(
+        "--header",
+        action="append",
+        default=[],
+        metavar="KEY:VALUE",
+        help="Optional custom HTTP header (repeatable; accepts KEY:VALUE or KEY=VALUE).",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from an existing partial output JSONL, skipping already-captured prompts.",
+    )
+    parser.add_argument(
         "-o",
         "--output",
         required=True,
@@ -1341,9 +1353,15 @@ def _handle_capture(args: argparse.Namespace) -> int:
     if args.runs < 1 or args.runs > 20:
         raise ValueError("--runs must be between 1 and 20.")
     _protect_inputs(args.output, args.suite)
-    from llm_drift_bench.capture import CaptureConfig, capture_suite, serialize_samples_jsonl
-    from llm_drift_bench.engine import load_prompt_cases
+    from llm_drift_bench.capture import (
+        CaptureConfig,
+        capture_suite,
+        parse_header_spec,
+        serialize_samples_jsonl,
+    )
+    from llm_drift_bench.engine import load_model_samples, load_prompt_cases
 
+    extra_headers = tuple(parse_header_spec(raw) for raw in args.header)
     prompts = load_prompt_cases(args.suite)
     config = CaptureConfig(
         endpoint=args.endpoint,
@@ -1357,21 +1375,48 @@ def _handle_capture(args: argparse.Namespace) -> int:
         system_prompt=args.system,
         json_mode=args.json_mode,
         concurrency=args.concurrency,
+        extra_headers=extra_headers,
     )
+
+    def _run_one_target(target: Path) -> tuple[int, int]:
+        existing: list[ModelSample] = []
+        if args.resume and target.is_file():
+            existing = load_model_samples(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        def _append_checkpoint(sample: ModelSample) -> None:
+            with target.open("a", encoding="utf-8") as stream:
+                stream.write(serialize_samples_jsonl([sample]))
+                stream.flush()
+
+        samples = capture_suite(
+            prompts,
+            config,
+            existing_samples=existing,
+            on_sample=_append_checkpoint if args.resume else None,
+        )
+        _atomic_write_text(target, serialize_samples_jsonl(samples))
+        return len(samples), len(existing)
+
     out_base = Path(args.output)
     if args.runs == 1:
-        samples = capture_suite(prompts, config)
-        _atomic_write_text(out_base, serialize_samples_jsonl(samples))
-        print(f"Captured {len(samples)} prompt(s) for model {config.model!r} -> {args.output}")
+        total, reused = _run_one_target(out_base)
+        suffix_note = f" (resumed {reused})" if reused else ""
+        print(
+            f"Captured {total} prompt(s){suffix_note} "
+            f"for model {config.model!r} -> {args.output}"
+        )
         return 0
 
     suffix = out_base.suffix or ".jsonl"
     for run_idx in range(1, args.runs + 1):
         run_path = out_base.with_name(f"{out_base.stem}-run{run_idx}{suffix}")
         _protect_inputs(str(run_path), args.suite)
-        samples = capture_suite(prompts, config)
-        _atomic_write_text(run_path, serialize_samples_jsonl(samples))
-        print(f"Run {run_idx}/{args.runs}: captured {len(samples)} prompt(s) -> {run_path}")
+        total, reused = _run_one_target(run_path)
+        suffix_note = f" (resumed {reused})" if reused else ""
+        print(
+            f"Run {run_idx}/{args.runs}: captured {total} prompt(s){suffix_note} -> {run_path}"
+        )
     return 0
 
 
