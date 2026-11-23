@@ -2,12 +2,20 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-23
+
 ### Added
 
+- OASIS SARIF 2.1.0 report exporter (`sarif.py`, `--format sarif`, and `run --sarif-output FILE`) for GitHub Code Scanning and IDE diagnostic viewers.
+- Pre-flight workspace validator (`doctor.py` and `llm-drift-bench doctor`) checking Python runtime, optional packages, `drift.toml` policies, prompt suite schema/regex safety, and capture `prompt_id` alignment.
+- Repeatable `--category` filtering on `run` and `validate` commands.
+- `json_key_jaccard` built-in scorer (`json_key_jaccard_similarity`), `markdown_structure` scorer (`markdown_structure_similarity`), and `llm-drift-bench score` CLI (`--list-scorers`, repeatable `--scorer`).
+- Expanded secret-leak detection in `tool_events.py` (distinct `anthropic_key`, `openai_key`, `google_api_key`, `slack_token`, `bearer_token`, `aws_access_key`, `github_pat`, `private_key_pem`) and `--max-failed-calls` retry budget gating on `check-tools`.
+- Paired Cohen's `d` effect size (`effect_size_d`) on `paired_permutation_test` and `PairedSignificance`.
+- Targeted `diagnose` suggestions for `minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `pattern_limit`, `minItems`, `maxItems`, `const`, and `unsupported_keyword` schema rules.
 - `[*]` array wildcard JSONPath matching in `drift.toml` field rules (exact-path precedence over wildcards for `ignore`, `unordered_array`, `tolerance_abs`, and `tolerance_rel`), plus automatic collapsing of repeated volatile array indices in `calibrate`.
 - Semantic JSON field-level and unified text diff engine (`diffing.py` and `llm-drift-bench diff`) respecting `drift.toml` policies (`--only-changed`, `--prompt-id`, `--limit`, `--format text|json`).
 - RFC-4180 CSV exporter (`csv_export.py` and `--format csv` on `run` and `report`).
-- Pluggable scorer CLI (`llm-drift-bench score` with `--list-scorers` and repeatable `--scorer`) and built-in `markdown_structure` scorer (`markdown_structure_similarity`).
 - Crash-resilient incremental `--resume` checkpointing and custom `--header` support (`parse_header_spec`) on `capture`.
 - Moving-window drift trend regression gate (`detect_history_regression`, `HistoryTrendCheck`, and `llm-drift-bench history check`), plus Y-axis gridlines and accessible `<title>` tooltips in history SVG trend charts.
 - `init-sample --with-policy` option to scaffold a starter `drift.toml` policy file.
@@ -17,7 +25,7 @@
 - Exact two-sided McNemar test (`mcnemar_exact_test`, `McNemarResult`) wired into `stats --compare-against`, plus baseline-model mismatch protection.
 - Order-insensitive array rules (`FieldRule.unordered_array = true`) in `drift.toml` policies, overflow-safe absolute tolerance math, and single-quoted TOML string support in the Python 3.10 fallback parser.
 - Capture collector upgrades (`--concurrency`, `--runs`, `--json-mode`), bounded HTTP response reads, and sanitized HTTP error reporting.
-- OpenAI Responses API (`function_call` / `function_call_output`) support in `adapters.py`, `load_adapted_tool_events`, and `check-tools --adapter normalized|openai|anthropic|otel`.
+- OpenAI Responses API (`function_call` / `function_call_output`, `output` wrapper) and standard OTLP `resourceSpans` JSON support in `adapters.py`, `load_adapted_tool_events`, and `check-tools --adapter normalized|openai|anthropic|otel`.
 - `history show --candidate` and `--tag` filters, plus SVG Pareto frontier polyline, axis grid/ticks, and label collision avoidance in comparison HTML dashboards.
 - `drift.toml` / `drift.json` evaluation policies (`load_policy`, `DriftPolicy`, `MetricWeights`, `FieldRule`, and `run`/`compare-many --config`) with custom metric weights, per-JSONPath `ignore` / `tolerance_abs` / `tolerance_rel` rules, and `--long-text-mode skip_levenshtein` for >16,384-character outputs.
 - Multi-run statistical analysis (`stats.py` and `llm-drift-bench stats`): deterministic bootstrap confidence intervals (`bootstrap_mean_ci`), paired sign-flip permutation significance tests (`paired_permutation_test`), and flaky-prompt detection (`summarize_multi_run`).
@@ -26,9 +34,14 @@
 - Zero-dependency OpenAI-compatible capture collector (`capture.py` and `llm-drift-bench capture`) supporting Ollama, vLLM, llama.cpp server, and OpenAI endpoints with bounded retries, timeouts, provenance metadata, and env-var secret handling.
 - Offline agent transcript adapters (`adapters.py`: `from_openai_tool_calls`, `from_anthropic_transcript`, `from_otel_genai_spans`) plus `check_max_tool_retries` and `check_no_secret_in_tool_args` workflow checks.
 - `--sort-by` (`drift`, `passed`, `conformity`, `latency`) and `--format rich` on `compare-reports` and `compare-many`, plus logical workflow subcommand ordering in `--help`.
+- `run --github-summary`, `run --junit-output FILE`, and JUnit XML export (`run/report --format junit`).
+- `compare-many` / `evaluate_many()`, `compare-reports` / `compare_reports()`, `prompt_changes()`, `--by-category`, `--rule-summary`, `--slowdowns`, `--numeric-changes`, `--hotspots`, `--inspect-prompt`, `--against`, `--fail-on-regression`, and `diagnose` (with optional local OpenVINO `ai` extra and `ai-devices`).
 
 ### Fixed
 
+- Prevented integer-to-float `OverflowError` in `mcnemar_exact_test` when discordant prompt counts exceed 1,000 by using log-space binomial tail evaluation (`math.lgamma`).
+- Fixed `adapters.py` to support OpenAI Responses `output` wrappers, `failed`/`incomplete` statuses, and standard OTLP `resourceSpans` / `[{key, value}]` attributes.
+- HTML response diffs (`--include-diffs`) now apply active `drift.toml` policy rules (`ignore`, `unordered_array`, numeric tolerances) and preserve readable Unicode (`ensure_ascii=False`).
 - PEP 562 lazy exports in `__init__.py` and `models.py` (moving legacy Pydantic models to `_legacy_models.py`), lazy Rich imports in `reporter.py`, cached `TypeAdapter` in `report_io.py`, and lazy CLI subcommand handler imports — cutting `import llm_drift_bench` latency from ~411 ms to ~8 ms and keeping canonical CLI runs completely free of eager `pydantic` and `rich` imports.
 - `export_comparison_html` now respects the `sort_by` ranking order passed from `compare-reports` and `compare-many`.
 - `HistoryEntry.from_dict` now strictly validates boolean/numeric types and unit ranges (fixing `bool("false") -> True`), and `export_history_html` renders a clean placeholder SVG when history is empty.
@@ -38,58 +51,7 @@
 - `_patterns.py` now properly handles leading `]` inside regex character classes (`[^]...]` and `[]...]`).
 - `diagnose_report` now reports per-prompt conformity failures even when baseline also failed, and reports co-occurring `numeric_change` alongside `schema` issues.
 - `DriftBenchmarkEngine.evaluate` now rejects mixed `model_name` values within a single capture, matching `evaluate_many`.
-
-- Both comparison commands support per-category drift, validation rule counts,
-  ranked latency increases and numeric changes, and a separate JSON output file.
-
-- Inspect selected prompts across candidates with `--inspect-prompt` and rank
-  recurring individual failures with `--hotspots N` in both comparison commands.
-
-- Dataset parsing errors identify the source file. JSON syntax errors include
-  line and column, and record conversion errors identify the JSONL line or
-  one-based JSON array position. Invalid measurements and duplicate JSON keys
-  no longer echo their input values.
-- Installed-package CI verifies license files in both distribution formats and
-  exercises benchmark exit codes 0, 1 and 2 outside the source checkout.
-
-- Evaluate multiple candidate captures against one baseline and suite with
-  `compare-many` or `evaluate_many()`.
-- Track newly drifted and recovered prompts with `--against` or
-  `prompt_changes()`. Filter and limit details, or fail CI on new regressions.
-- Comparisons accept equivalent baseline evidence when the candidates produce
-  JSON on different subsets of an optional-schema suite.
-
-- Compare candidates from saved engine reports with `compare-reports` and
-  `compare_reports()`. Rank by mean drift and inspect the worst prompt,
-  candidate conformity and P95 latency. Use `--fail-on-drift` for CI.
-- Filter diagnosis with repeatable `--prompt-id` and `--kind` options or
-  select suite or prompt observations with `--scope`.
-
-- Explain saved comparisons with `diagnose` or the Python `diagnose_report` API.
-  Output includes evidence, suggested checks and missing timing measurements.
-- Opt in to local model suggestions with the `ai` extra. Use `ai-devices` to
-  inspect OpenVINO devices before choosing CPU, GPU or NPU.
-
-- Suite files accept the `suite` wrapper across both evaluation APIs. Files with
-  conflicting ID aliases or multiple dataset containers now raise an input error.
-- Exact edit distance skips shared character spans. Invalid n-gram widths and
-  nonfinite percentile inputs raise a validation error.
-- Large prompt-set mismatches display the first five missing and extra IDs plus
-  omitted counts. Deeply nested input gets a JSON decoder diagnostic.
-- Opik exports copy nested metadata so SDK-side edits preserve the source score.
-
-Target: 0.3.0 (development version 0.3.0.dev0).
-
-### Added
-
-- `run --github-summary` appends the comparison result to a GitHub Actions job summary.
-- `run --junit-output FILE` saves XML from the same comparison as the console
-  and JSON reports, including when drift makes the command exit with code 1.
-- `check-tools` rejects an output path that would overwrite the input trace.
-
-- JUnit XML export for canonical engine reports through the Python API and
-  `run/report --format junit`. Includes one case per prompt and an overall
-  benchmark gate so suite-only failures remain visible to CI test viewers.
+- Dataset parsing errors identify the source file, line/column, and record index without echoing sensitive values; `check-tools` refuses to overwrite its input trace; suite files accept the `suite` wrapper; Opik exports copy nested metadata safely.
 
 ## [0.2.0] - 2026-11-15
 
@@ -199,6 +161,7 @@ Target: 0.3.0 (development version 0.3.0.dev0).
 
 Initial published release. See the linked PyPI release for its artifacts.
 
-[Unreleased]: https://github.com/anant-goel/llm-drift-bench/commits/main/
+[Unreleased]: https://github.com/anant-goel/llm-drift-bench/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/anant-goel/llm-drift-bench/releases/tag/v0.3.0
 [0.2.0]: https://github.com/anant-goel/llm-drift-bench/releases/tag/v0.2.0
 [0.1.0]: https://pypi.org/project/llm-drift-bench/0.1.0/
