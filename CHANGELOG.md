@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Added
+
+- Deterministic PII and credential redactor (`redaction.py`, `redact_text`, `redact_samples`, `RedactionReport`, and `llm-drift-bench redact [--secrets-only]`) supporting PEM private keys, Anthropic/OpenAI/GitHub/AWS/Google/Slack/Bearer credentials, and optional PII (email, SSN, IPv4, Luhn-checked credit cards) while preserving valid JSON.
+- Deterministic stratified prompt suite subsampler and lockstep capture slicer (`sampling.py`, `sample_prompt_suite`, `slice_samples_for_suite`, and `llm-drift-bench subsample --size N [--seed] [--slice-capture IN OUT]`).
+- Explicit token and output-cost drift estimator (`cost.py`, `ModelPricing`, `CostComparison`, `estimate_cost_drift`) that never fabricates token counts when `tokens_generated` is missing.
+- Multi-candidate Prompt x Candidate drift heatmap matrix (`matrix.py`, `DriftMatrix`, `MatrixRow`, `build_drift_matrix`, `format_drift_matrix_text`, `export_drift_matrix_html`, and `llm-drift-bench matrix`).
+- Prompt suite quality and JSON Schema hygiene linter (`prompt_lint.py`, `LintIssue`, `lint_prompt_suite`, `format_lint_issues_text`, and `llm-drift-bench lint-suite [--strict]`) detecting duplicate IDs/prompts, unsatisfiable `required` + `additionalProperties: false` rules, permissive/unconstrained objects, and unsupported schema keywords.
+- Composite GO/NO-GO release gate evaluator (`gates.py`, `GateCheck`, `ReleaseVerdict`, `evaluate_release_gates`) combining canonical drift, moving-window history trends, statistical significance tests, and tool-trace evidence without mutating canonical reports.
+- GitHub-Flavored Markdown multi-candidate comparison leaderboard exporter (`export_comparison_markdown` and `--markdown-output FILE` on `compare-reports` and `compare-many`).
+- Native Anthropic Messages API provider (`provider="anthropic"` and `capture --provider anthropic`) with `/v1/messages` routing, `x-api-key`, `anthropic-version`, `Retry-After` backoff honoring (capped at 30 s), and connection-reset retry handling.
+- Automatic numeric tolerance rule suggestions (`detect_numeric_tolerances`, `CalibrationResult.numeric_tolerances`, and `calibrate --numeric-tolerances`) emitting `tolerance_abs` rules in `drift.toml` for jittering numeric fields.
+- Multi-candidate regression assertion helper (`assert_no_regression(reports, against=...)`) alongside explicit `DriftBenchmarkReport` type validation in `assert_no_drift`.
+- Sanitized `<properties>` model metadata (`baseline_model`, `candidate_model`, `mean_composite_drift`, `candidate_json_conformity_rate`) embedded in JUnit XML `<testsuite>` exports.
+- Per-prompt semantic diff summary counts (`PromptDiff.summary_counts()` and `"summary"` in `PromptDiff.to_dict()`).
+
+### Fixed
+
+- Replaced recursive `flatten_json_paths` with an iterative stack to prevent `RecursionError` on deeply nested JSON (1,500+ levels), widened `compute_percentile` to accept `Sequence[float]`, and hardened numeric type checks in `compute_composite_drift_score`.
+- Fixed the Python 3.10 fallback TOML parser in `policy.py` to support single-quoted section headers/keys and `#` inside single-quoted strings.
+- Rejected boolean `version` values (`True == 1`) in `tool_log.py` and added helpful `--adapter openai|anthropic|otel` hints when vendor transcript wrapper keys are detected.
+- Added default spreadsheet formula injection protection (`sanitize_formulas=True`) to string columns in `csv_export.py` while preserving negative numeric columns like `latency_delta_ms`.
+- Fixed `diffing.py` reporting spurious `$` root removals when comparing empty containers (`{}` / `[]`) against populated containers.
+- Deep-copied single-element schemas in `merge_schemas` and consistently enforced `strict_additional=True` recursively.
+- Rejected boolean limit arguments (`True`/`False`) in `latency_increases`, `numeric_changes`, and `_hotspots` breakdowns.
+- Prevented output-file collisions when `--json-output`, `--html-output`, and `--markdown-output` point to the same path.
+
 ## [0.3.0] - 2026-11-23
 
 ### Added
