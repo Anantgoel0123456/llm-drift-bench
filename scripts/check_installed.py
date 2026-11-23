@@ -59,6 +59,12 @@ def main() -> None:
             [str(cli), "--version"], [str(cli), "--help"],
             [str(python), "-m", "llm_drift_bench", "--help"],
             [str(python), "-c", "import llm_drift_bench; print(llm_drift_bench.__file__)"],
+            [
+                str(python),
+                "-c",
+                "import sys, llm_drift_bench, llm_drift_bench.cli; "
+                "assert 'pydantic' not in sys.modules and 'rich' not in sys.modules",
+            ],
         ):
             subprocess.run(command, cwd=root, env=env, check=True)
         # Exercise the installed engine, exports and package data, never source imports.
@@ -142,6 +148,49 @@ else:
             )
             if outcome.returncode != expected:
                 raise SystemExit(f"check-tools {flags}: exit {outcome.returncode}, want {expected}")
+        # Exercise 0.3.0 commands in the isolated installed environment.
+        diff_out = subprocess.run(
+            [str(cli), "diff", "-b", str(examples / "baseline.jsonl"),
+             "-c", str(examples / "candidate-drift.jsonl"), "--format", "json"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(diff_out.stdout)["changed_prompts"] == 2
+        scorers_out = subprocess.run(
+            [str(cli), "score", "--list-scorers", "--format", "json"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "python_ast" in json.loads(scorers_out.stdout)["scorers"]
+        inferred = root / "inferred.json"
+        subprocess.run(
+            [str(cli), "infer-schema", "-i", str(examples / "baseline.jsonl"),
+             "-o", str(inferred), "--strict-additional"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        subprocess.run(
+            [str(cli), "validate", "-i", str(examples / "baseline.jsonl"),
+             "-p", str(inferred), "--strict"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        doc_out = subprocess.run(
+            [str(cli), "doctor", "--config", str(examples / "drift.toml"),
+             "-s", str(examples / "extraction-suite.json"),
+             "-b", str(examples / "baseline.jsonl"),
+             "-c", str(examples / "candidate-pass.jsonl"), "--format", "json"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(doc_out.stdout)["ok"] is True
+        sarif_out = subprocess.run(
+            [str(cli), "report", "-i", str(examples / "expected-drift.json"),
+             "--format", "sarif"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(sarif_out.stdout)["version"] == "2.1.0"
+        csv_out = subprocess.run(
+            [str(cli), "report", "-i", str(examples / "expected-drift.json"),
+             "--format", "csv"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "invoice-01" in csv_out.stdout
     print(f"Installed artifact checks passed: {artifact.name}")
 
 
