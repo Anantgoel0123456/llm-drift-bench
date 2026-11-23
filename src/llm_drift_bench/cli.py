@@ -875,6 +875,8 @@ def _add_comparison_output_options(parser: argparse.ArgumentParser) -> None:
                         help="Save comparison JSON alongside console output.")
     parser.add_argument("--html-output", metavar="FILE",
                         help="Save standalone HTML comparison dashboard with SVG Pareto chart.")
+    parser.add_argument("--markdown-output", metavar="FILE",
+                        help="Save GitHub-flavored Markdown comparison leaderboard table.")
     parser.add_argument("--by-category", action="store_true",
                         help="Summarize prompt counts and mean drift per candidate and category.")
     parser.add_argument("--rule-summary", action="store_true",
@@ -934,6 +936,18 @@ def _candidate_captures(
         yield label, samples
 
 
+def _reject_same_outputs(pairs: Sequence[tuple[str, str | None]]) -> None:
+    seen: list[tuple[str, Path]] = []
+    for flag, value in pairs:
+        if not value:
+            continue
+        resolved = Path(value).resolve()
+        for prev_flag, prev_path in seen:
+            if resolved == prev_path:
+                raise ValueError(f"{prev_flag} and {flag} require different files.")
+        seen.append((flag, resolved))
+
+
 def _handle_many(args: argparse.Namespace) -> int:
     _protect_inputs(
         args.json_output, args.baseline, args.suite, args.config, *(p for _, p in args.candidate)
@@ -941,6 +955,17 @@ def _handle_many(args: argparse.Namespace) -> int:
     _protect_inputs(
         args.html_output, args.baseline, args.suite, args.config, args.json_output,
         *(p for _, p in args.candidate),
+    )
+    _protect_inputs(
+        args.markdown_output, args.baseline, args.suite, args.config, args.json_output,
+        args.html_output, *(p for _, p in args.candidate),
+    )
+    _reject_same_outputs(
+        (
+            ("--json-output", args.json_output),
+            ("--html-output", args.html_output),
+            ("--markdown-output", args.markdown_output),
+        )
     )
     labels = [label for label, _ in args.candidate]
     if len(labels) < 2:
@@ -961,6 +986,14 @@ def _handle_many(args: argparse.Namespace) -> int:
 def _handle_compare_reports(args: argparse.Namespace) -> int:
     _protect_inputs(args.json_output, *args.reports)
     _protect_inputs(args.html_output, args.json_output, *args.reports)
+    _protect_inputs(args.markdown_output, args.json_output, args.html_output, *args.reports)
+    _reject_same_outputs(
+        (
+            ("--json-output", args.json_output),
+            ("--html-output", args.html_output),
+            ("--markdown-output", args.markdown_output),
+        )
+    )
     from llm_drift_bench.report_io import load_engine_report
 
     reports = [load_engine_report(path) for path in args.reports]
@@ -1095,15 +1128,30 @@ def _render_comparison(reports: Sequence[DriftBenchmarkReport], args: argparse.N
             _atomic_write_text(
                 Path(args.html_output), export_comparison_html(reports, sort_by=sort_by)
             )
+        if getattr(args, "markdown_output", None) is not None:
+            from llm_drift_bench._comparison_md import export_comparison_markdown
+
+            _atomic_write_text(
+                Path(args.markdown_output),
+                export_comparison_markdown(reports, against=args.against, sort_by=sort_by),
+            )
         if args.format == "json":
             print(serialized)
             return status
-    elif getattr(args, "html_output", None) is not None:
-        from llm_drift_bench.reporter import export_comparison_html
+    else:
+        if getattr(args, "html_output", None) is not None:
+            from llm_drift_bench.reporter import export_comparison_html
 
-        _atomic_write_text(
-            Path(args.html_output), export_comparison_html(reports, sort_by=sort_by)
-        )
+            _atomic_write_text(
+                Path(args.html_output), export_comparison_html(reports, sort_by=sort_by)
+            )
+        if getattr(args, "markdown_output", None) is not None:
+            from llm_drift_bench._comparison_md import export_comparison_markdown
+
+            _atomic_write_text(
+                Path(args.markdown_output),
+                export_comparison_markdown(reports, against=args.against, sort_by=sort_by),
+            )
     if args.format == "rich":
         _render_comparison_rich(reports[0].baseline_model, rows)
     else:
@@ -1473,7 +1521,7 @@ def _add_capture_subparser(
 ) -> None:
     parser = subparsers.add_parser(
         "capture",
-        help="Capture model outputs from an OpenAI-compatible endpoint (Ollama, vLLM, OpenAI).",
+        help="Capture model outputs from an OpenAI-compatible or Anthropic endpoint.",
     )
     parser.add_argument(
         "-s",
@@ -1487,9 +1535,15 @@ def _add_capture_subparser(
     parser.add_argument(
         "--endpoint",
         required=True,
-        help="OpenAI-compatible base URL (e.g. http://localhost:11434/v1).",
+        help="Endpoint base URL (e.g. http://localhost:11434/v1 or https://api.anthropic.com).",
     )
     parser.add_argument("--model", required=True, help="Model identifier to query.")
+    parser.add_argument(
+        "--provider",
+        choices=("openai", "anthropic"),
+        default="openai",
+        help="Endpoint wire protocol: openai (default, OpenAI-compatible) or anthropic.",
+    )
     parser.add_argument(
         "--api-key-env",
         default=None,
@@ -1580,6 +1634,7 @@ def _handle_capture(args: argparse.Namespace) -> int:
         json_mode=args.json_mode,
         concurrency=args.concurrency,
         extra_headers=extra_headers,
+        provider=args.provider,
     )
 
     def _run_one_target(target: Path) -> tuple[int, int]:
@@ -1730,6 +1785,14 @@ def _add_calibrate_subparser(
         help="Minimum floor for recommended max_composite_drift in [0, 1] (default: 0.05).",
     )
     parser.add_argument(
+        "--numeric-tolerances",
+        action="store_true",
+        help=(
+            "Suggest tolerance_abs rules for jittering numeric fields "
+            "(--baseline-a/--baseline-b)."
+        ),
+    )
+    parser.add_argument(
         "--format",
         choices=("toml", "json"),
         default="toml",
@@ -1746,6 +1809,7 @@ def _add_calibrate_subparser(
 def _handle_calibrate(args: argparse.Namespace) -> int:
     from llm_drift_bench.calibrate import (
         calibrate_from_reports,
+        detect_numeric_tolerances,
         detect_volatile_fields,
         render_calibrated_toml,
     )
@@ -1758,6 +1822,8 @@ def _handle_calibrate(args: argparse.Namespace) -> int:
 
     if bool(args.baseline_a) != bool(args.baseline_b):
         raise ValueError("--baseline-a and --baseline-b must be provided together.")
+    if args.numeric_tolerances and not args.baseline_a:
+        raise ValueError("--numeric-tolerances requires --baseline-a and --baseline-b.")
     if not args.reports and not args.baseline_a:
         raise ValueError(
             "Provide at least one saved REPORT or both --baseline-a and --baseline-b."
@@ -1766,10 +1832,15 @@ def _handle_calibrate(args: argparse.Namespace) -> int:
 
     reports = [load_engine_report(path) for path in args.reports]
     volatile_fields: list[str] = []
+    numeric_tolerances: dict[str, float] | None = None
     if args.baseline_a and args.baseline_b:
         samples_a = load_model_samples(args.baseline_a)
         samples_b = load_model_samples(args.baseline_b)
         volatile_fields = detect_volatile_fields(samples_a, samples_b)
+        if args.numeric_tolerances:
+            numeric_tolerances = detect_numeric_tolerances(
+                samples_a, samples_b, headroom=args.headroom
+            )
         if not reports:
             prompt_cases = load_prompt_cases(args.suite) if args.suite else None
             reports = [
@@ -1785,6 +1856,7 @@ def _handle_calibrate(args: argparse.Namespace) -> int:
         headroom=args.headroom,
         min_floor_drift=args.min_drift_floor,
         volatile_fields=volatile_fields,
+        numeric_tolerances=numeric_tolerances,
     )
     if args.format == "json":
         rendered = json.dumps(result.to_dict(), indent=2) + "\n"
@@ -2071,6 +2143,9 @@ def build_parser() -> argparse.ArgumentParser:
     _add_calibrate_subparser(subparsers)
     _add_init_sample_subparser(subparsers)
     _add_doctor_subparser(subparsers)
+    from llm_drift_bench._cli_extras import register_extra_subcommands
+
+    register_extra_subcommands(subparsers)
     subparsers.add_parser("ai-devices", help="List devices visible to OpenVINO.")
     return parser
 
@@ -2120,6 +2195,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _handle_init_sample(args)
         if args.command == "doctor":
             return _handle_doctor(args)
+        from llm_drift_bench._cli_extras import dispatch_extra_command
+
+        extra_exit = dispatch_extra_command(
+            args,
+            protect_inputs=_protect_inputs,
+            atomic_write_text=_atomic_write_text,
+        )
+        if extra_exit is not None:
+            return extra_exit
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
