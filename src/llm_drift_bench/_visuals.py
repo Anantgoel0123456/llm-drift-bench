@@ -18,47 +18,57 @@ from llm_drift_bench._report_views import (
     tool_check_rows,
 )
 from llm_drift_bench.comparison import SortKey, _hotspots, compare_reports
-from llm_drift_bench.metrics import _json_type_tag, _values_equal, flatten_json_paths
-from llm_drift_bench.models import DriftBenchmarkReport
+from llm_drift_bench.diffing import diff_sample_pair
+from llm_drift_bench.models import DriftBenchmarkReport, ModelSample
+from llm_drift_bench.policy import DriftPolicy
 from llm_drift_bench.tool_log import ToolCheckRecord
-from llm_drift_bench.validator import extract_json_payload
 
 
 def build_json_field_diffs(
     baseline_text: str,
     candidate_text: str,
+    *,
+    policy: DriftPolicy | None = None,
 ) -> list[tuple[str, str, str, str]]:
     """Return structured leaf-level diff rows: (path, baseline_val, candidate_val, status)."""
-    ok_a, parsed_a, _ = extract_json_payload(baseline_text)
-    ok_b, parsed_b, _ = extract_json_payload(candidate_text)
-    if not (ok_a and ok_b):
+    diff = diff_sample_pair(
+        ModelSample(prompt_id="_diff", output=baseline_text),
+        ModelSample(prompt_id="_diff", output=candidate_text),
+        policy=policy,
+    )
+    if diff.mode != "json":
         return []
-
-    flat_a = flatten_json_paths(parsed_a)
-    flat_b = flatten_json_paths(parsed_b)
     rows: list[tuple[str, str, str, str]] = []
-    for path in sorted(set(flat_a) | set(flat_b)):
-        in_a = path in flat_a
-        in_b = path in flat_b
-        if in_a and not in_b:
-            rows.append((path, json.dumps(flat_a[path]), "(missing)", "removed"))
-        elif in_b and not in_a:
-            rows.append((path, "(missing)", json.dumps(flat_b[path]), "added"))
+    for change in diff.field_changes:
+        if change.kind == "removed":
+            rows.append((
+                change.path,
+                json.dumps(change.baseline, ensure_ascii=False),
+                "(missing)",
+                "removed",
+            ))
+        elif change.kind == "added":
+            rows.append((
+                change.path,
+                "(missing)",
+                json.dumps(change.candidate, ensure_ascii=False),
+                "added",
+            ))
         else:
-            val_a, val_b = flat_a[path], flat_b[path]
-            if not _values_equal(val_a, val_b):
-                kind = (
-                    "type_changed"
-                    if _json_type_tag(val_a) != _json_type_tag(val_b)
-                    else "changed"
-                )
-                rows.append((path, json.dumps(val_a), json.dumps(val_b), kind))
+            rows.append((
+                change.path,
+                json.dumps(change.baseline, ensure_ascii=False),
+                json.dumps(change.candidate, ensure_ascii=False),
+                change.kind,
+            ))
     return rows
 
 
 def render_html_diffs_section(
     report: DriftBenchmarkReport,
     raw_pairs: Mapping[str, tuple[str, str]],
+    *,
+    policy: DriftPolicy | None = None,
 ) -> str:
     """Render opt-in pure-CSS collapsible side-by-side diffs for HTML reports."""
     blocks: list[str] = []
@@ -69,7 +79,16 @@ def render_html_diffs_section(
         base_out, cand_out = pair
         if base_out == cand_out and not item.drifted:
             continue
-        field_diffs = build_json_field_diffs(base_out, cand_out)
+        field_diffs = build_json_field_diffs(base_out, cand_out, policy=policy)
+        if not field_diffs and not item.drifted and policy is not None:
+            # Skip prompts whose only JSON differences were explicitly ignored by policy.
+            diff_check = diff_sample_pair(
+                ModelSample(prompt_id=item.prompt_id, output=base_out),
+                ModelSample(prompt_id=item.prompt_id, output=cand_out),
+                policy=policy,
+            )
+            if diff_check.mode == "json" and not diff_check.changed:
+                continue
         badge = "DRIFT" if item.drifted else "CHANGED"
         if field_diffs:
             diff_rows = "".join(

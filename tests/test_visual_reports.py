@@ -137,3 +137,26 @@ def test_comparison_html_respects_sort_by_and_renders_pareto_frontier(tmp_path: 
     assert html.index("<td>pass-balanced</td>") < html.index("<td>fail-fast</td>")
     assert "<polyline" in html
     assert "P95 Latency (ms)" in html
+
+
+def test_html_diffs_honor_policy_ignores_and_preserve_unicode() -> None:
+    from llm_drift_bench.engine import DriftBenchmarkEngine
+    from llm_drift_bench.models import ModelSample
+    from llm_drift_bench.policy import DriftPolicy, FieldRule
+    from llm_drift_bench.reporter import export_html_report
+
+    policy = DriftPolicy(
+        field_rules={"$.timestamp": FieldRule(path="$.timestamp", ignore=True)}
+    )
+    b = [ModelSample(prompt_id="p1", output='{"price": "€100", "timestamp": "t1"}')]
+    c = [ModelSample(prompt_id="p1", output='{"price": "€180", "timestamp": "t2"}')]
+    report = DriftBenchmarkEngine(policy=policy).evaluate(b, c)
+    html = export_html_report(
+        report,
+        diffs={"p1": (b[0].output, c[0].output)},
+        policy=policy,
+    )
+    assert "€100" in html and "€180" in html
+    assert "\\u20ac" not in html
+    assert "$.timestamp" not in html
+

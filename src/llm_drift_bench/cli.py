@@ -285,7 +285,12 @@ def _handle_run(args: argparse.Namespace) -> int:
             base_by_id = {s.prompt_id: s.output for s in baseline_samples}
             cand_by_id = {s.prompt_id: s.output for s in candidate_samples}
             diffs_map = {pid: (base_by_id[pid], cand_by_id[pid]) for pid in base_by_id}
-        print(export_html_report(report, tool_checks=tool_checks, diffs=diffs_map), end="")
+        print(
+            export_html_report(
+                report, tool_checks=tool_checks, diffs=diffs_map, policy=policy
+            ),
+            end="",
+        )
     elif args.format == "csv":
         from llm_drift_bench.csv_export import export_csv_report
 

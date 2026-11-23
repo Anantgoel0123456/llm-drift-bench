@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from rich.console import Console
 
     from llm_drift_bench.models import BenchmarkResult
+    from llm_drift_bench.policy import DriftPolicy
 
 
 def _measurement(value: float | None, spec: str = ".2f") -> str:
@@ -275,6 +276,7 @@ def export_html_report(
     tool_checks: Sequence[ToolCheckRecord] | None = None,
     *,
     diffs: Mapping[str, tuple[str, str]] | None = None,
+    policy: DriftPolicy | None = None,
 ) -> str:
     """Export a self-contained, script-free canonical report with no network assets.
 
@@ -283,7 +285,7 @@ def export_html_report(
     """
     if not isinstance(result, DriftBenchmarkReport):
         raise ValueError("HTML requires an engine report. Rerun with 'run --output report.json'.")
-    extra = render_html_diffs_section(result, diffs) if diffs else ""
+    extra = render_html_diffs_section(result, diffs, policy=policy) if diffs else ""
     return _save_text(
         canonical_html(result, tuple(tool_checks or ()), extra_sections=extra),
         output_path,
