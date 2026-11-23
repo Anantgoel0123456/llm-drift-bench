@@ -19,8 +19,12 @@ def sample_prompt_suite(
     """Deterministically draw a subset of PromptCases (optionally stratified by category)."""
     if not cases:
         raise ValueError("Prompt suite cannot be empty.")
+    if len({c.prompt_id for c in cases}) != len(cases):
+        raise ValueError("Prompt suite contains duplicate prompt_id entries.")
     if isinstance(size, bool) or not isinstance(size, int) or size < 1:
         raise ValueError("size must be a positive integer.")
+    if isinstance(seed, bool):
+        raise ValueError("seed must be an integer, not a boolean.")
     if size > len(cases):
         raise ValueError(f"Requested sample size {size} exceeds suite size {len(cases)}.")
     if size == len(cases):
@@ -88,3 +92,31 @@ def slice_samples_for_suite(
     if missing:
         raise ValueError(f"Capture is missing prompt_id(s) required by suite: {missing[:5]!r}.")
     return [by_id[pid] for pid in wanted]
+
+
+def filter_prompt_suite(
+    cases: Sequence[PromptCase],
+    *,
+    categories: Sequence[str] | None = None,
+    require_schema: bool = False,
+    exclude_ids: Sequence[str] | None = None,
+) -> list[PromptCase]:
+    """Filter a PromptCase suite by category, schema presence, and excluded prompt IDs."""
+    if not cases:
+        raise ValueError("Prompt suite cannot be empty.")
+    selected = sorted(cases, key=lambda c: c.prompt_id)
+    if categories is not None:
+        available = sorted({c.category for c in selected})
+        wanted_cats = set(categories)
+        unknown = sorted(wanted_cats - set(available))
+        if unknown:
+            raise ValueError(
+                f"Unknown category filter(s): {unknown!r}. Available: {available!r}."
+            )
+        selected = [c for c in selected if c.category in wanted_cats]
+    if require_schema:
+        selected = [c for c in selected if c.schema is not None]
+    if exclude_ids is not None:
+        excluded = set(exclude_ids)
+        selected = [c for c in selected if c.prompt_id not in excluded]
+    return selected
