@@ -635,6 +635,11 @@ def _add_init_sample_subparser(
         default=".",
         help="Target directory for generated sample files (default: current directory).",
     )
+    init_parser.add_argument(
+        "--with-policy",
+        action="store_true",
+        help="Also scaffold a starter drift.toml policy file.",
+    )
 
 
 def _handle_init_sample(args: argparse.Namespace) -> int:
@@ -713,6 +718,20 @@ def _handle_init_sample(args: argparse.Namespace) -> int:
         baseline_path: "\n".join(json.dumps(row) for row in baseline_rows) + "\n",
         candidate_path: "\n".join(json.dumps(row) for row in candidate_rows) + "\n",
     }
+    if getattr(args, "with_policy", False):
+        outputs[target_dir / "drift.toml"] = (
+            "# Starter llm-drift-bench policy\n"
+            'long_text_mode = "error"\n\n'
+            "[thresholds]\n"
+            "max_composite_drift = 0.25\n"
+            "min_json_conformity_rate = 0.95\n"
+            "max_numeric_relative_drift = 0.15\n"
+            "max_latency_regression_pct = 50.0\n\n"
+            '[fields."$.confidence"]\n'
+            "tolerance_abs = 0.05\n\n"
+            '[fields."$.tags"]\n'
+            "unordered_array = true\n"
+        )
     for path in outputs:
         if path.exists() or path.is_symlink():
             raise ValueError(f"Sample file already exists: {path}. Choose a new --dir.")
@@ -721,9 +740,8 @@ def _handle_init_sample(args: argparse.Namespace) -> int:
             stream.write(content)
 
     print(f"Created sample benchmark suite in {target_dir.resolve()}:")
-    print(f"  - {prompts_path.name}")
-    print(f"  - {baseline_path.name}")
-    print(f"  - {candidate_path.name}")
+    for path in outputs:
+        print(f"  - {path.name}")
     return 0
 
 

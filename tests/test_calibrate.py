@@ -202,3 +202,54 @@ def test_cli_calibrate_error_handling(
     assert main(["calibrate", "--baseline-a", str(dummy), "--baseline-b", str(dummy),
                  "-o", str(dummy)]) == 2
     assert "input file" in capsys.readouterr().err
+
+
+def test_detect_volatile_fields_collapses_repeated_array_indices_and_init_policy(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run1 = _make_samples({
+        "p1": json.dumps({
+            "items": [
+                {"val": 1, "ts": "t1"},
+                {"val": 2, "ts": "t2"},
+            ]
+        })
+    })
+    run2 = _make_samples({
+        "p1": json.dumps({
+            "items": [
+                {"val": 1, "ts": "x1"},
+                {"val": 2, "ts": "x2"},
+            ]
+        })
+    })
+    collapsed = detect_volatile_fields(run1, run2)
+    assert collapsed == ["$.items[*].ts"]
+    raw = detect_volatile_fields(run1, run2, collapse_array_wildcards=False)
+    assert raw == ["$.items[0].ts", "$.items[1].ts"]
+
+    # Render calibrated TOML and verify wildcard rule suppresses drift even for index 2!
+    cal = calibrate_from_reports([DriftBenchmarkEngine().evaluate(run1, run2)],
+                                 volatile_fields=collapsed)
+    toml_path = tmp_path / "wildcard_drift.toml"
+    toml_path.write_text(render_calibrated_toml(cal), encoding="utf-8")
+    loaded = load_policy(toml_path)
+    assert "$.items[*].ts" in loaded.field_rules
+
+    three_a = _make_samples({
+        "p1": json.dumps({"items": [{"val": i, "ts": f"a{i}"} for i in range(3)]})
+    })
+    three_b = _make_samples({
+        "p1": json.dumps({"items": [{"val": i, "ts": f"b{i}"} for i in range(3)]})
+    })
+    rep = DriftBenchmarkEngine(policy=loaded).evaluate(three_a, three_b)
+    assert rep.results[0].json_exact_field_match == 1.0
+
+    # init-sample --with-policy creates a valid drift.toml alongside the starter suite
+    sample_dir = tmp_path / "starter"
+    assert main(["init-sample", "--dir", str(sample_dir), "--with-policy"]) == 0
+    capsys.readouterr()
+    assert (sample_dir / "drift.toml").is_file()
+    starter_policy = load_policy(sample_dir / "drift.toml")
+    assert starter_policy.field_rules["$.tags"].unordered_array is True
+

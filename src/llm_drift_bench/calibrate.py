@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import math
+import re
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -12,6 +14,15 @@ from llm_drift_bench._matching import require_same_ids
 from llm_drift_bench.metrics import _values_equal, flatten_json_paths
 from llm_drift_bench.models import DriftBenchmarkReport, DriftThresholds, ModelSample
 from llm_drift_bench.validator import extract_json_payload
+
+_INDEX_OR_QUOTED_RE = re.compile(r'\["(?:\\.|[^"\\])*"\]|\[\d+\]')
+
+
+def _generalize_array_indices(path: str) -> str:
+    return _INDEX_OR_QUOTED_RE.sub(
+        lambda m: m.group(0) if m.group(0).startswith('["') else "[*]",
+        path,
+    )
 
 
 @dataclass(frozen=True)
@@ -55,6 +66,8 @@ class CalibrationResult:
 def detect_volatile_fields(
     baseline_samples: Sequence[ModelSample],
     repeat_samples: Sequence[ModelSample],
+    *,
+    collapse_array_wildcards: bool = True,
 ) -> list[str]:
     """Return sorted JSONPath leaf keys that changed across repeated runs of the same model."""
     if not baseline_samples or not repeat_samples:
@@ -81,7 +94,19 @@ def detect_volatile_fields(
                 or not _values_equal(flat_a[path], flat_b[path])
             ):
                 volatile.add(path)
-    return sorted(volatile)
+    if not collapse_array_wildcards:
+        return sorted(volatile)
+
+    grouped: dict[str, list[str]] = defaultdict(list)
+    for path in volatile:
+        grouped[_generalize_array_indices(path)].append(path)
+    collapsed: set[str] = set()
+    for pattern, concretes in grouped.items():
+        if "[*]" in pattern and len(concretes) >= 2:
+            collapsed.add(pattern)
+        else:
+            collapsed.update(concretes)
+    return sorted(collapsed)
 
 
 def calibrate_from_reports(
