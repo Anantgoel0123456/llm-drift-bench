@@ -12,9 +12,11 @@ from llm_drift_bench.engine import DriftBenchmarkEngine
 from llm_drift_bench.models import ModelSample
 from llm_drift_bench.stats import (
     bootstrap_mean_ci,
+    holm_bonferroni_adjust,
     mcnemar_exact_test,
     paired_permutation_test,
     summarize_multi_run,
+    wilson_score_interval,
 )
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
@@ -141,4 +143,45 @@ def test_mcnemar_exact_test_binary_shifts() -> None:
 
     with pytest.raises(ValueError, match="alpha"):
         mcnemar_exact_test([True], [False], alpha=True)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="only boolean"):
+        mcnemar_exact_test(["false"], [True])  # type: ignore[list-item]
+
+
+def test_holm_bonferroni_wilson_and_strict_candidate_matching() -> None:
+    # Step-down Holm-Bonferroni matches R's p.adjust(c(0.04, 0.01, 0.03, 0.20), "holm")
+    adj = holm_bonferroni_adjust([0.04, 0.01, 0.03, 0.20])
+    assert adj == pytest.approx([0.09, 0.04, 0.09, 0.20])
+
+    with pytest.raises(ValueError, match="empty"):
+        holm_bonferroni_adjust([])
+    with pytest.raises(ValueError, match="finite number"):
+        holm_bonferroni_adjust([True])  # type: ignore[list-item]
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
+        holm_bonferroni_adjust([1.5])
+
+    # Wilson score interval stays informative at 100% (20/20) conformity
+    lo, hi = wilson_score_interval(20, 20, confidence=0.95)
+    assert 0.80 < lo < 0.88 and hi == 1.0
+    lo_zero, hi_zero = wilson_score_interval(0, 20, confidence=0.95)
+    assert lo_zero == 0.0 and 0.12 < hi_zero < 0.20
+
+    with pytest.raises(ValueError, match="positive integer"):
+        wilson_score_interval(0, 0)
+    with pytest.raises(ValueError, match="between 0 and trials"):
+        wilson_score_interval(5, 3)
+
+    # Boolean seed is rejected
+    with pytest.raises(ValueError, match="boolean"):
+        bootstrap_mean_ci([0.1, 0.2], seed=True)
+    with pytest.raises(ValueError, match="boolean"):
+        paired_permutation_test([0.1, 0.2], [0.2, 0.3], seed=False)
+
+    # require_same_candidate rejects reports from distinct candidates
+    from llm_drift_bench.report_io import load_engine_report
+
+    pass_rep = load_engine_report(EXAMPLES / "expected-pass.json")
+    drift_rep = load_engine_report(EXAMPLES / "expected-drift.json")
+    with pytest.raises(ValueError, match="same candidate model"):
+        summarize_multi_run([pass_rep, drift_rep], require_same_candidate=True)
+
 

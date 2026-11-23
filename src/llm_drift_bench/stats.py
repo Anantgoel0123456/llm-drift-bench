@@ -6,7 +6,7 @@ import math
 import random
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
-from statistics import fmean, pstdev
+from statistics import NormalDist, fmean, pstdev
 from typing import Any
 
 from llm_drift_bench._matching import index_records, require_same_ids
@@ -110,6 +110,8 @@ def mcnemar_exact_test(
     """
     if not passed_a or len(passed_a) != len(passed_b):
         raise ValueError("passed_a and passed_b must be non-empty sequences of equal length.")
+    if any(type(v) is not bool for v in passed_a) or any(type(v) is not bool for v in passed_b):
+        raise ValueError("passed_a and passed_b must contain only boolean values.")
     if isinstance(alpha, bool) or not math.isfinite(alpha) or not (0.0 < alpha < 1.0):
         raise ValueError("alpha must lie strictly between 0 and 1.")
 
@@ -199,6 +201,8 @@ def bootstrap_mean_ci(
         raise ValueError("confidence must lie strictly between 0 and 1.")
     if isinstance(n_resamples, bool) or n_resamples < 10:
         raise ValueError("n_resamples must be an integer >= 10.")
+    if isinstance(seed, bool):
+        raise ValueError("seed must be an integer, not a boolean.")
 
     n = len(cleaned)
     observed_mean = fmean(cleaned)
@@ -239,6 +243,8 @@ def paired_permutation_test(
         raise ValueError("alpha must lie strictly between 0 and 1.")
     if isinstance(n_permutations, bool) or n_permutations < 10:
         raise ValueError("n_permutations must be an integer >= 10.")
+    if isinstance(seed, bool):
+        raise ValueError("seed must be an integer, not a boolean.")
 
     diffs = [finite_number(b) - finite_number(a) for a, b in zip(scores_a, scores_b, strict=True)]
     observed = fmean(diffs)
@@ -273,12 +279,64 @@ def paired_permutation_test(
     )
 
 
+def holm_bonferroni_adjust(p_values: Sequence[float]) -> list[float]:
+    """Compute step-down Holm-Bonferroni adjusted p-values preserving input order."""
+    if not p_values:
+        raise ValueError("p_values cannot be empty.")
+    cleaned: list[float] = []
+    for raw in p_values:
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            raise ValueError("Every p-value must be a finite number in [0, 1].")
+        val = finite_number(raw)
+        if not 0.0 <= val <= 1.0:
+            raise ValueError("Every p-value must lie in [0, 1].")
+        cleaned.append(val)
+
+    m = len(cleaned)
+    order = sorted(range(m), key=lambda idx: cleaned[idx])
+    adjusted = [0.0] * m
+    running_max = 0.0
+    for rank, orig_idx in enumerate(order):
+        scaled = cleaned[orig_idx] * (m - rank)
+        running_max = max(running_max, scaled)
+        adjusted[orig_idx] = min(1.0, round(running_max, 6))
+    return adjusted
+
+
+def wilson_score_interval(
+    successes: int,
+    trials: int,
+    *,
+    confidence: float = 0.95,
+) -> tuple[float, float]:
+    """Compute a deterministic Wilson score confidence interval for a binomial proportion."""
+    if type(trials) is not int or trials < 1:
+        raise ValueError("trials must be a positive integer.")
+    if type(successes) is not int or not 0 <= successes <= trials:
+        raise ValueError("successes must be an integer between 0 and trials.")
+    if (
+        isinstance(confidence, bool)
+        or not math.isfinite(confidence)
+        or not (0.0 < confidence < 1.0)
+    ):
+        raise ValueError("confidence must lie strictly between 0 and 1.")
+
+    z = NormalDist().inv_cdf(0.5 + confidence / 2.0)
+    z2 = z * z
+    phat = successes / trials
+    denom = 1.0 + z2 / trials
+    center = (phat + z2 / (2.0 * trials)) / denom
+    half = (z / denom) * math.sqrt((phat * (1.0 - phat) + z2 / (4.0 * trials)) / trials)
+    return max(0.0, round(center - half, 6)), min(1.0, round(center + half, 6))
+
+
 def summarize_multi_run(
     reports: Sequence[DriftBenchmarkReport],
     *,
     confidence: float = 0.95,
     n_resamples: int = 1000,
     seed: int = 0,
+    require_same_candidate: bool = False,
 ) -> MultiRunSummary:
     """Aggregate repeated runs of a candidate to measure stability, variance, and CIs."""
     if not reports:
@@ -289,6 +347,8 @@ def summarize_multi_run(
     for index, report in enumerate(reports, start=1):
         if report.baseline_model != reference.baseline_model:
             raise ValueError("All runs must share the same baseline model.")
+        if require_same_candidate and report.candidate_model != reference.candidate_model:
+            raise ValueError("All runs must share the same candidate model.")
         mapping = index_records(report.results, f"run {index}")
         require_same_ids(expected_ids, set(mapping), f"Run {index}")
         indexed_runs.append(mapping)
