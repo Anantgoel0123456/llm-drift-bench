@@ -122,9 +122,9 @@ def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     )
     run_parser.add_argument(
         "--format",
-        choices=("table", "rich", "json", "markdown", "html", "junit", "pr-comment"),
+        choices=("table", "rich", "json", "markdown", "html", "junit", "pr-comment", "csv"),
         default="table",
-        help="Stdout format: table (default), rich, json, markdown, html, junit, or pr-comment.",
+        help="Stdout format: table (default), rich, json, markdown, html, junit, pr-comment, csv.",
     )
     run_parser.add_argument(
         "--include-diffs",
@@ -286,6 +286,10 @@ def _handle_run(args: argparse.Namespace) -> int:
             cand_by_id = {s.prompt_id: s.output for s in candidate_samples}
             diffs_map = {pid: (base_by_id[pid], cand_by_id[pid]) for pid in base_by_id}
         print(export_html_report(report, tool_checks=tool_checks, diffs=diffs_map), end="")
+    elif args.format == "csv":
+        from llm_drift_bench.csv_export import export_csv_report
+
+        print(export_csv_report(report), end="")
     elif args.format == "rich":
         from llm_drift_bench.reporter import render_console_report
 
@@ -325,9 +329,9 @@ def _add_report_subparser(
     rep_parser.add_argument(
         "-f",
         "--format",
-        choices=("markdown", "console", "table", "json", "html", "junit", "pr-comment"),
+        choices=("markdown", "console", "table", "json", "html", "junit", "pr-comment", "csv"),
         default="markdown",
-        help="Output format: markdown (default), console/table, json, html, junit, or pr-comment.",
+        help="Format: markdown (default), console/table, json, html, junit, pr-comment, or csv.",
     )
     rep_parser.add_argument(
         "--previous",
@@ -389,6 +393,15 @@ def _handle_report(args: argparse.Namespace) -> int:
         if args.output:
             _atomic_write_text(Path(args.output), payload)
         print(payload)
+    elif args.format == "csv":
+        if not isinstance(result, DriftBenchmarkReport):
+            raise ValueError("CSV export requires a canonical engine report.")
+        from llm_drift_bench.csv_export import export_csv_report
+
+        csv_text = export_csv_report(result)
+        if args.output:
+            _atomic_write_text(Path(args.output), csv_text)
+        print(csv_text, end="")
     elif args.format == "html":
         from llm_drift_bench.reporter import export_html_report
 
