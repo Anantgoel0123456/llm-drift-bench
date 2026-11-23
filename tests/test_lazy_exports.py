@@ -24,6 +24,9 @@ def test_all_exports_resolve_cleanly() -> None:
     assert "export_csv_report" in exported
     assert "markdown_structure_similarity" in exported
     assert "detect_history_regression" in exported
+    assert "export_sarif_report" in exported
+    assert "run_doctor" in exported
+    assert "json_key_jaccard_similarity" in exported
 
     for name in llm_drift_bench.__all__:
         value = getattr(llm_drift_bench, name)

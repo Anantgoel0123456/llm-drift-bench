@@ -12,8 +12,9 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from llm_drift_bench._matching import require_same_ids
-from llm_drift_bench.metrics import tokenize_text
+from llm_drift_bench.metrics import flatten_json_paths, tokenize_text
 from llm_drift_bench.models import ModelSample, PromptCase
+from llm_drift_bench.validator import extract_json_payload
 
 _CODE_BLOCK_RE = re.compile(r"```(?:python|py)?\s*\n?(.*?)\n?\s*```", re.DOTALL)
 _MD_HEADING_RE = re.compile(r"^(#{1,6})\s+\S")
@@ -219,6 +220,20 @@ def markdown_structure_similarity(text_a: str, text_b: str) -> float:
     return (2.0 * overlap) / total
 
 
+def json_key_jaccard_similarity(text_a: str, text_b: str) -> float | None:
+    """Compute Jaccard similarity of flattened JSONPath key sets, or None if either isn't JSON."""
+    ok_a, payload_a, _ = extract_json_payload(text_a)
+    ok_b, payload_b, _ = extract_json_payload(text_b)
+    if not (ok_a and ok_b):
+        return None
+    keys_a = set(flatten_json_paths(payload_a))
+    keys_b = set(flatten_json_paths(payload_b))
+    union = keys_a | keys_b
+    if not union:
+        return 1.0
+    return len(keys_a & keys_b) / len(union)
+
+
 class _CharNgramScorer:
     name = "char_ngram_cosine"
 
@@ -262,8 +277,22 @@ class _MarkdownStructureScorer:
         return ScorerResult(self.name, round(markdown_structure_similarity(baseline, candidate), 4))
 
 
+class _JsonKeyJaccardScorer:
+    name = "json_key_jaccard"
+
+    def score(
+        self, baseline: str, candidate: str, *, prompt: PromptCase | None = None
+    ) -> ScorerResult:
+        del prompt
+        sim = json_key_jaccard_similarity(baseline, candidate)
+        if sim is None:
+            return ScorerResult(self.name, None, available=False)
+        return ScorerResult(self.name, round(sim, 4), available=True)
+
+
 _SCORER_REGISTRY: dict[str, Scorer] = {
     "char_ngram_cosine": _CharNgramScorer(),
+    "json_key_jaccard": _JsonKeyJaccardScorer(),
     "markdown_structure": _MarkdownStructureScorer(),
     "python_ast": _PythonAstScorer(),
     "tfidf_cosine": _TfidfScorer(),

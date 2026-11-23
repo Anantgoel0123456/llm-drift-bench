@@ -121,6 +121,20 @@ def test_markdown_structure_similarity() -> None:
     assert get_scorer("markdown_structure").score(md_a, md_b).similarity == 1.0
 
 
+def test_json_key_jaccard_scorer() -> None:
+    from llm_drift_bench.scorers import json_key_jaccard_similarity
+
+    assert json_key_jaccard_similarity('{"a": 1, "b": "x"}', '{"a": 99, "b": "y"}') == 1.0
+    assert json_key_jaccard_similarity('{"a": 1, "b": 2}', '{"a": 1, "c": 3}') == pytest.approx(
+        1 / 3
+    )
+    assert json_key_jaccard_similarity("plain text", '{"a": 1}') is None
+    res_ok = get_scorer("json_key_jaccard").score('{"a": 1}', '{"a": 2}')
+    assert res_ok.available is True and res_ok.similarity == 1.0
+    res_na = get_scorer("json_key_jaccard").score("plain", "text")
+    assert res_na.available is False and res_na.similarity is None
+
+
 def test_score_captures_and_cli_score(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
