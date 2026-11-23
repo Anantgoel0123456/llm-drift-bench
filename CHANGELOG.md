@@ -4,6 +4,13 @@
 
 ### Added
 
+- `[*]` array wildcard JSONPath matching in `drift.toml` field rules (exact-path precedence over wildcards for `ignore`, `unordered_array`, `tolerance_abs`, and `tolerance_rel`), plus automatic collapsing of repeated volatile array indices in `calibrate`.
+- Semantic JSON field-level and unified text diff engine (`diffing.py` and `llm-drift-bench diff`) respecting `drift.toml` policies (`--only-changed`, `--prompt-id`, `--limit`, `--format text|json`).
+- RFC-4180 CSV exporter (`csv_export.py` and `--format csv` on `run` and `report`).
+- Pluggable scorer CLI (`llm-drift-bench score` with `--list-scorers` and repeatable `--scorer`) and built-in `markdown_structure` scorer (`markdown_structure_similarity`).
+- Crash-resilient incremental `--resume` checkpointing and custom `--header` support (`parse_header_spec`) on `capture`.
+- Moving-window drift trend regression gate (`detect_history_regression`, `HistoryTrendCheck`, and `llm-drift-bench history check`), plus Y-axis gridlines and accessible `<title>` tooltips in history SVG trend charts.
+- `init-sample --with-policy` option to scaffold a starter `drift.toml` policy file.
 - Automatic JSON Schema inference (`schema_infer.py` and `llm-drift-bench infer-schema`) generating supported-subset `prompts.json` suites directly from captured baseline JSON outputs (`--strict-additional`, `--shared-schema`, multi-run merging, and nullable object/array constraint preservation).
 - Automatic threshold calibration & volatile field detection (`calibrate.py` and `llm-drift-bench calibrate`) generating ready-to-use `drift.toml` policies with configurable safety headroom from repeated baseline runs or saved reports.
 - Pluggable scorer registry (`scorers.py`: `Scorer`, `ScorerResult`, `register_scorer`, `get_scorer`, `list_scorers` with `llm_drift_bench.scorers` entry-point discovery) plus pure-stdlib `char_ngram_cosine_similarity`, `tfidf_cosine_similarity`, and `python_ast_similarity` scorers.

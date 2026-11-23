@@ -56,15 +56,16 @@ flowchart LR
 | Capability | Status (`0.3.0.dev0`) | Highlights |
 | :--- | :---: | :--- |
 | **JSON & Schema Conformity** | Available | Strict extraction (direct, fenced, prose), duplicate-key & `NaN`/`Inf` rejection, safe bounded regex subset |
-| **Composite Drift & Policies** | Available | Token Jaccard, n-gram Dice, exact Levenshtein, JSON structure/field/numeric drift, `drift.toml` weights & per-field rules (`ignore`, `unordered_array`, `tolerance_abs`/`tolerance_rel`) |
-| **Zero-Setup Onboarding** | Available | `infer-schema` generates strict JSON Schemas from captures; `calibrate` auto-tunes `drift.toml` & detects volatile fields |
-| **Endpoint Capture Collector** | Available | Zero-dependency OpenAI-compatible collector (Ollama, vLLM, llama.cpp, OpenAI) with `--concurrency`, `--runs`, `--json-mode`, bounded retries |
+| **Composite Drift & Policies** | Available | Token Jaccard, n-gram Dice, exact Levenshtein, JSON structure/field/numeric drift, `drift.toml` weights & per-field/wildcard `[*]` rules (`ignore`, `unordered_array`, `tolerance_abs`/`tolerance_rel`) |
+| **Semantic Field Diffs** | Available | `diff` CLI inspects exact JSON field additions/removals/type shifts/numeric deltas or unified text diffs while respecting `drift.toml` rules |
+| **Zero-Setup Onboarding** | Available | `infer-schema` generates strict JSON Schemas from captures; `calibrate` auto-tunes `drift.toml` & collapses volatile array fields into `[*]` |
+| **Endpoint Capture Collector** | Available | Zero-dependency OpenAI-compatible collector (Ollama, vLLM, llama.cpp, OpenAI) with `--concurrency`, `--runs`, `--json-mode`, `--resume`, `--header`, bounded retries |
 | **Multi-Candidate Ranking** | Available | `compare-many` & `compare-reports` with `--sort-by`, `--against`, `--hotspots`, `--inspect-prompt`, Rich tables & SVG Pareto frontier HTML |
 | **Statistical Rigor** | Available | `stats` with deterministic bootstrap CIs, flaky-prompt detection, paired permutation tests, and exact two-sided McNemar conformity tests |
-| **Drift History & Trends** | Available | Append-only JSONL ledger (`history record\|show`) with `--candidate`/`--tag` filters, terminal Unicode sparklines, and offline SVG trend HTML |
+| **Drift History & Trends** | Available | Append-only JSONL ledger (`history record\|show\|check`) with moving-window regression alerts, `--candidate`/`--tag` filters, sparklines & SVG trend HTML |
 | **Agent Tool-Trace Audits** | Available | `check-tools --adapter normalized\|openai\|anthropic\|otel` (including OpenAI Responses API), plus retry & secret-leak workflow checks |
-| **Pluggable Scorers** | Available | Pure-stdlib `char_ngram_cosine`, `tfidf_cosine`, and `python_ast` scorers + `register_scorer` & `llm_drift_bench.scorers` entry points |
-| **CI-Native Exports** | Available | Table, Rich, JSON, Markdown, GitHub PR comments (`--previous` deltas), offline HTML (`--include-diffs`), JUnit XML, `--github-summary` |
+| **Pluggable Scorers** | Available | `score` CLI + pure-stdlib `char_ngram_cosine`, `tfidf_cosine`, `python_ast`, and `markdown_structure` scorers + `llm_drift_bench.scorers` entry points |
+| **CI-Native Exports** | Available | Table, Rich, JSON, CSV, Markdown, GitHub PR comments (`--previous` deltas), offline HTML (`--include-diffs`), JUnit XML, `--github-summary` |
 
 ---
 
@@ -99,8 +100,9 @@ python -m llm_drift_bench run \
   -s examples/extraction-suite.json \
   -o drift-report.json
 
-# 3. Explain exactly why it failed (exit 0)
+# 3. Explain exactly why it failed & inspect exact field-level diffs (exit 0)
 python -m llm_drift_bench diagnose -i drift-report.json
+python -m llm_drift_bench diff -b examples/baseline.jsonl -c examples/candidate-drift.jsonl --only-changed
 ```
 
 <details>
@@ -182,7 +184,7 @@ min_json_conformity_rate = 0.98
 max_numeric_relative_drift = 0.05
 max_latency_regression_pct = 35.0
 
-[fields."$.timestamp"]
+[fields."$.items[*].timestamp"]
 ignore = true
 
 [fields."$.tags"]
@@ -196,18 +198,24 @@ tolerance_abs = 0.03
 python -m llm_drift_bench run \
   -b examples/baseline.jsonl -c examples/candidate-pass.jsonl \
   -s examples/extraction-suite.json --config examples/drift.toml
+
+# Inspect only semantic changes not suppressed by drift.toml
+python -m llm_drift_bench diff \
+  -b examples/baseline.jsonl -c examples/candidate-drift.jsonl \
+  --config examples/drift.toml --only-changed
 ```
 
 ### 3. Capture Reproducible Outputs (`capture`)
 
-Collect deterministic JSONL captures directly from any OpenAI-compatible endpoint (**Ollama**, **vLLM**, **llama.cpp server**, **OpenAI**) with bounded concurrency, multi-run repeats, JSON mode, explicit timeouts, bounded retries, and env-var secret handling:
+Collect deterministic JSONL captures directly from any OpenAI-compatible endpoint (**Ollama**, **vLLM**, **llama.cpp server**, **OpenAI**) with bounded concurrency, multi-run repeats, JSON mode, crash-resilient `--resume` checkpointing, custom gateway `--header` flags, explicit timeouts, bounded retries, and env-var secret handling:
 
 ```bash
 python -m llm_drift_bench capture \
   -s examples/extraction-suite.json \
   --endpoint http://localhost:11434/v1 \
   --model llama3:8b-q4_K_M \
-  --seed 42 --concurrency 4 --runs 3 --json-mode \
+  --seed 42 --concurrency 4 --runs 3 --json-mode --resume \
+  --header "X-Title: DriftBench" \
   -o candidate.jsonl
 ```
 
@@ -246,10 +254,11 @@ Distinguish real regressions from sampling variance and track model quality acro
 python -m llm_drift_bench stats run1.json run2.json run3.json \
   --compare-against baseline-ref.json --confidence 0.95
 
-# Append runs to an audit ledger and render terminal sparklines or offline SVG trend charts
+# Append runs to an audit ledger, render trends, and gate on gradual degradation
 python -m llm_drift_bench history record --ledger drift-history.jsonl -i examples/expected-pass.json --tag q8 --git-sha abc1234
 python -m llm_drift_bench history show --ledger drift-history.jsonl --candidate demo-candidate-pass --format text
 python -m llm_drift_bench history show --ledger drift-history.jsonl --format html -o trends.html
+python -m llm_drift_bench history check --ledger drift-history.jsonl --window 3 --max-drift-increase 0.05
 ```
 
 ### 6. Offline Agent Tool-Trace Audits (`check-tools`)
@@ -274,18 +283,20 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | Command | Purpose |
 | :--- | :--- |
 | `run` | Compare baseline and candidate captures (`--config`, `--long-text-mode`, `--include-diffs`, `--format`, `--junit-output`, `--github-summary`) |
+| `diff` | Show policy-aware JSON field-level or unified text diffs between two captures (`--only-changed`, `--prompt-id`, `--format json`) |
+| `score` | Run pluggable scorers (`char_ngram_cosine`, `tfidf_cosine`, `python_ast`, `markdown_structure`, or entry-point plugins; `--list-scorers`) |
 | `validate` | Validate captures for JSON syntax and JSON Schema conformity (`--strict`) |
-| `report` | Render a saved report as `markdown`, `console`/`table`, `json`, `html`, `junit`, or `pr-comment` (`--previous`, `--tool-check`) |
+| `report` | Render a saved report as `markdown`, `console`/`table`, `json`, `csv`, `html`, `junit`, or `pr-comment` (`--previous`, `--tool-check`) |
 | `diagnose` | Explain why a saved comparison failed (`--scope`, `--kind`, `--prompt-id`, optional local OpenVINO `--ai-model`) |
 | `compare-many` | Evaluate 2+ labeled candidate captures against one baseline (`--sort-by`, `--against`, `--hotspots`, `--format rich`, `--html-output`) |
 | `compare-reports` | Rank saved candidate reports and export SVG Pareto frontier dashboards |
 | `check-tools` | Offline read-before-edit checks on normalized, OpenAI, Anthropic, or OTel traces (`--adapter`) |
 | `stats` | Multi-run bootstrap CIs, flaky-prompt detection, paired permutation, and exact two-sided McNemar tests |
-| `history` | Record reports to a JSONL drift ledger (`record`) and render filtered sparklines or SVG trend HTML (`show`) |
-| `capture` | Capture reproducible JSONL outputs from OpenAI-compatible endpoints (`--concurrency`, `--runs`, `--json-mode`) |
+| `history` | Record reports (`record`), inspect sparklines/SVG trends (`show`), and gate on moving-window regressions (`check`) |
+| `capture` | Capture reproducible JSONL outputs from OpenAI-compatible endpoints (`--concurrency`, `--runs`, `--json-mode`, `--resume`, `--header`) |
 | `infer-schema` | Auto-infer a supported-subset JSON Schema prompt suite from baseline captures |
-| `calibrate` | Auto-calibrate `drift.toml` thresholds and detect volatile JSON fields from baseline noise runs |
-| `init-sample` | Scaffold starter prompt, baseline, and candidate datasets in a target directory |
+| `calibrate` | Auto-calibrate `drift.toml` thresholds and detect/collapse volatile JSON fields from baseline noise runs |
+| `init-sample` | Scaffold starter prompt, baseline, and candidate datasets (`--with-policy` adds `drift.toml`) |
 | `ai-devices` | List devices visible to the optional local OpenVINO runtime |
 
 **Standard exit codes:** `0` passed / succeeded · `1` drift or threshold failure (suppressible via `--no-fail-on-drift`, report still records failure) · `2` usage or input error · `3` (`check-tools` only) `UNKNOWN`.
@@ -334,14 +345,14 @@ from llm_drift_bench import (
     tfidf_cosine_similarity,
 )
 
-print(list_scorers())  # ('char_ngram_cosine', 'python_ast', 'tfidf_cosine')
+print(list_scorers())  # ['char_ngram_cosine', 'markdown_structure', 'python_ast', 'tfidf_cosine']
 
 # Identifier-invariant structural similarity for generated Python code
 assert python_ast_similarity("def add(x, y): return x + y", "def sum2(a, b): return a + b") == 1.0
 
 # Pure-stdlib character n-gram & TF-IDF cosine scorers
 res = get_scorer("tfidf_cosine").score("invoice total 100 usd", "invoice total 100 dollars")
-print(res.score, res.details)
+print(res.similarity, res.available)
 ```
 
 ---

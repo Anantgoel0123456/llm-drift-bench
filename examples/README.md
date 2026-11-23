@@ -29,8 +29,13 @@ python -m llm_drift_bench run -b examples/baseline.jsonl -c examples/candidate-p
 # Regressed comparison -> exit 1
 python -m llm_drift_bench run -b examples/baseline.jsonl -c examples/candidate-drift.jsonl -s examples/extraction-suite.json
 
-# Explain why the failing report failed -> exit 0
+# Explain why the failing report failed & inspect exact field-level diffs -> exit 0
 python -m llm_drift_bench diagnose -i examples/expected-drift.json
+python -m llm_drift_bench diff -b examples/baseline.jsonl -c examples/candidate-drift.jsonl --only-changed
+
+# Run pluggable scorers or export metrics to CSV
+python -m llm_drift_bench score -b examples/baseline.jsonl -c examples/candidate-drift.jsonl
+python -m llm_drift_bench report -i examples/expected-drift.json --format csv -o drift-metrics.csv
 ```
 
 ### 2. Evaluate with `drift.toml` policy
@@ -73,6 +78,7 @@ python -m llm_drift_bench history record --ledger demo-history.jsonl -i examples
 python -m llm_drift_bench history record --ledger demo-history.jsonl -i examples/expected-drift.json --tag q4
 python -m llm_drift_bench history show --ledger demo-history.jsonl --format text
 python -m llm_drift_bench history show --ledger demo-history.jsonl --format html -o trends.html
+python -m llm_drift_bench history check --ledger demo-history.jsonl --window 1 --max-drift-increase 0.05
 ```
 
 ---

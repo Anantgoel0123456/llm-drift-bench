@@ -148,31 +148,35 @@ other thresholds does not certify latency performance.
 
 Commands are:
 
-- `run` (with `--config`, `--long-text-mode`, `--include-diffs`, `--format pr-comment`, `--junit-output`, `--github-summary`)
+- `run` (with `--config`, `--long-text-mode`, `--include-diffs`, `--format pr-comment|csv`, `--junit-output`, `--github-summary`)
+- `diff` (policy-aware JSON field-level and unified text diff inspector)
+- `score` (pluggable scorer CLI supporting `--list-scorers` and repeatable `--scorer`)
 - `validate`
-- `report` (supports `markdown`, `console`/`table`, `json`, `html`, `junit`, `pr-comment`)
+- `report` (supports `markdown`, `console`/`table`, `json`, `csv`, `html`, `junit`, `pr-comment`)
 - `diagnose`
 - `compare-many` (supports `--sort-by`, `--format rich`, `--html-output`, `--json-output`, `--config`)
 - `compare-reports` (supports `--sort-by`, `--format rich`, `--html-output`, `--json-output`)
 - `check-tools` (supports `--adapter normalized|openai|anthropic|otel`)
 - `stats` (bootstrap confidence intervals, multi-run flakiness, paired permutation, and exact two-sided McNemar tests)
-- `history` (`record` and `show` with `--candidate`/`--tag` filters, terminal sparklines, and offline SVG trend HTML)
-- `capture` (zero-dependency OpenAI-compatible endpoint collector with `--concurrency`, `--runs`, and `--json-mode`)
+- `history` (`record`, `show` with `--candidate`/`--tag` filters, sparklines & SVG tooltips, and `check` moving-window regression gate)
+- `capture` (zero-dependency OpenAI-compatible endpoint collector with `--concurrency`, `--runs`, `--json-mode`, `--resume`, and `--header`)
 - `infer-schema` (automatic supported-subset JSON Schema suite inference from captured baseline JSON outputs)
-- `calibrate` (automatic `drift.toml` threshold calibration and volatile JSON field detection)
-- `init-sample`
+- `calibrate` (automatic `drift.toml` threshold calibration and volatile JSON field detection with `[*]` array wildcard collapsing)
+- `init-sample` (optional `--with-policy` to scaffold `drift.toml`)
 - `ai-devices`
 
 Additional library modules:
 
-- `policy.py`: `drift.toml` / `drift.json` evaluation policies with custom metric weights and per-JSONPath `ignore` / `unordered_array` / `tolerance_abs` / `tolerance_rel` rules.
+- `policy.py`: `drift.toml` / `drift.json` evaluation policies with custom metric weights and exact or `[*]` wildcard JSONPath `ignore` / `unordered_array` / `tolerance_abs` / `tolerance_rel` rules.
+- `diffing.py`: policy-aware semantic JSON field diffing and unified text diff formatting.
+- `csv_export.py`: RFC-4180 per-prompt CSV exporter for canonical engine reports.
 - `stats.py`: deterministic bootstrap CIs, multi-run stability, paired permutation significance tests, and exact two-sided McNemar conformity tests.
-- `history.py`: append-only JSONL drift ledger with strict validation, sparklines, and SVG HTML trend charts.
-- `capture.py`: OpenAI-compatible HTTP capture collector with bounded reads, sanitized errors, `--concurrency`, `--runs`, `--json-mode`, timeouts, and retries.
+- `history.py`: append-only JSONL drift ledger with strict validation, moving-window regression detection, sparklines, and SVG HTML trend charts with tooltips.
+- `capture.py`: OpenAI-compatible HTTP capture collector with bounded reads, sanitized errors, `--concurrency`, `--runs`, `--json-mode`, `--resume` checkpointing, custom `--header` support, timeouts, and retries.
 - `adapters.py`: offline transcript adapters for OpenAI Chat & Responses APIs, Anthropic/Claude `tool_use`/`tool_result` logs, and OpenTelemetry GenAI spans.
-- `scorers.py`: pluggable scorer protocol & registry (`char_ngram_cosine`, `tfidf_cosine`, `python_ast`, plus `llm_drift_bench.scorers` entry-point discovery).
+- `scorers.py`: pluggable scorer protocol & registry (`char_ngram_cosine`, `markdown_structure`, `python_ast`, `tfidf_cosine`, plus `llm_drift_bench.scorers` entry-point discovery).
 - `schema_infer.py`: automatic JSON Schema inference & merging (including nullable object/array constraint preservation).
-- `calibrate.py`: baseline noise threshold calibration, volatile field detection, and `drift.toml` synthesis.
+- `calibrate.py`: baseline noise threshold calibration, volatile field detection with `[*]` wildcard collapse, and `drift.toml` synthesis.
 
 All CLI run formats render one DriftBenchmarkReport. Rich, Markdown, and HTML
 use the canonical summary/detail values without calling evaluate_suite. The

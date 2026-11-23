@@ -24,3 +24,7 @@ ignore = true
 # Allow minor numeric jitter on confidence scores without tripping drift gates
 [fields."$.confidence"]
 tolerance_abs = 0.03
+
+# Wildcard rules apply across every element of an array (exact indices still take precedence)
+[fields."$.items[*].trace_id"]
+ignore = true
