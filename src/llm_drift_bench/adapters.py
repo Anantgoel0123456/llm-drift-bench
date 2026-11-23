@@ -110,11 +110,14 @@ def from_openai_tool_calls(
             if resource is None:
                 continue
             result_msg = tool_results.get(call_id) if call_id is not None else None
-            success = True
+            success = msg.get("status") not in ("error", "failed", "incomplete")
             start: int | None = None
             end: int | None = None
             if result_msg is not None:
-                if result_msg.get("is_error") is True or result_msg.get("status") == "error":
+                if (
+                    result_msg.get("is_error") is True
+                    or result_msg.get("status") in ("error", "failed", "incomplete")
+                ):
                     success = False
                 if kind == "read":
                     start, end = _extract_range(result_msg.get("range"))
@@ -196,6 +199,55 @@ def from_anthropic_transcript(
     return events
 
 
+def _normalize_otel_attributes(raw_attrs: Any) -> dict[str, Any]:
+    """Normalize flat span attribute maps or OTLP [{key, value: {...}}] arrays."""
+    if isinstance(raw_attrs, Mapping):
+        return dict(raw_attrs)
+    if not isinstance(raw_attrs, list):
+        return {}
+    normalized: dict[str, Any] = {}
+    for entry in raw_attrs:
+        if not isinstance(entry, Mapping):
+            continue
+        key = entry.get("key")
+        val = entry.get("value")
+        if not isinstance(key, str) or not isinstance(val, Mapping):
+            continue
+        if "stringValue" in val:
+            normalized[key] = val["stringValue"]
+        elif "intValue" in val:
+            try:
+                normalized[key] = int(val["intValue"])
+            except (TypeError, ValueError):
+                normalized[key] = val["intValue"]
+        elif "boolValue" in val:
+            normalized[key] = val["boolValue"]
+        elif "doubleValue" in val:
+            normalized[key] = val["doubleValue"]
+    return normalized
+
+
+def _extract_otlp_resource_spans(parsed: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """Flatten standard OTLP JSON resourceSpans -> scopeSpans -> spans."""
+    spans: list[Mapping[str, Any]] = []
+    resource_spans = parsed.get("resourceSpans")
+    if not isinstance(resource_spans, list):
+        return spans
+    for res_span in resource_spans:
+        if not isinstance(res_span, Mapping):
+            continue
+        scope_spans = res_span.get("scopeSpans") or res_span.get("instrumentationLibrarySpans")
+        if not isinstance(scope_spans, list):
+            continue
+        for scope in scope_spans:
+            if not isinstance(scope, Mapping):
+                continue
+            nested = scope.get("spans")
+            if isinstance(nested, list):
+                spans.extend(item for item in nested if isinstance(item, Mapping))
+    return spans
+
+
 def from_otel_genai_spans(
     spans: Sequence[Mapping[str, Any]],
     *,
@@ -207,8 +259,8 @@ def from_otel_genai_spans(
     events: list[ToolEvent] = []
     seq = 0
     for span in spans:
-        attrs = span.get("attributes")
-        if not isinstance(attrs, Mapping):
+        attrs = _normalize_otel_attributes(span.get("attributes"))
+        if not attrs:
             continue
         name = attrs.get("gen_ai.tool.name")
         if not isinstance(name, str):
@@ -225,8 +277,10 @@ def from_otel_genai_spans(
             continue
         status = span.get("status")
         success = True
-        if isinstance(status, Mapping) and str(status.get("code", "")).upper() == "ERROR":
-            success = False
+        if isinstance(status, Mapping):
+            raw_code = status.get("code", "")
+            if raw_code == 2 or str(raw_code).upper() in ("ERROR", "STATUS_CODE_ERROR"):
+                success = False
         start, end = (
             _extract_range(
                 {
@@ -272,12 +326,25 @@ def load_adapted_tool_events(
     else:
         parsed = parse_source_json(raw, source)
         if isinstance(parsed, dict):
-            items = parsed.get("messages") or parsed.get("spans") or parsed.get("events") or []
+            if "resourceSpans" in parsed:
+                items = _extract_otlp_resource_spans(parsed)
+            else:
+                for key in ("messages", "output", "spans", "events"):
+                    if key in parsed:
+                        items = parsed[key]
+                        break
+                else:
+                    raise ValueError(
+                        f"{source}: unrecognized transcript wrapper object; expected "
+                        "'messages', 'output', 'spans', 'events', or 'resourceSpans'."
+                    )
         else:
             items = parsed
     if not isinstance(items, list):
         raise ValueError(f"{source}: transcript must contain a JSON array or JSONL records.")
-    records = [item for item in items if isinstance(item, Mapping)]
+    if any(not isinstance(item, Mapping) for item in items):
+        raise ValueError(f"{source}: every transcript record must be a JSON object.")
+    records: list[Mapping[str, Any]] = list(items)
     if adapter == "openai":
         return from_openai_tool_calls(records)
     if adapter == "anthropic":

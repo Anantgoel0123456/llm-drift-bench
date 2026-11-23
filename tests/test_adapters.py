@@ -175,3 +175,91 @@ def test_openai_responses_api_and_cli_check_tools_adapter(tmp_path) -> None:
         ]
     )
     assert rc == 0
+
+
+def test_openai_responses_output_wrapper_and_otlp_resource_spans(tmp_path) -> None:
+    import json
+
+    import pytest
+
+    from llm_drift_bench.adapters import load_adapted_tool_events
+
+    resp_obj = tmp_path / "resp.json"
+    resp_obj.write_text(
+        json.dumps({
+            "id": "resp_123",
+            "output": [
+                {
+                    "type": "function_call",
+                    "call_id": "c1",
+                    "name": "read_file",
+                    "arguments": '{"path": "spec@1"}',
+                },
+                {"type": "function_call_output", "call_id": "c1", "status": "failed"},
+            ],
+        }),
+        encoding="utf-8",
+    )
+    events = load_adapted_tool_events(resp_obj, adapter="openai")
+    assert len(events) == 1 and events[0].success is False
+
+    otlp_file = tmp_path / "otlp.json"
+    otlp_file.write_text(
+        json.dumps({
+            "resourceSpans": [
+                {
+                    "scopeSpans": [
+                        {
+                            "spans": [
+                                {
+                                    "attributes": [
+                                        {
+                                            "key": "gen_ai.tool.name",
+                                            "value": {"stringValue": "Read"},
+                                        },
+                                        {
+                                            "key": "gen_ai.tool.call.arguments",
+                                            "value": {"stringValue": '{"file_path": "doc@2"}'},
+                                        },
+                                        {
+                                            "key": "llm_drift_bench.read.start",
+                                            "value": {"intValue": "0"},
+                                        },
+                                        {
+                                            "key": "llm_drift_bench.read.end",
+                                            "value": {"intValue": "50"},
+                                        },
+                                    ],
+                                    "status": {"code": "STATUS_CODE_OK"},
+                                },
+                                {
+                                    "attributes": [
+                                        {
+                                            "key": "gen_ai.tool.name",
+                                            "value": {"stringValue": "Edit"},
+                                        },
+                                        {
+                                            "key": "gen_ai.tool.call.arguments",
+                                            "value": {"stringValue": '{"file_path": "doc@2"}'},
+                                        },
+                                    ],
+                                    "status": {"code": 2},
+                                },
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }),
+        encoding="utf-8",
+    )
+    otel_events = load_adapted_tool_events(otlp_file, adapter="otel")
+    assert len(otel_events) == 2
+    assert otel_events[0].start == 0 and otel_events[0].end == 50
+    assert otel_events[1].success is False
+
+    bad_wrapper = tmp_path / "bad.json"
+    bad_wrapper.write_text('{"unknown": []}', encoding="utf-8")
+    with pytest.raises(ValueError, match="unrecognized transcript wrapper"):
+        load_adapted_tool_events(bad_wrapper, adapter="openai")
+
