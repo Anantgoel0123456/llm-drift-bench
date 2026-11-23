@@ -1987,6 +1987,44 @@ def _handle_score(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_doctor_subparser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    parser = subparsers.add_parser(
+        "doctor",
+        help="Run pre-flight checks on environment, drift.toml policies, schemas, and captures.",
+    )
+    parser.add_argument("--config", metavar="FILE", default=None, help="Policy file to validate.")
+    parser.add_argument(
+        "-s", "--suite", "-p", "--prompts", dest="suite", default=None,
+        help="Prompt suite to validate (including schema subset and regex safety checks).",
+    )
+    parser.add_argument("-b", "--baseline", default=None, help="Baseline capture to validate.")
+    parser.add_argument("-c", "--candidate", default=None, help="Candidate capture to validate.")
+    parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format: text (default) or json.",
+    )
+
+
+def _handle_doctor(args: argparse.Namespace) -> int:
+    from llm_drift_bench.doctor import format_doctor_text, run_doctor
+
+    report = run_doctor(
+        config_path=args.config,
+        suite_path=args.suite,
+        baseline_path=args.baseline,
+        candidate_path=args.candidate,
+    )
+    if args.format == "json":
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(format_doctor_text(report))
+    return 0 if report.ok else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build and return the top-level CLI ArgumentParser."""
     parser = argparse.ArgumentParser(
@@ -2032,6 +2070,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_infer_schema_subparser(subparsers)
     _add_calibrate_subparser(subparsers)
     _add_init_sample_subparser(subparsers)
+    _add_doctor_subparser(subparsers)
     subparsers.add_parser("ai-devices", help="List devices visible to OpenVINO.")
     return parser
 
@@ -2079,6 +2118,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _handle_calibrate(args)
         if args.command == "init-sample":
             return _handle_init_sample(args)
+        if args.command == "doctor":
+            return _handle_doctor(args)
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
