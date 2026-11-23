@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import math
 import os
@@ -14,12 +15,15 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from llm_drift_bench._file_io import MAX_INPUT_BYTES
 from llm_drift_bench.models import ModelSample, PromptCase
 
 _RETRYABLE_STATUS = frozenset({408, 429, 500, 502, 503, 504})
+_MAX_RETRY_AFTER_SEC = 30.0
+CaptureProvider = Literal["openai", "anthropic"]
+_VALID_PROVIDERS = ("openai", "anthropic")
 Transport = Callable[[str, dict[str, Any], dict[str, str], float], dict[str, Any]]
 
 
@@ -39,6 +43,7 @@ class CaptureConfig:
     json_mode: bool = False
     concurrency: int = 1
     extra_headers: tuple[tuple[str, str], ...] = ()
+    provider: CaptureProvider = "openai"
 
     def __post_init__(self) -> None:
         parsed = urllib.parse.urlparse(self.endpoint)
@@ -70,19 +75,27 @@ class CaptureConfig:
             raise ValueError("json_mode must be a boolean.")
         if isinstance(self.concurrency, bool) or not 1 <= self.concurrency <= 32:
             raise ValueError("concurrency must be an integer between 1 and 32.")
+        if self.provider not in _VALID_PROVIDERS:
+            raise ValueError(f"provider must be one of {_VALID_PROVIDERS}, got {self.provider!r}.")
         for name, val in self.extra_headers:
             if not isinstance(name, str) or not name.strip() or not isinstance(val, str):
                 raise ValueError("extra_headers entries must be (non-empty name, string value).")
             if any(ch in name or ch in val for ch in ("\r", "\n")):
                 raise ValueError(f"Header {name!r} must not contain CR or LF characters.")
-            if self.api_key_env and name.strip().lower() == "authorization":
+            if self.api_key_env and name.strip().lower() in ("authorization", "x-api-key"):
                 raise ValueError(
-                    "Do not pass an Authorization header when --api-key-env is set."
+                    "Do not pass an Authorization/x-api-key header when --api-key-env is set."
                 )
 
     @property
     def chat_completions_url(self) -> str:
         base = self.endpoint.rstrip("/")
+        if self.provider == "anthropic":
+            if base.endswith("/messages"):
+                return base
+            if base.endswith("/v1"):
+                return f"{base}/messages"
+            return f"{base}/v1/messages"
         if base.endswith("/chat/completions"):
             return base
         return f"{base}/chat/completions"
@@ -118,11 +131,23 @@ def _default_transport(
 
 
 def _build_request_body(prompt: PromptCase, config: CaptureConfig) -> dict[str, Any]:
+    if config.provider == "anthropic":
+        body: dict[str, Any] = {
+            "model": config.model,
+            "max_tokens": config.max_tokens if config.max_tokens is not None else 1024,
+            "messages": [{"role": "user", "content": prompt.prompt}],
+        }
+        if config.system_prompt:
+            body["system"] = config.system_prompt
+        if config.temperature is not None:
+            body["temperature"] = config.temperature
+        return body
+
     messages: list[dict[str, str]] = []
     if config.system_prompt:
         messages.append({"role": "system", "content": config.system_prompt})
     messages.append({"role": "user", "content": prompt.prompt})
-    body: dict[str, Any] = {"model": config.model, "messages": messages}
+    body = {"model": config.model, "messages": messages}
     if config.temperature is not None:
         body["temperature"] = config.temperature
     if config.seed is not None:
@@ -136,7 +161,33 @@ def _build_request_body(prompt: PromptCase, config: CaptureConfig) -> dict[str, 
 
 def _extract_completion(
     response: dict[str, Any],
+    *,
+    provider: CaptureProvider = "openai",
 ) -> tuple[str, int | None, str | None, str | None]:
+    if provider == "anthropic":
+        blocks = response.get("content")
+        if not isinstance(blocks, list) or not blocks:
+            raise ValueError("Anthropic response is missing non-empty 'content'.")
+        parts = [
+            block["text"]
+            for block in blocks
+            if isinstance(block, dict)
+            and block.get("type") == "text"
+            and isinstance(block.get("text"), str)
+        ]
+        if not parts:
+            raise ValueError("Anthropic response content contains no text blocks.")
+        finish_reason = (
+            str(response["stop_reason"]) if response.get("stop_reason") is not None else None
+        )
+        usage = response.get("usage")
+        tokens: int | None = None
+        if isinstance(usage, dict):
+            out_toks = usage.get("output_tokens")
+            if isinstance(out_toks, int) and not isinstance(out_toks, bool) and out_toks >= 0:
+                tokens = out_toks
+        return "".join(parts), tokens, finish_reason, None
+
     choices = response.get("choices")
     if not isinstance(choices, list) or not choices:
         raise ValueError("Endpoint response is missing non-empty 'choices'.")
@@ -151,7 +202,7 @@ def _extract_completion(
         str(first["finish_reason"]) if first.get("finish_reason") is not None else None
     )
     usage = response.get("usage")
-    tokens: int | None = None
+    tokens = None
     if isinstance(usage, dict):
         comp_tokens = usage.get("completion_tokens")
         if isinstance(comp_tokens, int) and not isinstance(comp_tokens, bool) and comp_tokens >= 0:
@@ -162,6 +213,19 @@ def _extract_completion(
         else None
     )
     return content, tokens, finish_reason, fingerprint
+
+
+def _retry_after_delay(exc: urllib.error.HTTPError, default_delay: float) -> float:
+    hdrs = getattr(exc, "headers", None)
+    raw = hdrs.get("Retry-After") if hdrs is not None and hasattr(hdrs, "get") else None
+    if isinstance(raw, str):
+        try:
+            parsed = float(raw.strip())
+        except ValueError:
+            return default_delay
+        if math.isfinite(parsed) and parsed >= 0:
+            return min(_MAX_RETRY_AFTER_SEC, parsed)
+    return default_delay
 
 
 def parse_header_spec(raw: str) -> tuple[str, str]:
@@ -197,6 +261,8 @@ def capture_suite(
         raise ValueError("Prompt suite cannot be empty.")
 
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if config.provider == "anthropic":
+        headers["anthropic-version"] = "2023-06-01"
     for h_name, h_val in config.extra_headers:
         headers[h_name.strip()] = h_val
     if config.api_key_env:
@@ -205,7 +271,10 @@ def capture_suite(
             raise ValueError(
                 f"Environment variable {config.api_key_env!r} is not set or empty."
             )
-        headers["Authorization"] = f"Bearer {token}"
+        if config.provider == "anthropic":
+            headers["x-api-key"] = token
+        else:
+            headers["Authorization"] = f"Bearer {token}"
 
     send = transport or _default_transport
     url = config.chat_completions_url
@@ -243,8 +312,14 @@ def capture_suite(
                         f"Capture failed for prompt {prompt.prompt_id!r} "
                         f"on {config.endpoint_host}: HTTP {exc.code}."
                     ) from None
-                sleep_fn(min(8.0, 0.5 * (2**attempt)))
-            except (urllib.error.URLError, TimeoutError) as exc:
+                backoff = min(8.0, 0.5 * (2**attempt))
+                sleep_fn(_retry_after_delay(exc, backoff))
+            except (
+                urllib.error.URLError,
+                TimeoutError,
+                ConnectionError,
+                http.client.HTTPException,
+            ) as exc:
                 last_exc = exc
                 if attempt == config.max_retries:
                     reason = getattr(exc, "reason", type(exc).__name__)
@@ -259,7 +334,9 @@ def capture_suite(
                 f"Capture failed for prompt {prompt.prompt_id!r}: {last_exc}"
             )
 
-        content, comp_tokens, finish_reason, fingerprint = _extract_completion(response)
+        content, comp_tokens, finish_reason, fingerprint = _extract_completion(
+            response, provider=config.provider
+        )
         metadata: dict[str, Any] = {
             "endpoint_host": config.endpoint_host,
             "captured_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

@@ -271,3 +271,61 @@ def test_capture_error_branches_and_validation() -> None:
     with pytest.raises(ValueError, match="empty"):
         capture_suite([], cfg)
 
+
+def test_capture_retry_after_connection_reset_and_anthropic_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_TEST_KEY", "sk-ant-secret-value")
+    sleeps: list[float] = []
+    attempts = {"n": 0}
+    seen: list[tuple[str, dict[str, Any], dict[str, str]]] = []
+
+    def anthropic_transport(
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        timeout: float,
+    ) -> dict[str, Any]:
+        del timeout
+        attempts["n"] += 1
+        seen.append((url, payload, dict(headers)))
+        if attempts["n"] == 1:
+            raise urllib.error.HTTPError(
+                url,
+                429,
+                "Rate limited",
+                hdrs={"Retry-After": "3"},  # type: ignore[arg-type]
+                fp=io.BytesIO(b""),
+            )
+        if attempts["n"] == 2:
+            raise ConnectionResetError("peer reset")
+        return {
+            "content": [{"type": "text", "text": '{"status": "ok"}'}],
+            "stop_reason": "end_turn",
+            "usage": {"output_tokens": 9},
+        }
+
+    cfg = CaptureConfig(
+        endpoint="https://api.anthropic.com/v1",
+        model="claude-3-5-sonnet",
+        api_key_env="ANTHROPIC_TEST_KEY",
+        provider="anthropic",
+        system_prompt="Return JSON.",
+        max_retries=3,
+    )
+    samples = capture_suite(
+        [PromptCase(prompt_id="p1", prompt="Hi")],
+        cfg,
+        transport=anthropic_transport,
+        sleep_fn=sleeps.append,
+    )
+    assert len(samples) == 1
+    assert samples[0].output == '{"status": "ok"}'
+    assert samples[0].tokens_generated == 9
+    assert sleeps[0] == 3.0  # Honored Retry-After header!
+    assert seen[0][0] == "https://api.anthropic.com/v1/messages"
+    assert seen[0][2]["x-api-key"] == "sk-ant-secret-value"
+    assert seen[0][2]["anthropic-version"] == "2023-06-01"
+    assert seen[0][1]["system"] == "Return JSON."
+
+
