@@ -22,8 +22,8 @@ from llm_drift_bench.models import ModelSample, PromptCase
 
 _RETRYABLE_STATUS = frozenset({408, 429, 500, 502, 503, 504})
 _MAX_RETRY_AFTER_SEC = 30.0
-CaptureProvider = Literal["openai", "anthropic"]
-_VALID_PROVIDERS = ("openai", "anthropic")
+CaptureProvider = Literal["openai", "anthropic", "gemini"]
+_VALID_PROVIDERS = ("openai", "anthropic", "gemini")
 Transport = Callable[[str, dict[str, Any], dict[str, str], float], dict[str, Any]]
 
 
@@ -82,9 +82,14 @@ class CaptureConfig:
                 raise ValueError("extra_headers entries must be (non-empty name, string value).")
             if any(ch in name or ch in val for ch in ("\r", "\n")):
                 raise ValueError(f"Header {name!r} must not contain CR or LF characters.")
-            if self.api_key_env and name.strip().lower() in ("authorization", "x-api-key"):
+            if self.api_key_env and name.strip().lower() in (
+                "authorization",
+                "x-api-key",
+                "x-goog-api-key",
+            ):
                 raise ValueError(
-                    "Do not pass an Authorization/x-api-key header when --api-key-env is set."
+                    "Do not pass an Authorization/x-api-key/x-goog-api-key header "
+                    "when --api-key-env is set."
                 )
 
     @property
@@ -96,6 +101,14 @@ class CaptureConfig:
             if base.endswith("/v1"):
                 return f"{base}/messages"
             return f"{base}/v1/messages"
+        if self.provider == "gemini":
+            if base.endswith(":generateContent"):
+                return base
+            model_name = self.model.removeprefix("models/")
+            quoted = urllib.parse.quote(model_name, safe="")
+            if base.endswith(("/v1beta", "/v1")):
+                return f"{base}/models/{quoted}:generateContent"
+            return f"{base}/v1beta/models/{quoted}:generateContent"
         if base.endswith("/chat/completions"):
             return base
         return f"{base}/chat/completions"
@@ -143,6 +156,25 @@ def _build_request_body(prompt: PromptCase, config: CaptureConfig) -> dict[str, 
             body["temperature"] = config.temperature
         return body
 
+    if config.provider == "gemini":
+        body = {
+            "contents": [{"role": "user", "parts": [{"text": prompt.prompt}]}],
+        }
+        if config.system_prompt:
+            body["systemInstruction"] = {"parts": [{"text": config.system_prompt}]}
+        gen_cfg: dict[str, Any] = {}
+        if config.temperature is not None:
+            gen_cfg["temperature"] = config.temperature
+        if config.max_tokens is not None:
+            gen_cfg["maxOutputTokens"] = config.max_tokens
+        if config.seed is not None:
+            gen_cfg["seed"] = config.seed
+        if config.json_mode:
+            gen_cfg["responseMimeType"] = "application/json"
+        if gen_cfg:
+            body["generationConfig"] = gen_cfg
+        return body
+
     messages: list[dict[str, str]] = []
     if config.system_prompt:
         messages.append({"role": "system", "content": config.system_prompt})
@@ -187,6 +219,35 @@ def _extract_completion(
             if isinstance(out_toks, int) and not isinstance(out_toks, bool) and out_toks >= 0:
                 tokens = out_toks
         return "".join(parts), tokens, finish_reason, None
+
+    if provider == "gemini":
+        candidates = response.get("candidates")
+        if not isinstance(candidates, list) or not candidates:
+            raise ValueError("Gemini response is missing non-empty 'candidates'.")
+        first_cand = candidates[0]
+        if not isinstance(first_cand, dict):
+            raise ValueError("Gemini candidate entry must be a JSON object.")
+        content_obj = first_cand.get("content")
+        raw_parts = content_obj.get("parts") if isinstance(content_obj, dict) else None
+        if not isinstance(raw_parts, list) or not raw_parts:
+            raise ValueError("Gemini candidate is missing non-empty 'content.parts'.")
+        text_parts = [
+            part["text"]
+            for part in raw_parts
+            if isinstance(part, dict) and isinstance(part.get("text"), str)
+        ]
+        if not text_parts:
+            raise ValueError("Gemini response parts contain no text blocks.")
+        finish_reason = (
+            str(first_cand["finishReason"]) if first_cand.get("finishReason") is not None else None
+        )
+        usage_meta = response.get("usageMetadata")
+        tokens = None
+        if isinstance(usage_meta, dict):
+            cand_toks = usage_meta.get("candidatesTokenCount")
+            if isinstance(cand_toks, int) and not isinstance(cand_toks, bool) and cand_toks >= 0:
+                tokens = cand_toks
+        return "".join(text_parts), tokens, finish_reason, None
 
     choices = response.get("choices")
     if not isinstance(choices, list) or not choices:
@@ -273,6 +334,8 @@ def capture_suite(
             )
         if config.provider == "anthropic":
             headers["x-api-key"] = token
+        elif config.provider == "gemini":
+            headers["x-goog-api-key"] = token
         else:
             headers["Authorization"] = f"Bearer {token}"
 

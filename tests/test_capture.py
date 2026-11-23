@@ -329,3 +329,68 @@ def test_capture_retry_after_connection_reset_and_anthropic_provider(
     assert seen[0][1]["system"] == "Return JSON."
 
 
+def test_capture_gemini_provider_url_headers_json_mode_and_usage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GEMINI_TEST_KEY", "AIza-test-secret-key")
+    seen: list[tuple[str, dict[str, Any], dict[str, str]]] = []
+
+    def gemini_transport(
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        timeout: float,
+    ) -> dict[str, Any]:
+        del timeout
+        seen.append((url, payload, dict(headers)))
+        return {
+            "candidates": [
+                {
+                    "content": {"parts": [{"text": '{"ok": true}'}]},
+                    "finishReason": "STOP",
+                }
+            ],
+            "usageMetadata": {"candidatesTokenCount": 11},
+        }
+
+    cfg = CaptureConfig(
+        endpoint="https://generativelanguage.googleapis.com",
+        model="gemini-2.5-flash",
+        api_key_env="GEMINI_TEST_KEY",
+        provider="gemini",
+        system_prompt="Return strict JSON.",
+        json_mode=True,
+        temperature=0.0,
+        seed=42,
+        max_tokens=256,
+    )
+    samples = capture_suite(
+        [PromptCase(prompt_id="g1", prompt="Hi")],
+        cfg,
+        transport=gemini_transport,
+    )
+    assert len(samples) == 1
+    assert samples[0].output == '{"ok": true}'
+    assert samples[0].tokens_generated == 11
+    url, body, headers = seen[0]
+    assert url == (
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    )
+    assert headers["x-goog-api-key"] == "AIza-test-secret-key"
+    assert "AIza-test-secret-key" not in url
+    assert body["systemInstruction"] == {"parts": [{"text": "Return strict JSON."}]}
+    assert body["generationConfig"]["responseMimeType"] == "application/json"
+    assert body["generationConfig"]["maxOutputTokens"] == 256
+    assert body["generationConfig"]["seed"] == 42
+
+    with pytest.raises(ValueError, match="x-goog-api-key"):
+        CaptureConfig(
+            endpoint="https://generativelanguage.googleapis.com",
+            model="gemini-2.5-flash",
+            api_key_env="GEMINI_TEST_KEY",
+            provider="gemini",
+            extra_headers=(("x-goog-api-key", "dup"),),
+        )
+
+
+
