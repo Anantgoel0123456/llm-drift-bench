@@ -122,9 +122,11 @@ def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     )
     run_parser.add_argument(
         "--format",
-        choices=("table", "rich", "json", "markdown", "html", "junit", "pr-comment", "csv"),
+        choices=(
+            "table", "rich", "json", "markdown", "html", "junit", "pr-comment", "csv", "sarif",
+        ),
         default="table",
-        help="Stdout format: table (default), rich, json, markdown, html, junit, pr-comment, csv.",
+        help="Stdout format: table, rich, json, markdown, html, junit, pr-comment, csv, sarif.",
     )
     run_parser.add_argument(
         "--include-diffs",
@@ -134,6 +136,10 @@ def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     run_parser.add_argument(
         "--junit-output", metavar="FILE",
         help="Write JUnit XML alongside the console result and optional JSON report.",
+    )
+    run_parser.add_argument(
+        "--sarif-output", metavar="FILE",
+        help="Write SARIF 2.1.0 JSON alongside the console result and optional JSON report.",
     )
     run_parser.add_argument(
         "--github-summary", action="store_true",
@@ -227,13 +233,22 @@ def _handle_run(args: argparse.Namespace) -> int:
                         args.config, args.output, *args.tool_check)
         if args.output and Path(args.output).resolve() == Path(args.junit_output).resolve():
             raise ValueError("--output and --junit-output require different files.")
+    if args.sarif_output:
+        _protect_inputs(args.sarif_output, args.baseline, args.candidate, args.suite,
+                        args.config, args.output, args.junit_output, *args.tool_check)
+        for other_flag, other_val in (
+            ("--output", args.output),
+            ("--junit-output", args.junit_output),
+        ):
+            if other_val and Path(other_val).resolve() == Path(args.sarif_output).resolve():
+                raise ValueError(f"{other_flag} and --sarif-output require different files.")
     summary_path = None
     if args.github_summary:
         destination = os.environ.get("GITHUB_STEP_SUMMARY")
         if not destination or not Path(destination).is_file():
             raise ValueError("--github-summary requires an existing GITHUB_STEP_SUMMARY file.")
         _protect_inputs(destination, args.baseline, args.candidate, args.suite, args.config,
-                        args.output, args.junit_output, *args.tool_check)
+                        args.output, args.junit_output, args.sarif_output, *args.tool_check)
         summary_path = Path(destination)
     thresholds, policy = _resolve_policy_and_thresholds(args)
     from llm_drift_bench.engine import (
@@ -262,6 +277,15 @@ def _handle_run(args: argparse.Namespace) -> int:
         from llm_drift_bench.junit import export_junit_report
 
         _atomic_write_text(Path(args.junit_output), export_junit_report(report))
+
+    if args.sarif_output:
+        from llm_drift_bench.sarif import export_sarif_report
+
+        artifact_uri = Path(args.suite).name if args.suite else Path(args.candidate).name
+        _atomic_write_text(
+            Path(args.sarif_output),
+            export_sarif_report(report, artifact_uri=artifact_uri),
+        )
 
     if args.format == "junit":
         from llm_drift_bench.junit import export_junit_report
@@ -295,6 +319,11 @@ def _handle_run(args: argparse.Namespace) -> int:
         from llm_drift_bench.csv_export import export_csv_report
 
         print(export_csv_report(report), end="")
+    elif args.format == "sarif":
+        from llm_drift_bench.sarif import export_sarif_report
+
+        artifact_uri = Path(args.suite).name if args.suite else Path(args.candidate).name
+        print(export_sarif_report(report, artifact_uri=artifact_uri), end="")
     elif args.format == "rich":
         from llm_drift_bench.reporter import render_console_report
 
@@ -334,9 +363,11 @@ def _add_report_subparser(
     rep_parser.add_argument(
         "-f",
         "--format",
-        choices=("markdown", "console", "table", "json", "html", "junit", "pr-comment", "csv"),
+        choices=(
+            "markdown", "console", "table", "json", "html", "junit", "pr-comment", "csv", "sarif",
+        ),
         default="markdown",
-        help="Format: markdown (default), console/table, json, html, junit, pr-comment, or csv.",
+        help="Format: markdown, console/table, json, html, junit, pr-comment, csv, or sarif.",
     )
     rep_parser.add_argument(
         "--previous",
@@ -407,6 +438,15 @@ def _handle_report(args: argparse.Namespace) -> int:
         if args.output:
             _atomic_write_text(Path(args.output), csv_text)
         print(csv_text, end="")
+    elif args.format == "sarif":
+        if not isinstance(result, DriftBenchmarkReport):
+            raise ValueError("SARIF export requires a canonical engine report.")
+        from llm_drift_bench.sarif import export_sarif_report
+
+        sarif_text = export_sarif_report(result, artifact_uri=Path(args.input).name)
+        if args.output:
+            _atomic_write_text(Path(args.output), sarif_text)
+        print(sarif_text, end="")
     elif args.format == "html":
         from llm_drift_bench.reporter import export_html_report
 
