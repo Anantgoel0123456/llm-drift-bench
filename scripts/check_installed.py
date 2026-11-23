@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -191,6 +192,57 @@ else:
             cwd=root, env=env, check=True, capture_output=True, text=True,
         )
         assert "invoice-01" in csv_out.stdout
+        # Exercise post-0.3.0 commands in the isolated installed environment.
+        assert "numeric_prose" in json.loads(scorers_out.stdout)["scorers"]
+        mat_out = subprocess.run(
+            [str(cli), "matrix", str(examples / "expected-drift.json"),
+             str(examples / "expected-pass.json"), "--format", "json"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert len(json.loads(mat_out.stdout)["rows"]) == 2
+        lint_out = subprocess.run(
+            [str(cli), "lint-suite", "-s", str(examples / "extraction-suite.json"),
+             "--format", "json"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(lint_out.stdout)["errors"] == 0
+        sub_suite = root / "sub.json"
+        subprocess.run(
+            [str(cli), "subsample", "-s", str(examples / "extraction-suite.json"),
+             "--size", "1", "-o", str(sub_suite)],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert len(json.loads(sub_suite.read_text(encoding="utf-8"))) == 1
+        red_out = root / "redacted.jsonl"
+        subprocess.run(
+            [str(cli), "redact", "-i", str(examples / "baseline.jsonl"), "-o", str(red_out)],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        gate_ok = subprocess.run(
+            [str(cli), "gate", "-i", str(examples / "expected-pass.json"), "--format", "json"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(gate_ok.stdout)["approved"] is True
+        cost_out = subprocess.run(
+            [str(cli), "cost", "-b", str(examples / "baseline.jsonl"),
+             "-c", str(examples / "candidate-pass.jsonl"), "--format", "json"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(cost_out.stdout)["complete"] is False
+        snap_dir = root / "snap"
+        snap_dir.mkdir()
+        shutil.copy2(examples / "baseline.jsonl", snap_dir / "baseline.jsonl")
+        manifest_file = snap_dir / "snapshot.manifest.json"
+        subprocess.run(
+            [str(cli), "snapshot", "create", "-b", str(snap_dir / "baseline.jsonl"),
+             "-o", str(manifest_file)],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        ver_out = subprocess.run(
+            [str(cli), "snapshot", "verify", "-i", str(manifest_file), "--format", "json"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(ver_out.stdout)["valid"] is True
     print(f"Installed artifact checks passed: {artifact.name}")
 
 
