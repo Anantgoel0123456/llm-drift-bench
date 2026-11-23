@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from llm_drift_bench._comparison_md import export_comparison_markdown
     from llm_drift_bench.adapters import (
         from_anthropic_transcript,
+        from_gemini_transcript,
         from_openai_tool_calls,
         from_otel_genai_spans,
         load_adapted_tool_events,
@@ -84,8 +85,10 @@ if TYPE_CHECKING:
         export_history_html,
         format_history_text,
         load_history,
+        prune_history,
         record_report,
         sparkline,
+        summarize_history,
     )
     from llm_drift_bench.junit import export_junit_report
     from llm_drift_bench.matrix import (
@@ -144,6 +147,7 @@ if TYPE_CHECKING:
         render_console_report,
     )
     from llm_drift_bench.sampling import (
+        filter_prompt_suite,
         sample_prompt_suite,
         slice_samples_for_suite,
     )
@@ -161,12 +165,21 @@ if TYPE_CHECKING:
         json_key_jaccard_similarity,
         list_scorers,
         markdown_structure_similarity,
+        numeric_prose_similarity,
         python_ast_similarity,
         register_scorer,
         score_captures,
         tfidf_cosine_similarity,
     )
     from llm_drift_bench.scores import EvidenceScore
+    from llm_drift_bench.snapshot import (
+        SnapshotArtifact,
+        SnapshotManifest,
+        SnapshotVerification,
+        create_snapshot_manifest,
+        format_snapshot_verification_text,
+        verify_snapshot_manifest,
+    )
     from llm_drift_bench.stats import (
         BootstrapCI,
         McNemarResult,
@@ -174,9 +187,11 @@ if TYPE_CHECKING:
         PairedSignificance,
         PromptStability,
         bootstrap_mean_ci,
+        holm_bonferroni_adjust,
         mcnemar_exact_test,
         paired_permutation_test,
         summarize_multi_run,
+        wilson_score_interval,
     )
     from llm_drift_bench.testing import assert_no_drift, assert_no_regression
     from llm_drift_bench.tool_events import (
@@ -240,6 +255,9 @@ _EXPORTS: dict[str, str] = {
     "SchemaValidationResult": "models",
     "Scorer": "scorers",
     "ScorerResult": "scorers",
+    "SnapshotArtifact": "snapshot",
+    "SnapshotManifest": "snapshot",
+    "SnapshotVerification": "snapshot",
     "TestPrompt": "models",
     "ToolCheckRecord": "tool_log",
     "ToolCheckResult": "tool_events",
@@ -264,6 +282,7 @@ _EXPORTS: dict[str, str] = {
     "compute_semantic_similarity": "evaluator",
     "compute_token_diff_ratio": "evaluator",
     "compute_tokens_per_sec": "evaluator",
+    "create_snapshot_manifest": "snapshot",
     "detect_history_regression": "history",
     "detect_numeric_tolerances": "calibrate",
     "detect_volatile_fields": "calibrate",
@@ -287,6 +306,7 @@ _EXPORTS: dict[str, str] = {
     "export_pr_comment": "reporter",
     "export_sarif_report": "sarif",
     "extract_json_payload": "validator",
+    "filter_prompt_suite": "sampling",
     "flatten_json_paths": "metrics",
     "format_diffs_text": "diffing",
     "format_doctor_text": "doctor",
@@ -294,10 +314,13 @@ _EXPORTS: dict[str, str] = {
     "format_history_text": "history",
     "format_lint_issues_text": "prompt_lint",
     "format_report_table": "engine",
+    "format_snapshot_verification_text": "snapshot",
     "from_anthropic_transcript": "adapters",
+    "from_gemini_transcript": "adapters",
     "from_openai_tool_calls": "adapters",
     "from_otel_genai_spans": "adapters",
     "get_scorer": "scorers",
+    "holm_bonferroni_adjust": "stats",
     "infer_prompt_suite": "schema_infer",
     "infer_schema_from_value": "schema_infer",
     "jaccard_similarity": "metrics",
@@ -322,10 +345,12 @@ _EXPORTS: dict[str, str] = {
     "merge_schemas": "schema_infer",
     "ngram_overlap_similarity": "metrics",
     "normalized_levenshtein_similarity": "metrics",
+    "numeric_prose_similarity": "scorers",
     "paired_permutation_test": "stats",
     "parse_header_spec": "capture",
     "parse_tool_events": "tool_log",
     "prompt_changes": "comparison",
+    "prune_history": "history",
     "python_ast_similarity": "scorers",
     "record_report": "history",
     "redact_samples": "redaction",
@@ -339,11 +364,14 @@ _EXPORTS: dict[str, str] = {
     "serialize_samples_jsonl": "capture",
     "slice_samples_for_suite": "sampling",
     "sparkline": "history",
+    "summarize_history": "history",
     "summarize_multi_run": "stats",
     "tfidf_cosine_similarity": "scorers",
     "tokenize_text": "metrics",
     "validate_against_schema": "validator",
     "validate_output": "validator",
+    "verify_snapshot_manifest": "snapshot",
+    "wilson_score_interval": "stats",
 }
 
 __all__ = [
@@ -386,6 +414,9 @@ __all__ = [
     "SchemaValidationResult",
     "Scorer",
     "ScorerResult",
+    "SnapshotArtifact",
+    "SnapshotManifest",
+    "SnapshotVerification",
     "TestPrompt",
     "ToolCheckRecord",
     "ToolCheckResult",
@@ -411,6 +442,7 @@ __all__ = [
     "compute_semantic_similarity",
     "compute_token_diff_ratio",
     "compute_tokens_per_sec",
+    "create_snapshot_manifest",
     "detect_history_regression",
     "detect_numeric_tolerances",
     "detect_volatile_fields",
@@ -434,6 +466,7 @@ __all__ = [
     "export_pr_comment",
     "export_sarif_report",
     "extract_json_payload",
+    "filter_prompt_suite",
     "flatten_json_paths",
     "format_diffs_text",
     "format_doctor_text",
@@ -441,10 +474,13 @@ __all__ = [
     "format_history_text",
     "format_lint_issues_text",
     "format_report_table",
+    "format_snapshot_verification_text",
     "from_anthropic_transcript",
+    "from_gemini_transcript",
     "from_openai_tool_calls",
     "from_otel_genai_spans",
     "get_scorer",
+    "holm_bonferroni_adjust",
     "infer_prompt_suite",
     "infer_schema_from_value",
     "jaccard_similarity",
@@ -469,10 +505,12 @@ __all__ = [
     "merge_schemas",
     "ngram_overlap_similarity",
     "normalized_levenshtein_similarity",
+    "numeric_prose_similarity",
     "paired_permutation_test",
     "parse_header_spec",
     "parse_tool_events",
     "prompt_changes",
+    "prune_history",
     "python_ast_similarity",
     "record_report",
     "redact_samples",
@@ -486,11 +524,14 @@ __all__ = [
     "serialize_samples_jsonl",
     "slice_samples_for_suite",
     "sparkline",
+    "summarize_history",
     "summarize_multi_run",
     "tfidf_cosine_similarity",
     "tokenize_text",
     "validate_against_schema",
     "validate_output",
+    "verify_snapshot_manifest",
+    "wilson_score_interval",
 ]
 
 

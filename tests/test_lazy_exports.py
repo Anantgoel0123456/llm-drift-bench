@@ -36,6 +36,15 @@ def test_all_exports_resolve_cleanly() -> None:
     assert "build_drift_matrix" in exported
     assert "lint_prompt_suite" in exported
     assert "evaluate_release_gates" in exported
+    assert "from_gemini_transcript" in exported
+    assert "numeric_prose_similarity" in exported
+    assert "holm_bonferroni_adjust" in exported
+    assert "wilson_score_interval" in exported
+    assert "summarize_history" in exported
+    assert "prune_history" in exported
+    assert "filter_prompt_suite" in exported
+    assert "create_snapshot_manifest" in exported
+    assert "verify_snapshot_manifest" in exported
 
     for name in llm_drift_bench.__all__:
         value = getattr(llm_drift_bench, name)
