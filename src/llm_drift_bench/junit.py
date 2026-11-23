@@ -49,6 +49,14 @@ def export_junit_report(report: DriftBenchmarkReport) -> str:
         ET.SubElement(gate, "failure", {
             "type": "BenchmarkFailed", "message": "Benchmark thresholds failed",
         }).text = _xml_text("\n".join(report.failure_reasons) or "Benchmark failed.")
+    props = ET.SubElement(root, "properties")
+    for prop_name, prop_value in (
+        ("baseline_model", _xml_text(report.baseline_model)),
+        ("candidate_model", _xml_text(report.candidate_model)),
+        ("mean_composite_drift", f"{report.mean_composite_drift:.4f}"),
+        ("candidate_json_conformity_rate", f"{report.candidate_json_conformity_rate:.4f}"),
+    ):
+        ET.SubElement(props, "property", {"name": prop_name, "value": prop_value})
     ET.indent(root, space="  ")
     serialized: bytes = ET.tostring(root, encoding="us-ascii", xml_declaration=True)
     return serialized.decode("ascii") + "\n"

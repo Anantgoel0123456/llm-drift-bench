@@ -73,3 +73,14 @@ def test_unicode_prompt_survives_ascii_console() -> None:
     samples = [ModelSample(prompt_id=prompt_id, output="same")]
     xml = export_junit_report(DriftBenchmarkEngine().evaluate(samples, samples))
     assert ET.fromstring(xml.encode("ascii"))[0].attrib["name"] == prompt_id
+
+
+def test_junit_includes_sanitized_model_properties() -> None:
+    base = [ModelSample(prompt_id="p", model_name="base\x00m", output="ok")]
+    cand = [ModelSample(prompt_id="p", model_name="cand-q4", output="ok")]
+    root = ET.fromstring(export_junit_report(DriftBenchmarkEngine().evaluate(base, cand)))
+    props = {p.attrib["name"]: p.attrib["value"] for p in root.findall("./properties/property")}
+    assert props["baseline_model"] == "base\ufffdm"
+    assert props["candidate_model"] == "cand-q4"
+    assert props["mean_composite_drift"] == "0.0000"
+
