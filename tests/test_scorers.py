@@ -190,3 +190,35 @@ def test_score_captures_and_cli_score(
     with pytest.raises(ValueError, match="non-empty"):
         score_captures([], [ModelSample(prompt_id="p1", output="x")])
 
+
+def test_numeric_prose_nested_fences_null_bytes_and_dup_suite() -> None:
+    from llm_drift_bench.scorers import numeric_prose_similarity
+
+    # Normalizes comma grouping, trailing decimals, currency symbols, and percentages;
+    # ignores alphanumeric IDs like INV-2026 or v2.
+    assert numeric_prose_similarity(
+        "Invoice INV-2026 (v2) grew 14.2% to $1,250.00.",
+        "Total reached 1250 after a 14.20% gain.",
+    ) == 1.0
+    assert numeric_prose_similarity("Revenue was $100.", "Revenue was $200.") == 0.0
+    assert numeric_prose_similarity("No digits here.", "Still no digits.") is None
+
+    sc = get_scorer("numeric_prose")
+    assert sc.score("Price $10", "Price 10.0").similarity == 1.0
+    assert sc.score("alpha", "beta").available is False
+
+    # Nested 4-backtick outer fence containing a 3-backtick inner fence counts as 1 code block.
+    nested_md = "````markdown\n# Not a heading\n```python\nx = 1\n```\n````\n# Real Heading\n"
+    tilde_md = "~~~markdown\n# Also ignored\n~~~\n# Real Heading\n"
+    assert markdown_structure_similarity(nested_md, tilde_md) == 1.0
+
+    # Null bytes in Python source return None cleanly instead of raising ValueError.
+    assert python_ast_similarity("x = 1\x00", "x = 1") is None
+
+    # Duplicate prompt_id in prompt_cases is rejected explicitly.
+    samples = [ModelSample(prompt_id="p1", output="ok")]
+    dups = [PromptCase(prompt_id="p1", prompt="a"), PromptCase(prompt_id="p1", prompt="b")]
+    with pytest.raises(ValueError, match="duplicate prompt_id"):
+        score_captures(samples, samples, prompt_cases=dups)
+
+

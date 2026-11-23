@@ -9,6 +9,7 @@ import re
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol
 
 from llm_drift_bench._matching import require_same_ids
@@ -18,11 +19,14 @@ from llm_drift_bench.validator import extract_json_payload
 
 _CODE_BLOCK_RE = re.compile(r"```(?:python|py)?\s*\n?(.*?)\n?\s*```", re.DOTALL)
 _MD_HEADING_RE = re.compile(r"^(#{1,6})\s+\S")
-_MD_FENCE_RE = re.compile(r"^```([A-Za-z0-9_+-]*)")
+_MD_FENCE_RE = re.compile(r"^(`{3,}|~{3,})([A-Za-z0-9_+-]*)\s*$")
 _MD_BULLET_RE = re.compile(r"^\s*[-*+]\s+\S")
 _MD_ORDERED_RE = re.compile(r"^\s*\d+[.)]\s+\S")
 _MD_TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
 _MD_QUOTE_RE = re.compile(r"^\s*>\s*\S")
+_PROSE_NUM_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])(-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)(?![A-Za-z0-9_])"
+)
 
 
 @dataclass(frozen=True)
@@ -135,10 +139,11 @@ def _extract_python_code(text: str) -> str:
 
 
 def _ast_structural_bag(tree: ast.AST) -> Counter[str]:
-    """Extract normalized parent->child AST edge multiset, ignoring names and formatting."""
+    """Extract normalized parent->child AST edge multiset iteratively."""
     bag: Counter[str] = Counter()
-
-    def visit(node: ast.AST, parent_tag: str) -> None:
+    stack: list[tuple[ast.AST, str]] = [(tree, "ROOT")]
+    while stack:
+        node, parent_tag = stack.pop()
         tag = type(node).__name__
         if isinstance(node, ast.Constant):
             tag = f"Const:{type(node.value).__name__}"
@@ -148,14 +153,12 @@ def _ast_structural_bag(tree: ast.AST) -> Counter[str]:
         for child in ast.iter_child_nodes(node):
             if isinstance(child, (ast.Load, ast.Store, ast.Del)):
                 continue
-            visit(child, tag)
-
-    visit(tree, "ROOT")
+            stack.append((child, tag))
     return bag
 
 
 def python_ast_similarity(code_a: str, code_b: str) -> float | None:
-    """Compute structural Python AST Dice similarity in [0.0, 1.0], or None on SyntaxError.
+    """Compute structural Python AST Dice similarity in [0.0, 1.0], or None if unparseable.
 
     Ignores comments, whitespace, formatting, and variable renames so equivalent
     refactored Python implementations score near 1.0.
@@ -167,7 +170,7 @@ def python_ast_similarity(code_a: str, code_b: str) -> float | None:
     try:
         tree_a = ast.parse(src_a)
         tree_b = ast.parse(src_b)
-    except SyntaxError:
+    except (SyntaxError, ValueError, RecursionError):
         return None
     bag_a = _ast_structural_bag(tree_a)
     bag_b = _ast_structural_bag(tree_b)
@@ -181,19 +184,23 @@ def python_ast_similarity(code_a: str, code_b: str) -> float | None:
 def _markdown_structural_bag(text: str) -> Counter[str]:
     """Extract Markdown layout elements (headings, fences, lists, tables, quotes)."""
     bag: Counter[str] = Counter()
-    in_fence = False
+    fence_char: str | None = None
+    fence_len = 0
     for raw_line in text.splitlines():
         line = raw_line.strip()
         fence = _MD_FENCE_RE.match(line)
         if fence:
-            if not in_fence:
-                lang = (fence.group(1) or "plain").lower()
+            marker, info = fence.group(1), fence.group(2)
+            if fence_char is None:
+                lang = (info or "plain").lower()
                 bag[f"CODE:{lang}"] += 1
-                in_fence = True
-            else:
-                in_fence = False
+                fence_char = marker[0]
+                fence_len = len(marker)
+            elif marker[0] == fence_char and len(marker) >= fence_len and not info:
+                fence_char = None
+                fence_len = 0
             continue
-        if in_fence or not line:
+        if fence_char is not None or not line:
             continue
         heading = _MD_HEADING_RE.match(line)
         if heading:
@@ -290,10 +297,53 @@ class _JsonKeyJaccardScorer:
         return ScorerResult(self.name, round(sim, 4), available=True)
 
 
+def _extract_prose_numbers(text: str) -> Counter[str]:
+    bag: Counter[str] = Counter()
+    for match in _PROSE_NUM_RE.finditer(text):
+        raw = match.group(1).replace(",", "")
+        try:
+            dec = Decimal(raw)
+        except InvalidOperation:
+            continue
+        if dec == 0:
+            norm = "0"
+        else:
+            norm = format(dec.normalize(), "f")
+            if "." in norm:
+                norm = norm.rstrip("0").rstrip(".")
+        bag[norm] += 1
+    return bag
+
+
+def numeric_prose_similarity(text_a: str, text_b: str) -> float | None:
+    """Compute multiset Dice similarity of numbers mentioned in prose, or None if no numbers."""
+    nums_a = _extract_prose_numbers(text_a)
+    nums_b = _extract_prose_numbers(text_b)
+    total = sum(nums_a.values()) + sum(nums_b.values())
+    if total == 0:
+        return None
+    overlap = sum((nums_a & nums_b).values())
+    return (2.0 * overlap) / total
+
+
+class _NumericProseScorer:
+    name = "numeric_prose"
+
+    def score(
+        self, baseline: str, candidate: str, *, prompt: PromptCase | None = None
+    ) -> ScorerResult:
+        del prompt
+        sim = numeric_prose_similarity(baseline, candidate)
+        if sim is None:
+            return ScorerResult(self.name, None, available=False)
+        return ScorerResult(self.name, round(sim, 4), available=True)
+
+
 _SCORER_REGISTRY: dict[str, Scorer] = {
     "char_ngram_cosine": _CharNgramScorer(),
     "json_key_jaccard": _JsonKeyJaccardScorer(),
     "markdown_structure": _MarkdownStructureScorer(),
+    "numeric_prose": _NumericProseScorer(),
     "python_ast": _PythonAstScorer(),
     "tfidf_cosine": _TfidfScorer(),
 }
@@ -318,6 +368,8 @@ def score_captures(
     prompt_map: dict[str, PromptCase] = {}
     if prompt_cases is not None:
         prompt_map = {case.prompt_id: case for case in prompt_cases}
+        if len(prompt_map) != len(prompt_cases):
+            raise ValueError("Prompt suite contains duplicate prompt_id entries.")
         require_same_ids(set(base_map), set(prompt_map), "Prompt suite")
 
     selected_names = list(scorer_names) if scorer_names else list_scorers()
