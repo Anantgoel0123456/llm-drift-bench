@@ -58,14 +58,14 @@ flowchart LR
 | **JSON & Schema Conformity** | Available | Strict extraction (direct, fenced, prose), duplicate-key & `NaN`/`Inf` rejection, safe bounded regex subset |
 | **Composite Drift & Policies** | Available | Token Jaccard, n-gram Dice, exact Levenshtein, JSON structure/field/numeric drift, `drift.toml` weights & per-field/wildcard `[*]` rules (`ignore`, `unordered_array`, `tolerance_abs`/`tolerance_rel`) |
 | **Semantic Field Diffs** | Available | `diff` CLI inspects exact JSON field additions/removals/type shifts/numeric deltas or unified text diffs while respecting `drift.toml` rules |
-| **Zero-Setup Onboarding** | Available | `infer-schema` generates strict JSON Schemas; `calibrate` auto-tunes `drift.toml`, collapses volatile arrays to `[*]`, & suggests `--numeric-tolerances`; `lint-suite` & `doctor` audit suites and workspace setup |
-| **Endpoint Capture Collector** | Available | Zero-dependency OpenAI-compatible & Anthropic (`--provider anthropic`) collector with `--concurrency`, `--runs`, `--json-mode`, `--resume`, `--header`, `Retry-After` backoff, & connection-drop retries |
+| **Zero-Setup Onboarding** | Available | `infer-schema` generates strict JSON Schemas; `calibrate` auto-tunes `drift.toml`, collapses volatile arrays to `[*]`, & suggests `--numeric-tolerances`; `lint-suite` & `doctor` audit suites, hygiene, and leaked credentials |
+| **Endpoint Capture Collector** | Available | Zero-dependency OpenAI-compatible, Anthropic (`--provider anthropic`), & Gemini (`--provider gemini`) collector with `--concurrency`, `--runs`, `--json-mode`, `--resume`, `--header`, `Retry-After` backoff, & connection-drop retries |
 | **Multi-Candidate Ranking** | Available | `compare-many`, `compare-reports` (`--markdown-output`, SVG Pareto HTML, Rich tables), & `matrix` Prompt x Candidate heatmaps (text, JSON, offline HTML) |
-| **Privacy, Sampling & Release Gates** | Available | `redact` (secrets + optional PII), `subsample` (stratified suite & lockstep capture slicing), `estimate_cost_drift` (explicit tokens only), & `evaluate_release_gates` composite GO/NO-GO verdicts |
-| **Statistical Rigor** | Available | `stats` with deterministic bootstrap CIs, flaky-prompt detection, paired permutation tests (with Cohen's `d`), and exact two-sided McNemar conformity tests |
-| **Drift History & Trends** | Available | Append-only JSONL ledger (`history record\|show\|check`) with moving-window regression alerts, `--candidate`/`--tag` filters, sparklines & SVG trend HTML |
-| **Agent Tool-Trace Audits** | Available | `check-tools --adapter normalized\|openai\|anthropic\|otel` (OpenAI Responses + OTLP `resourceSpans`), `--max-failed-calls` retry budgets, & secret-leak checks |
-| **Pluggable Scorers** | Available | `score` CLI + pure-stdlib `char_ngram_cosine`, `json_key_jaccard`, `markdown_structure`, `python_ast`, `tfidf_cosine` + `llm_drift_bench.scorers` entry points |
+| **Privacy, Sampling & Release Gates** | Available | `redact` (secrets + optional PII), `subsample` (stratified suite & lockstep capture slicing), `snapshot` (SHA-256 fixture integrity), `cost` (explicit tokens only), & `gate` composite GO/NO-GO verdicts |
+| **Statistical Rigor** | Available | `stats` with deterministic bootstrap CIs, Wilson score intervals, Holm-Bonferroni correction, flaky-prompt detection, paired permutation tests (Cohen's `d`), and exact McNemar conformity tests |
+| **Drift History & Trends** | Available | Append-only JSONL ledger (`history record\|show\|check\|summary\|prune`) with moving-window alerts, atomic compaction, `--candidate`/`--tag` filters, sparklines & SVG trend HTML |
+| **Agent Tool-Trace Audits** | Available | `check-tools --adapter normalized\|openai\|anthropic\|gemini\|otel` (OpenAI Responses, Gemini `functionCall`, & OTLP `resourceSpans`), `--max-failed-calls` retry budgets, & secret-leak checks |
+| **Pluggable Scorers** | Available | `score` CLI + pure-stdlib `char_ngram_cosine`, `json_key_jaccard`, `markdown_structure`, `numeric_prose`, `python_ast`, `tfidf_cosine` + `llm_drift_bench.scorers` entry points |
 | **CI-Native Exports** | Available | Table, Rich, JSON, CSV, SARIF 2.1.0, Markdown, GitHub PR comments (`--previous` deltas), offline HTML (`--include-diffs`), JUnit XML, `--github-summary` |
 
 ---
@@ -285,17 +285,20 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | :--- | :--- |
 | `run` | Compare baseline and candidate captures (`--config`, `--category`, `--long-text-mode`, `--include-diffs`, `--format`, `--junit-output`, `--sarif-output`, `--github-summary`) |
 | `diff` | Show policy-aware JSON field-level or unified text diffs between two captures (`--only-changed`, `--prompt-id`, `--format json`) |
-| `score` | Run pluggable scorers (`char_ngram_cosine`, `json_key_jaccard`, `markdown_structure`, `python_ast`, `tfidf_cosine`, or entry-point plugins; `--list-scorers`) |
+| `score` | Run pluggable scorers (`char_ngram_cosine`, `json_key_jaccard`, `markdown_structure`, `numeric_prose`, `python_ast`, `tfidf_cosine`, or entry-point plugins; `--list-scorers`) |
 | `validate` | Validate captures for JSON syntax and JSON Schema conformity (`--category`, `--strict`) |
 | `report` | Render a saved report as `markdown`, `console`/`table`, `json`, `csv`, `sarif`, `html`, `junit`, or `pr-comment` (`--previous`, `--tool-check`) |
 | `diagnose` | Explain why a saved comparison failed (`--scope`, `--kind`, `--prompt-id`, optional local OpenVINO `--ai-model`) |
 | `compare-many` | Evaluate 2+ labeled candidate captures against one baseline (`--sort-by`, `--against`, `--hotspots`, `--format rich`, `--html-output`, `--markdown-output`) |
 | `compare-reports` | Rank saved candidate reports and export SVG Pareto HTML or GFM `--markdown-output` leaderboards |
 | `matrix` | Render a Prompt x Candidate drift heatmap matrix across 2+ saved reports (`--sort-prompts`, `--format text\|json\|html`) |
-| `check-tools` | Offline read-before-edit & `--max-failed-calls` checks on normalized, OpenAI, Anthropic, or OTel traces (`--adapter`) |
+| `gate` | Evaluate a composite GO/NO-GO release gate combining drift report, history trends, significance tests, and tool checks |
+| `cost` | Compare explicit generated token counts and optional USD output cost drift without fabricating missing tokens |
+| `snapshot` | Create or verify offline SHA-256 integrity manifests (`create`, `verify`) for golden baseline fixtures and policies |
+| `check-tools` | Offline read-before-edit & `--max-failed-calls` checks on normalized, OpenAI, Anthropic, Gemini, or OTel traces (`--adapter`) |
 | `stats` | Multi-run bootstrap CIs, flaky-prompt detection, paired permutation (with Cohen's `d`), and exact two-sided McNemar tests |
-| `history` | Record reports (`record`), inspect sparklines/SVG trends (`show`), and gate on moving-window regressions (`check`) |
-| `capture` | Capture reproducible JSONL outputs from OpenAI-compatible or Anthropic (`--provider anthropic`) endpoints (`--concurrency`, `--runs`, `--json-mode`, `--resume`, `--header`) |
+| `history` | Record reports (`record`), inspect sparklines/SVG trends (`show`), gate on regressions (`check`), view summaries (`summary`), and compact ledgers (`prune`) |
+| `capture` | Capture reproducible JSONL outputs from OpenAI-compatible, Anthropic (`--provider anthropic`), or Gemini (`--provider gemini`) endpoints |
 | `redact` | Deterministically scrub API keys, private keys, and optional PII from captures before sharing or archiving (`--secrets-only`) |
 | `subsample` | Deterministically draw stratified prompt subsamples and slice matching captures in lockstep (`--size`, `--seed`, `--slice-capture`) |
 | `infer-schema` | Auto-infer a supported-subset JSON Schema prompt suite from baseline captures |

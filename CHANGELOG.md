@@ -4,6 +4,15 @@
 
 ### Added
 
+- Offline baseline snapshot integrity manifests (`snapshot.py`, `SnapshotArtifact`, `SnapshotManifest`, `SnapshotVerification`, `create_snapshot_manifest`, `verify_snapshot_manifest`, and `llm-drift-bench snapshot create|verify`) with SHA-256 artifact digests, prompt-ID hashing, and strict path-traversal rejection.
+- Composite release gate CLI (`llm-drift-bench gate`) combining canonical drift reports, history ledgers, paired statistical tests, and saved tool checks into GO/NO-GO exit codes, plus token/USD output cost CLI (`llm-drift-bench cost`).
+- Native Google Gemini support across both live capture (`capture --provider gemini` using `/v1beta/models/{model}:generateContent` and `x-goog-api-key`) and offline tool-trace auditing (`from_gemini_transcript` and `check-tools --adapter gemini`).
+- Pure-stdlib `numeric_prose` built-in scorer (`numeric_prose_similarity`) catching silent numeric hallucinations in free-form RAG/financial prose while ignoring alphanumeric identifiers.
+- Step-down Holm-Bonferroni multiple-testing correction (`holm_bonferroni_adjust`), deterministic Wilson score binomial confidence intervals (`wilson_score_interval`), and optional `require_same_candidate` enforcement in `summarize_multi_run`.
+- Deterministic SHA-256 `partialFingerprints` (`primaryLocationLineHash`) and `invocations` metadata in SARIF 2.1.0 exports for deduplicated GitHub Code Scanning alerts.
+- Integrated prompt-suite hygiene linting (`suite_hygiene`) and capture credential leak scanning (`secrets_scan`) in `doctor.py`.
+- Per-candidate drift history summaries (`summarize_history`, `history summary`) and atomic ledger compaction (`prune_history`, `history prune --keep-last N`).
+- Prompt suite filtering helper (`filter_prompt_suite`) by category, schema presence, and excluded prompt IDs.
 - Deterministic PII and credential redactor (`redaction.py`, `redact_text`, `redact_samples`, `RedactionReport`, and `llm-drift-bench redact [--secrets-only]`) supporting PEM private keys, Anthropic/OpenAI/GitHub/AWS/Google/Slack/Bearer credentials, and optional PII (email, SSN, IPv4, Luhn-checked credit cards) while preserving valid JSON.
 - Deterministic stratified prompt suite subsampler and lockstep capture slicer (`sampling.py`, `sample_prompt_suite`, `slice_samples_for_suite`, and `llm-drift-bench subsample --size N [--seed] [--slice-capture IN OUT]`).
 - Explicit token and output-cost drift estimator (`cost.py`, `ModelPricing`, `CostComparison`, `estimate_cost_drift`) that never fabricates token counts when `tokens_generated` is missing.
@@ -19,6 +28,8 @@
 
 ### Fixed
 
+- Made Python AST traversal in `scorers.py` iterative (preventing `RecursionError` on deeply nested expressions), caught `ValueError`/`RecursionError` cleanly, hardened Markdown fence parsing for nested backtick and tilde fences, and rejected duplicate `prompt_id` entries in `score_captures(..., prompt_cases=...)`.
+- Enforced strict boolean validation in `mcnemar_exact_test`, rejected boolean seeds in `stats.py` and `sampling.py`, validated `record_report` input types and finite `sparkline` inputs in `history.py`, and stably sorted OpenTelemetry GenAI spans by `startTimeUnixNano` when timestamps are present.
 - Replaced recursive `flatten_json_paths` with an iterative stack to prevent `RecursionError` on deeply nested JSON (1,500+ levels), widened `compute_percentile` to accept `Sequence[float]`, and hardened numeric type checks in `compute_composite_drift_score`.
 - Fixed the Python 3.10 fallback TOML parser in `policy.py` to support single-quoted section headers/keys and `#` inside single-quoted strings.
 - Rejected boolean `version` values (`True == 1`) in `tool_log.py` and added helpful `--adapter openai|anthropic|otel` hints when vendor transcript wrapper keys are detected.
