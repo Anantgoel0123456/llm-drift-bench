@@ -252,3 +252,15 @@ tolerance_abs = 0.001
     assert rep_strict.results[0].json_numeric_drift is not None
     assert rep_strict.results[0].json_numeric_drift > 0.0
 
+
+def test_toml_fallback_single_quoted_headers_keys_and_hash_values() -> None:
+    text = (
+        "long_text_mode = 'skip_levenshtein' # trailing comment\n"
+        "[fields.'$.items[*].tag#1']\n"
+        "'ignore' = true # keep hash inside header\n"
+    )
+    parsed = _parse_toml_fallback(text)
+    assert parsed["long_text_mode"] == "skip_levenshtein"
+    assert parsed["fields"]["$.items[*].tag#1"]["ignore"] is True
+
+

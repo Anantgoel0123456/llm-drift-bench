@@ -108,17 +108,19 @@ class DriftPolicy:
 
 
 def _strip_toml_comment(line: str) -> str:
-    in_quotes = False
+    quote: str | None = None
     escaped = False
     for index, ch in enumerate(line):
         if escaped:
             escaped = False
             continue
-        if ch == "\\" and in_quotes:
+        if quote == '"' and ch == "\\":
             escaped = True
-        elif ch == '"':
-            in_quotes = not in_quotes
-        elif ch == "#" and not in_quotes:
+        elif quote is None and ch in ('"', "'"):
+            quote = ch
+        elif quote == ch:
+            quote = None
+        elif ch == "#" and quote is None:
             return line[:index]
     return line
 
@@ -151,11 +153,15 @@ def _parse_toml_fallback(text: str) -> dict[str, Any]:
         if line.startswith("[") and line.endswith("]"):
             header = line[1:-1].strip()
             parts: list[str] = []
-            for match in re.finditer(r'"((?:\\.|[^"\\])*)"|([^.\s]+)', header):
+            for match in re.finditer(
+                r'"((?:\\.|[^"\\])*)"|\'([^\']*)\'|([^.\s]+)', header
+            ):
                 if match.group(1) is not None:
                     parts.append(json.loads(f'"{match.group(1)}"'))
-                else:
+                elif match.group(2) is not None:
                     parts.append(match.group(2))
+                else:
+                    parts.append(match.group(3))
             if not parts:
                 raise ValueError(f"Line {lineno}: empty TOML section header.")
             node = root
@@ -170,8 +176,10 @@ def _parse_toml_fallback(text: str) -> dict[str, Any]:
             raise ValueError(f"Line {lineno}: expected 'key = value' assignment.")
         key_raw, val_raw = line.split("=", 1)
         key = key_raw.strip()
-        if key.startswith('"') and key.endswith('"'):
+        if key.startswith('"') and key.endswith('"') and len(key) >= 2:
             key = json.loads(key)
+        elif key.startswith("'") and key.endswith("'") and len(key) >= 2:
+            key = key[1:-1]
         if key in current:
             raise ValueError(f"Line {lineno}: duplicate TOML key {key!r}.")
         current[key] = _parse_toml_scalar(val_raw)
