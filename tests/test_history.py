@@ -10,6 +10,7 @@ import pytest
 from llm_drift_bench.cli import main
 from llm_drift_bench.history import (
     HistoryEntry,
+    detect_history_regression,
     export_history_html,
     format_history_text,
     load_history,
@@ -136,3 +137,72 @@ def test_history_entry_strict_validation() -> None:
         HistoryEntry.from_dict({**valid, "drifted_samples": 5})
     with pytest.raises(ValueError, match="between 0 and 1"):
         HistoryEntry.from_dict({**valid, "mean_composite_drift": 1.5})
+
+
+def test_history_trend_regression_detection_and_svg_tooltips(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def _entry(drift: float, conf: float, tag: str) -> HistoryEntry:
+        return HistoryEntry(
+            recorded_at="2026-11-23T00:00:00Z",
+            baseline_model="base",
+            candidate_model="cand",
+            passed=drift < 0.25,
+            total_samples=10,
+            drifted_samples=0 if drift < 0.25 else 2,
+            mean_composite_drift=drift,
+            max_composite_drift=drift,
+            candidate_json_conformity_rate=conf,
+            tag=tag,
+        )
+
+    stable = detect_history_regression(
+        [_entry(0.05, 1.0, "r1"), _entry(0.06, 1.0, "r2"), _entry(0.07, 1.0, "r3")],
+        window=2,
+        max_drift_increase=0.05,
+    )
+    assert stable.regressed is False
+    assert stable.window_size == 2
+
+    regressed = detect_history_regression(
+        [_entry(0.05, 1.0, "r1"), _entry(0.05, 1.0, "r2"), _entry(0.18, 0.90, "r3")],
+        window=2,
+        max_drift_increase=0.05,
+        max_conformity_drop=0.02,
+    )
+    assert regressed.regressed is True
+    assert "Mean drift increased" in regressed.reason
+    assert "JSON conformity dropped" in regressed.reason
+
+    with pytest.raises(ValueError, match="at least 2"):
+        detect_history_regression([_entry(0.05, 1.0, "r1")])
+
+    html = export_history_html([_entry(0.05, 1.0, "v1"), _entry(0.12, 0.95, "v2")])
+    assert "<title>cand (v1): drift 0.0500</title>" in html
+    assert "0.50</text>" in html
+
+    # End-to-end CLI 'history check' exits 0 when stable and 1 when regressed.
+    ledger = tmp_path / "trend.jsonl"
+    assert main([
+        "history", "record", "--ledger", str(ledger),
+        "-i", str(EXAMPLES / "expected-pass.json"), "--tag", "v1",
+    ]) == 0
+    assert main([
+        "history", "record", "--ledger", str(ledger),
+        "-i", str(EXAMPLES / "expected-pass.json"), "--tag", "v2",
+    ]) == 0
+    capsys.readouterr()
+
+    assert main(["history", "check", "--ledger", str(ledger)]) == 0
+    assert "STABLE" in capsys.readouterr().out
+
+    assert main([
+        "history", "record", "--ledger", str(ledger),
+        "-i", str(EXAMPLES / "expected-drift.json"), "--tag", "v3",
+    ]) == 0
+    capsys.readouterr()
+
+    assert main(["history", "check", "--ledger", str(ledger), "--format", "json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["regressed"] is True
+

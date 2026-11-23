@@ -1221,11 +1221,43 @@ def _add_history_subparser(
     )
     show.add_argument("-o", "--output", default=None, help="Optional file path to save output.")
 
+    chk = hist_sub.add_parser(
+        "check",
+        help="Check whether the latest run regressed against the preceding moving window.",
+    )
+    chk.add_argument("--ledger", required=True, metavar="FILE", help="Path to JSONL ledger file.")
+    chk.add_argument("--candidate", default=None, help="Filter entries by candidate model name.")
+    chk.add_argument("--tag", default=None, help="Filter entries by tag.")
+    chk.add_argument(
+        "--window",
+        type=int,
+        default=3,
+        help="Number of preceding runs in the moving baseline window (default: 3).",
+    )
+    chk.add_argument(
+        "--max-drift-increase",
+        type=float,
+        default=0.05,
+        help="Maximum allowed mean drift increase over the moving window (default: 0.05).",
+    )
+    chk.add_argument(
+        "--max-conformity-drop",
+        type=float,
+        default=0.02,
+        help="Maximum allowed JSON conformity drop below the moving window (default: 0.02).",
+    )
+    chk.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format: text (default) or json.",
+    )
+
 
 def _handle_history(args: argparse.Namespace) -> int:
     action = getattr(args, "history_action", None)
     if action is None:
-        raise ValueError("Specify a history action: 'record' or 'show'.")
+        raise ValueError("Specify a history action: 'record', 'show', or 'check'.")
     if action == "record":
         _protect_inputs(args.ledger, args.input)
         from llm_drift_bench.history import record_report
@@ -1261,6 +1293,35 @@ def _handle_history(args: argparse.Namespace) -> int:
             _atomic_write_text(Path(args.output), rendered)
         print(rendered, end="")
         return 0
+    if action == "check":
+        from llm_drift_bench.history import detect_history_regression, load_history
+
+        entries = load_history(args.ledger)
+        if args.candidate is not None:
+            entries = [e for e in entries if e.candidate_model == args.candidate]
+        if args.tag is not None:
+            entries = [e for e in entries if e.tag == args.tag]
+        check = detect_history_regression(
+            entries,
+            window=args.window,
+            max_drift_increase=args.max_drift_increase,
+            max_conformity_drop=args.max_conformity_drop,
+        )
+        if args.format == "json":
+            print(json.dumps(check.to_dict(), indent=2))
+        else:
+            state = "REGRESSED" if check.regressed else "STABLE"
+            print(f"History Trend Check [{state}] (window={check.window_size})")
+            print(
+                f"  Mean Drift      : {check.window_mean_drift:.4f} -> "
+                f"{check.latest_drift:.4f} ({check.drift_delta:+.4f})"
+            )
+            print(
+                f"  JSON Conformity : {check.window_mean_conformity:.1%} -> "
+                f"{check.latest_conformity:.1%} ({check.conformity_delta:+.1%})"
+            )
+            print(f"  Detail          : {check.reason}")
+        return 1 if check.regressed else 0
     raise ValueError(f"Unsupported history action: {action!r}.")
 
 

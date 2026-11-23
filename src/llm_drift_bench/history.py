@@ -213,7 +213,14 @@ def format_history_text(entries: Sequence[HistoryEntry]) -> str:
     return "\n".join(lines)
 
 
-def _trend_svg(title: str, values: Sequence[float], color: str, *, y_max: float = 1.0) -> str:
+def _trend_svg(
+    title: str,
+    values: Sequence[float],
+    color: str,
+    *,
+    y_max: float = 1.0,
+    labels: Sequence[str] | None = None,
+) -> str:
     width, height = 680, 200
     pad_l, pad_r, pad_t, pad_b = 52, 24, 28, 32
     plot_w = width - pad_l - pad_r
@@ -229,27 +236,119 @@ def _trend_svg(title: str, values: Sequence[float], color: str, *, y_max: float 
             f"<text x='{width / 2:.1f}' y='{height / 2:.1f}' text-anchor='middle' "
             "fill='#94a3b8' font-size='13'>No history entries recorded.</text></svg>"
         )
+    grid_parts: list[str] = []
+    for frac in (0.0, 0.5, 1.0):
+        gy = pad_t + plot_h - frac * plot_h
+        tick_val = frac * y_max
+        grid_parts.append(
+            f"<line x1='{pad_l}' y1='{gy:.1f}' x2='{width - pad_r}' y2='{gy:.1f}' "
+            "stroke='#1e293b' stroke-dasharray='3,3'/>"
+            f"<text x='{pad_l - 8}' y='{gy + 4:.1f}' text-anchor='end' fill='#94a3b8' "
+            f"font-size='10'>{tick_val:.2f}</text>"
+        )
     coords: list[tuple[float, float]] = []
     for idx, val in enumerate(values):
         x = pad_l + (plot_w / 2 if n == 1 else (idx / (n - 1)) * plot_w)
         y = pad_t + plot_h - (max(0.0, min(y_max, val)) / max(y_max, 1e-9)) * plot_h
         coords.append((x, y))
     polyline = " ".join(f"{x:.1f},{y:.1f}" for x, y in coords)
-    dots = "".join(
-        f"<circle cx='{x:.1f}' cy='{y:.1f}' r='4.5' fill='{color}' stroke='#0b1220'/>"
-        for x, y in coords
-    )
+    dot_parts: list[str] = []
+    for idx, (x, y) in enumerate(coords):
+        tip = labels[idx] if labels and idx < len(labels) else f"Run {idx + 1}: {values[idx]:.4f}"
+        dot_parts.append(
+            f"<circle cx='{x:.1f}' cy='{y:.1f}' r='4.5' fill='{color}' stroke='#0b1220'>"
+            f"<title>{escape(tip)}</title></circle>"
+        )
     return (
         f"<svg viewBox='0 0 {width} {height}' role='img' aria-label='{escape(title)}' "
         "style='width:100%;max-width:680px;height:auto;background:#111e32;border-radius:8px;"
         "margin-top:10px'>"
         f"<text x='{pad_l}' y='18' fill='#7dd3fc' font-size='13' font-weight='600'>"
         f"{escape(title)}</text>"
+        f"{''.join(grid_parts)}"
         f"<line x1='{pad_l}' y1='{pad_t + plot_h}' x2='{width - pad_r}' y2='{pad_t + plot_h}' "
         "stroke='#475569'/>"
         f"<line x1='{pad_l}' y1='{pad_t}' x2='{pad_l}' y2='{pad_t + plot_h}' stroke='#475569'/>"
         f"<polyline fill='none' stroke='{color}' stroke-width='2.5' points='{polyline}'/>"
-        f"{dots}</svg>"
+        f"{''.join(dot_parts)}</svg>"
+    )
+
+
+@dataclass(frozen=True)
+class HistoryTrendCheck:
+    """Result of comparing the latest recorded run against a moving window of prior runs."""
+
+    regressed: bool
+    latest_drift: float
+    window_mean_drift: float
+    drift_delta: float
+    latest_conformity: float
+    window_mean_conformity: float
+    conformity_delta: float
+    window_size: int
+    reason: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def detect_history_regression(
+    entries: Sequence[HistoryEntry],
+    *,
+    window: int = 3,
+    max_drift_increase: float = 0.05,
+    max_conformity_drop: float = 0.02,
+) -> HistoryTrendCheck:
+    """Detect gradual drift or conformity degradation vs the preceding moving window."""
+    if len(entries) < 2:
+        raise ValueError("Trend regression check requires at least 2 recorded history entries.")
+    if isinstance(window, bool) or not isinstance(window, int) or window < 1:
+        raise ValueError("window must be a positive integer.")
+    for name, val in (
+        ("max_drift_increase", max_drift_increase),
+        ("max_conformity_drop", max_conformity_drop),
+    ):
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
+            raise ValueError(f"{name} must be a finite non-negative number.")
+        num = finite_number(val)
+        if num < 0:
+            raise ValueError(f"{name} must be a finite non-negative number.")
+
+    prior = entries[max(0, len(entries) - 1 - window) : -1]
+    latest = entries[-1]
+    win_drift = sum(e.mean_composite_drift for e in prior) / len(prior)
+    win_conf = sum(e.candidate_json_conformity_rate for e in prior) / len(prior)
+    drift_delta = latest.mean_composite_drift - win_drift
+    conf_delta = latest.candidate_json_conformity_rate - win_conf
+
+    reasons: list[str] = []
+    if drift_delta > max_drift_increase:
+        reasons.append(
+            f"Mean drift increased by +{drift_delta:.4f} vs prior {len(prior)}-run mean "
+            f"({win_drift:.4f} -> {latest.mean_composite_drift:.4f}, "
+            f"limit +{max_drift_increase:.4f})."
+        )
+    if -conf_delta > max_conformity_drop:
+        reasons.append(
+            f"JSON conformity dropped by {conf_delta:.1%} vs prior {len(prior)}-run mean "
+            f"({win_conf:.1%} -> {latest.candidate_json_conformity_rate:.1%}, "
+            f"limit -{max_conformity_drop:.1%})."
+        )
+    regressed = bool(reasons)
+    reason = " ".join(reasons) if reasons else (
+        f"Stable relative to prior {len(prior)} run(s) "
+        f"(drift delta {drift_delta:+.4f}, conformity delta {conf_delta:+.1%})."
+    )
+    return HistoryTrendCheck(
+        regressed=regressed,
+        latest_drift=round(latest.mean_composite_drift, 4),
+        window_mean_drift=round(win_drift, 4),
+        drift_delta=round(drift_delta, 4),
+        latest_conformity=round(latest.candidate_json_conformity_rate, 4),
+        window_mean_conformity=round(win_conf, 4),
+        conformity_delta=round(conf_delta, 4),
+        window_size=len(prior),
+        reason=reason,
     )
 
 
@@ -258,15 +357,26 @@ def export_history_html(
     output_path: str | Path | None = None,
 ) -> str:
     """Export an offline script-free HTML trend dashboard from a drift history ledger."""
+    drift_labels = [
+        f"{e.candidate_model} ({e.tag or e.recorded_at[:10]}): drift {e.mean_composite_drift:.4f}"
+        for e in entries
+    ]
+    conf_labels = [
+        f"{e.candidate_model} ({e.tag or e.recorded_at[:10]}): "
+        f"conformity {e.candidate_json_conformity_rate:.1%}"
+        for e in entries
+    ]
     drift_chart = _trend_svg(
         "Mean Composite Drift Over Time (0.0 = identical)",
         [e.mean_composite_drift for e in entries],
         "#fbbf24",
+        labels=drift_labels,
     )
     conf_chart = _trend_svg(
         "Candidate JSON Conformity Rate Over Time",
         [e.candidate_json_conformity_rate for e in entries],
         "#6ee7b7",
+        labels=conf_labels,
     )
     def _fmt_p95(val: float | None) -> str:
         return "n/a" if val is None else f"{val:.2f} ms"
