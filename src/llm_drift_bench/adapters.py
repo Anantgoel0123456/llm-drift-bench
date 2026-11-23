@@ -1,8 +1,9 @@
-"""Offline transcript adapters normalizing OpenAI, Anthropic, and OTel GenAI logs to ToolEvent."""
+"""Offline transcript adapters normalizing OpenAI, Anthropic, Gemini, and OTel logs to ToolEvent."""
 
 from __future__ import annotations
 
 import json
+from collections import defaultdict, deque
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
@@ -11,7 +12,7 @@ from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench.tool_events import ToolEvent
 from llm_drift_bench.tool_log import load_tool_events
 
-AdapterName = Literal["normalized", "openai", "anthropic", "otel"]
+AdapterName = Literal["normalized", "openai", "anthropic", "gemini", "otel"]
 
 DEFAULT_READ_TOOLS = frozenset({"read_file", "Read", "view_file", "get_file", "cat"})
 DEFAULT_EDIT_TOOLS = frozenset({
@@ -199,6 +200,99 @@ def from_anthropic_transcript(
     return events
 
 
+def from_gemini_transcript(
+    contents: Sequence[Mapping[str, Any]],
+    *,
+    read_tools: frozenset[str] = DEFAULT_READ_TOOLS,
+    edit_tools: frozenset[str] = DEFAULT_EDIT_TOOLS,
+    resource_keys: Sequence[str] = DEFAULT_RESOURCE_KEYS,
+) -> list[ToolEvent]:
+    """Normalize Google Gemini contents (functionCall/functionResponse parts) to ToolEvents."""
+    responses_by_id: dict[str, Mapping[str, Any]] = {}
+    responses_by_name: dict[str, deque[Mapping[str, Any]]] = defaultdict(deque)
+    for item in contents:
+        parts = item.get("parts")
+        if not isinstance(parts, list):
+            continue
+        for part in parts:
+            if not isinstance(part, Mapping):
+                continue
+            fn_resp = part.get("functionResponse")
+            if not isinstance(fn_resp, Mapping):
+                continue
+            resp_id = fn_resp.get("id")
+            if isinstance(resp_id, str) and resp_id:
+                responses_by_id[resp_id] = fn_resp
+            resp_name = fn_resp.get("name")
+            if isinstance(resp_name, str) and resp_name:
+                responses_by_name[resp_name].append(fn_resp)
+
+    events: list[ToolEvent] = []
+    seq = 0
+    for item in contents:
+        parts = item.get("parts")
+        if not isinstance(parts, list):
+            continue
+        for part in parts:
+            if not isinstance(part, Mapping):
+                continue
+            fn_call = part.get("functionCall")
+            if not isinstance(fn_call, Mapping):
+                continue
+            name = fn_call.get("name")
+            if not isinstance(name, str):
+                continue
+            if name in read_tools:
+                kind = "read"
+            elif name in edit_tools:
+                kind = "edit"
+            else:
+                continue
+            args = _extract_args_dict(fn_call.get("args"))
+            resource = _extract_resource(args, resource_keys)
+            if resource is None:
+                continue
+            call_id = fn_call.get("id")
+            fn_resp = (
+                responses_by_id.get(call_id)
+                if isinstance(call_id, str) and call_id in responses_by_id
+                else (responses_by_name[name].popleft() if responses_by_name[name] else None)
+            )
+            success = True
+            start: int | None = None
+            end: int | None = None
+            if fn_resp is not None:
+                resp_body = fn_resp.get("response")
+                if isinstance(resp_body, Mapping):
+                    if resp_body.get("is_error") is True or bool(resp_body.get("error")):
+                        success = False
+                    if kind == "read":
+                        start, end = _extract_range(resp_body.get("range"))
+                if kind == "read" and start is None and end is None:
+                    start, end = _extract_range(fn_resp.get("range"))
+            events.append(
+                ToolEvent(
+                    sequence=seq,
+                    kind=kind,  # type: ignore[arg-type]
+                    resource=resource,
+                    success=success,
+                    start=start if kind == "read" else None,
+                    end=end if kind == "read" else None,
+                )
+            )
+            seq += 1
+    return events
+
+
+def _span_start_ns(span: Mapping[str, Any]) -> int | None:
+    raw = span.get("startTimeUnixNano")
+    if type(raw) is int and raw >= 0:
+        return raw
+    if isinstance(raw, str) and raw.isdigit():
+        return int(raw)
+    return None
+
+
 def _normalize_otel_attributes(raw_attrs: Any) -> dict[str, Any]:
     """Normalize flat span attribute maps or OTLP [{key, value: {...}}] arrays."""
     if isinstance(raw_attrs, Mapping):
@@ -256,9 +350,8 @@ def from_otel_genai_spans(
     resource_keys: Sequence[str] = DEFAULT_RESOURCE_KEYS,
 ) -> list[ToolEvent]:
     """Normalize OpenTelemetry GenAI tool spans (gen_ai.tool.*) into ToolEvents."""
-    events: list[ToolEvent] = []
-    seq = 0
-    for span in spans:
+    raw_items: list[tuple[int | None, int, str, str, bool, int | None, int | None]] = []
+    for orig_idx, span in enumerate(spans):
         attrs = _normalize_otel_attributes(span.get("attributes"))
         if not attrs:
             continue
@@ -279,7 +372,7 @@ def from_otel_genai_spans(
         success = True
         if isinstance(status, Mapping):
             raw_code = status.get("code", "")
-            if raw_code == 2 or str(raw_code).upper() in ("ERROR", "STATUS_CODE_ERROR"):
+            if raw_code == 2 or str(raw_code).upper() in ("2", "ERROR", "STATUS_CODE_ERROR"):
                 success = False
         start, end = (
             _extract_range(
@@ -291,18 +384,22 @@ def from_otel_genai_spans(
             if kind == "read"
             else (None, None)
         )
-        events.append(
-            ToolEvent(
-                sequence=seq,
-                kind=kind,  # type: ignore[arg-type]
-                resource=resource,
-                success=success,
-                start=start,
-                end=end,
-            )
+        raw_items.append((_span_start_ns(span), orig_idx, kind, resource, success, start, end))
+
+    if raw_items and all(item[0] is not None for item in raw_items):
+        raw_items.sort(key=lambda item: (item[0] or 0, item[1]))
+
+    return [
+        ToolEvent(
+            sequence=seq,
+            kind=kind,  # type: ignore[arg-type]
+            resource=resource,
+            success=success,
+            start=start,
+            end=end,
         )
-        seq += 1
-    return events
+        for seq, (_, _, kind, resource, success, start, end) in enumerate(raw_items)
+    ]
 
 
 def load_adapted_tool_events(
@@ -329,14 +426,14 @@ def load_adapted_tool_events(
             if "resourceSpans" in parsed:
                 items = _extract_otlp_resource_spans(parsed)
             else:
-                for key in ("messages", "output", "spans", "events"):
+                for key in ("messages", "contents", "output", "spans", "events"):
                     if key in parsed:
                         items = parsed[key]
                         break
                 else:
                     raise ValueError(
                         f"{source}: unrecognized transcript wrapper object; expected "
-                        "'messages', 'output', 'spans', 'events', or 'resourceSpans'."
+                        "'messages', 'contents', 'output', 'spans', 'events', or 'resourceSpans'."
                     )
         else:
             items = parsed
@@ -349,6 +446,8 @@ def load_adapted_tool_events(
         return from_openai_tool_calls(records)
     if adapter == "anthropic":
         return from_anthropic_transcript(records)
+    if adapter == "gemini":
+        return from_gemini_transcript(records)
     if adapter == "otel":
         return from_otel_genai_spans(records)
     raise ValueError(f"Unsupported adapter: {adapter!r}.")

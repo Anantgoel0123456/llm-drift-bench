@@ -315,3 +315,77 @@ def test_expanded_secret_patterns_and_cli_max_failed_calls(tmp_path, capsys) -> 
     assert "max_tool_retries: PASS" in capsys.readouterr().out
 
 
+def test_gemini_transcript_adapter_and_otel_timestamp_ordering(tmp_path) -> None:
+    import json
+
+    from llm_drift_bench.adapters import from_gemini_transcript, load_adapted_tool_events
+
+    contents = [
+        {
+            "role": "model",
+            "parts": [
+                {"functionCall": {"name": "read_file", "args": {"path": "guide.md@v1"}}},
+                {"functionCall": {"id": "e1", "name": "edit_file", "args": {"path": "app.py@v1"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "parts": [
+                {
+                    "functionResponse": {
+                        "name": "read_file",
+                        "response": {"ok": True, "range": {"start": 0, "end": 120}},
+                    }
+                },
+                {
+                    "functionResponse": {
+                        "id": "e1",
+                        "name": "edit_file",
+                        "response": {"error": "permission denied"},
+                    }
+                },
+            ],
+        },
+    ]
+    events = from_gemini_transcript(contents)
+    assert len(events) == 2
+    assert events[0].kind == "read" and events[0].start == 0 and events[0].end == 120
+    assert events[1].kind == "edit" and events[1].success is False
+
+    # Load from a Gemini {"contents": [...]} JSON wrapper file.
+    gem_file = tmp_path / "gemini.json"
+    gem_file.write_text(json.dumps({"contents": contents}), encoding="utf-8")
+    loaded = load_adapted_tool_events(gem_file, adapter="gemini")
+    assert len(loaded) == 2 and loaded[0].resource == "guide.md@v1"
+
+    # Out-of-order OTel spans are stably sorted when startTimeUnixNano is present.
+    out_of_order_spans = [
+        {
+            "startTimeUnixNano": "2000",
+            "attributes": {
+                "gen_ai.tool.name": "edit_file",
+                "gen_ai.tool.call.arguments": '{"path": "app.py@1"}',
+            },
+            "status": {"code": "2"},
+        },
+        {
+            "startTimeUnixNano": "1000",
+            "attributes": {
+                "gen_ai.tool.name": "read_file",
+                "gen_ai.tool.call.arguments": '{"path": "guide@1"}',
+                "llm_drift_bench.read.start": 0,
+                "llm_drift_bench.read.end": 100,
+            },
+            "status": {"code": "OK"},
+        },
+    ]
+    ordered = from_otel_genai_spans(out_of_order_spans)
+    assert [e.kind for e in ordered] == ["read", "edit"]
+    assert ordered[1].success is False
+    verdict = check_read_before_edit(
+        ordered, resource="guide@1", required_start=0, required_end=100, trace_complete=True
+    )
+    assert verdict.status == "PASS"
+
+
+
