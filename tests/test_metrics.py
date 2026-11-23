@@ -190,3 +190,13 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(compute_percentile([10.0, 20.0, 30.0], 0.0), 10.0)
         self.assertEqual(compute_percentile([10.0, 20.0, 30.0], 100.0), 30.0)
         self.assertEqual(compute_percentile([10.0, 20.0, 30.0], 50.0), 20.0)
+        self.assertEqual(compute_percentile((10.0, 20.0, 30.0), 50.0), 20.0)
+
+    def test_flatten_json_paths_handles_deep_nesting_iteratively(self) -> None:
+        deep: dict[str, object] = {"leaf": 42}
+        for _ in range(1500):
+            deep = {"n": deep}
+        flat = flatten_json_paths(deep)
+        self.assertEqual(len(flat), 1)
+        self.assertEqual(next(iter(flat.values())), 42)
+

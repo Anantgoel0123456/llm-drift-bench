@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
+from collections.abc import Sequence
 from typing import Any
 
 from llm_drift_bench._numbers import finite_number
@@ -143,28 +144,31 @@ def _json_type_tag(value: Any) -> str:
 
 
 def flatten_json_paths(data: Any, prefix: str = "$") -> dict[str, Any]:
-    """Flatten nested JSON objects and arrays into a mapping of JSONPath -> leaf value."""
+    """Flatten nested JSON objects and arrays iteratively into JSONPath -> leaf value."""
     flattened: dict[str, Any] = {}
-    if isinstance(data, dict):
-        if not data:
-            flattened[prefix] = {}
+    stack: list[tuple[str, Any]] = [(prefix, data)]
+    while stack:
+        current_prefix, current_data = stack.pop()
+        if isinstance(current_data, dict):
+            if not current_data:
+                flattened[current_prefix] = {}
+            else:
+                for key in sorted(current_data.keys(), reverse=True):
+                    # Preserve readable simple keys, quote all other keys to avoid
+                    # collisions between literal dots/brackets and nested structure.
+                    segment = (
+                        f".{key}" if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key)
+                        else f"[{json.dumps(key, ensure_ascii=True)}]"
+                    )
+                    stack.append((f"{current_prefix}{segment}", current_data[key]))
+        elif isinstance(current_data, list):
+            if not current_data:
+                flattened[current_prefix] = []
+            else:
+                for idx in range(len(current_data) - 1, -1, -1):
+                    stack.append((f"{current_prefix}[{idx}]", current_data[idx]))
         else:
-            for key in sorted(data.keys()):
-                # Preserve readable simple keys, quote all other keys to avoid
-                # collisions between literal dots/brackets and nested structure.
-                segment = (
-                    f".{key}" if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key)
-                    else f"[{json.dumps(key, ensure_ascii=True)}]"
-                )
-                flattened.update(flatten_json_paths(data[key], f"{prefix}{segment}"))
-    elif isinstance(data, list):
-        if not data:
-            flattened[prefix] = []
-        else:
-            for idx, item in enumerate(data):
-                flattened.update(flatten_json_paths(item, f"{prefix}[{idx}]"))
-    else:
-        flattened[prefix] = data
+            flattened[current_prefix] = current_data
     return flattened
 
 
@@ -257,10 +261,12 @@ def compute_composite_drift_score(
 ) -> float:
     """Compute a unified drift score in [0.0, 1.0] (0.0 = identical, 1.0 = completely drifted)."""
     for score in (token_jaccard, ngram_sim, levenshtein_sim):
-        if isinstance(score, bool) or not 0 <= score <= 1:
+        if isinstance(score, bool) or not isinstance(score, (int, float)) or not 0 <= score <= 1:
             raise ValueError("Text similarity scores must be numbers between 0 and 1.")
     for value in (json_structural_sim, json_field_match, json_num_drift):
-        if value is not None and (isinstance(value, bool) or not 0 <= value <= 1):
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1
+        ):
             raise ValueError("JSON metric scores must be numbers between 0 and 1.")
     text_drift = (
         0.35 * (1.0 - token_jaccard)
@@ -286,17 +292,17 @@ def compute_composite_drift_score(
     return max(0.0, min(1.0, combined))
 
 
-def compute_percentile(values: list[float], percentile: float) -> float | None:
-    """Compute linear-interpolated percentile (0-100) for a non-empty list of floats."""
+def compute_percentile(values: Sequence[float], percentile: float) -> float | None:
+    """Compute linear-interpolated percentile (0-100) for a non-empty sequence of floats."""
     percentile = finite_number(percentile)
-    values = [finite_number(value) for value in values]
-    if not values:
+    cleaned = [finite_number(value) for value in values]
+    if not cleaned:
         return None
     if percentile <= 0:
-        return min(values)
+        return min(cleaned)
     if percentile >= 100:
-        return max(values)
-    sorted_vals = sorted(values)
+        return max(cleaned)
+    sorted_vals = sorted(cleaned)
     k = (len(sorted_vals) - 1) * (percentile / 100.0)
     floor_idx = int(k)
     ceil_idx = min(floor_idx + 1, len(sorted_vals) - 1)
