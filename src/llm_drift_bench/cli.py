@@ -113,6 +113,13 @@ def _add_run_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         required=True,
         help="Path to captured candidate outputs (.json/.jsonl).",
     )
+    run_parser.add_argument(
+        "--category",
+        action="append",
+        dest="categories",
+        metavar="CATEGORY",
+        help="Evaluate only prompts matching this suite category (repeatable; requires --suite).",
+    )
     _add_threshold_options(run_parser)
     run_parser.add_argument(
         "-o",
@@ -261,6 +268,27 @@ def _handle_run(args: argparse.Namespace) -> int:
     baseline_samples = load_model_samples(args.baseline)
     candidate_samples = load_model_samples(args.candidate)
     prompt_cases = load_prompt_cases(args.suite) if args.suite else None
+    if args.categories:
+        if prompt_cases is None:
+            raise ValueError("--category requires --suite / --prompts.")
+        from llm_drift_bench._matching import require_same_ids
+
+        base_ids = {s.prompt_id for s in baseline_samples}
+        cand_ids = {s.prompt_id for s in candidate_samples}
+        suite_ids = {c.prompt_id for c in prompt_cases}
+        require_same_ids(base_ids, cand_ids, "Candidate capture")
+        require_same_ids(base_ids, suite_ids, "Prompt suite")
+        available_cats = sorted({c.category for c in prompt_cases})
+        requested_cats = set(args.categories)
+        unknown_cats = sorted(requested_cats - set(available_cats))
+        if unknown_cats:
+            raise ValueError(
+                f"Unknown category filter(s): {unknown_cats!r}. Available: {available_cats!r}."
+            )
+        prompt_cases = [c for c in prompt_cases if c.category in requested_cats]
+        keep_ids = {c.prompt_id for c in prompt_cases}
+        baseline_samples = [s for s in baseline_samples if s.prompt_id in keep_ids]
+        candidate_samples = [s for s in candidate_samples if s.prompt_id in keep_ids]
     tool_checks = _load_tool_checks(args.tool_check, args.format)
 
     engine = DriftBenchmarkEngine(thresholds=thresholds, policy=policy)
@@ -489,6 +517,13 @@ def _add_validate_subparser(
         help="Optional path to prompt cases file containing per-prompt schemas.",
     )
     val_parser.add_argument(
+        "--category",
+        action="append",
+        dest="categories",
+        metavar="CATEGORY",
+        help="Validate only prompts matching this suite category (repeatable; requires --prompts).",
+    )
+    val_parser.add_argument(
         "--format",
         choices=("table", "json"),
         default="table",
@@ -518,9 +553,10 @@ def _handle_validate(args: argparse.Namespace) -> int:
             raise ValueError(f"Global schema file must contain a JSON object: {args.schema}")
         global_schema = loaded
 
+    prompt_cases = load_prompt_cases(args.prompts) if args.prompts else None
     prompt_map = (
-        {case.prompt_id: case.schema for case in load_prompt_cases(args.prompts)}
-        if args.prompts
+        {case.prompt_id: case.schema for case in prompt_cases}
+        if prompt_cases is not None
         else {}
     )
     if args.prompts:
@@ -529,6 +565,18 @@ def _handle_validate(args: argparse.Namespace) -> int:
         require_same_ids(
             {sample.prompt_id for sample in samples}, set(prompt_map), "Prompt suite"
         )
+    if args.categories:
+        if prompt_cases is None:
+            raise ValueError("--category requires --prompts.")
+        available_cats = sorted({case.category for case in prompt_cases})
+        requested_cats = set(args.categories)
+        unknown_cats = sorted(requested_cats - set(available_cats))
+        if unknown_cats:
+            raise ValueError(
+                f"Unknown category filter(s): {unknown_cats!r}. Available: {available_cats!r}."
+            )
+        keep_ids = {case.prompt_id for case in prompt_cases if case.category in requested_cats}
+        samples = [sample for sample in samples if sample.prompt_id in keep_ids]
 
     records: list[dict[str, Any]] = []
     passed_count = 0
