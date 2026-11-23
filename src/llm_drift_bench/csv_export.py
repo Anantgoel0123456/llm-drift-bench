@@ -28,15 +28,31 @@ CSV_COLUMNS = (
 )
 
 
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
 def _fmt_opt(value: float | None, digits: int = 4) -> str:
     return "" if value is None else f"{value:.{digits}f}"
+
+
+def _safe_csv_text(value: str, *, sanitize: bool) -> str:
+    if sanitize and value and value[0] in _FORMULA_PREFIXES:
+        return "'" + value
+    return value
 
 
 def export_csv_report(
     report: DriftBenchmarkReport,
     output_path: str | Path | None = None,
+    *,
+    sanitize_formulas: bool = True,
 ) -> str:
-    """Export per-prompt benchmark metrics as a clean CSV string (and optional file)."""
+    """Export per-prompt benchmark metrics as an RFC-4180 CSV string (and optional file).
+
+    When sanitize_formulas=True (default), text identifier columns starting with
+    spreadsheet formula triggers (=, +, -, @, tab, CR) are prefixed with a leading
+    apostrophe so Excel/Sheets cannot execute them as formulas.
+    """
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(CSV_COLUMNS)
@@ -45,10 +61,10 @@ def export_csv_report(
             f"{issue.path}: {issue.rule}" for issue in row.candidate_validation.issues
         )
         writer.writerow([
-            report.baseline_model,
-            report.candidate_model,
-            row.prompt_id,
-            row.category,
+            _safe_csv_text(report.baseline_model, sanitize=sanitize_formulas),
+            _safe_csv_text(report.candidate_model, sanitize=sanitize_formulas),
+            _safe_csv_text(row.prompt_id, sanitize=sanitize_formulas),
+            _safe_csv_text(row.category, sanitize=sanitize_formulas),
             "true" if row.drifted else "false",
             f"{row.composite_drift_score:.4f}",
             f"{row.token_jaccard_similarity:.4f}",
@@ -59,7 +75,7 @@ def export_csv_report(
             _fmt_opt(row.json_numeric_drift, 4),
             "true" if row.baseline_validation.passed else "false",
             "true" if row.candidate_validation.passed else "false",
-            issues_str,
+            _safe_csv_text(issues_str, sanitize=sanitize_formulas),
             _fmt_opt(row.latency_delta_ms, 2),
         ])
 

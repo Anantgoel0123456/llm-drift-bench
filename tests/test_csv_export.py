@@ -83,3 +83,20 @@ def test_cli_run_and_report_csv_format(
     assert rc_rep == 0
     assert csv_out.is_file()
     assert "invoice-01" in csv_out.read_text(encoding="utf-8")
+
+
+def test_csv_formula_injection_sanitization_preserves_negative_latency() -> None:
+    base = [ModelSample(prompt_id="=SUM(A1:A2)", output="ok", model_name="+base", latency_ms=50.0)]
+    cand = [ModelSample(prompt_id="=SUM(A1:A2)", output="ok", model_name="@cand", latency_ms=30.0)]
+    report = DriftBenchmarkEngine().evaluate(base, cand)
+
+    safe_rows = list(csv.DictReader(io.StringIO(export_csv_report(report))))
+    assert safe_rows[0]["prompt_id"] == "'=SUM(A1:A2)"
+    assert safe_rows[0]["baseline_model"] == "'+base"
+    assert safe_rows[0]["candidate_model"] == "'@cand"
+    # Numeric negative latency deltas remain numeric (never prefixed with apostrophe).
+    assert safe_rows[0]["latency_delta_ms"] == "-20.00"
+
+    raw_rows = list(csv.DictReader(io.StringIO(export_csv_report(report, sanitize_formulas=False))))
+    assert raw_rows[0]["prompt_id"] == "=SUM(A1:A2)"
+
