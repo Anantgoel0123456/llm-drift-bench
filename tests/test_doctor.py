@@ -63,3 +63,33 @@ def test_doctor_catches_unsupported_schema_bad_policy_and_id_mismatch(tmp_path: 
     base.write_text('{"prompt_id": "p1", "model": "m1", "output": "ok"}\n', encoding="utf-8")
     cand.write_text('{"prompt_id": "p2", "model": "m2", "output": "ok"}\n', encoding="utf-8")
     assert main(["doctor", "-b", str(base), "-c", str(cand)]) == 1
+
+
+def test_doctor_warns_on_suite_hygiene_and_capture_secrets(tmp_path: Path) -> None:
+    suite = tmp_path / "suite.json"
+    suite.write_text(
+        json.dumps([
+            {
+                "prompt_id": "p1",
+                "category": "extraction",
+                "prompt": "Extract",
+                "schema": {"type": "object", "properties": {"a": {"type": "string"}}},
+            }
+        ]),
+        encoding="utf-8",
+    )
+    leaky = tmp_path / "leaky.jsonl"
+    secret = "sk-proj-abcdefghijklmnopqrstuvwxyz1234"
+    leaky.write_text(
+        json.dumps({"prompt_id": "p1", "model_name": "m1", "output": f"key={secret}"}) + "\n",
+        encoding="utf-8",
+    )
+    rep = run_doctor(suite_path=suite, baseline_path=leaky)
+    assert rep.ok is True  # warnings do not fail doctor
+    by_name = {c.name: c for c in rep.checks}
+    assert by_name["suite_hygiene"].status == "WARN"
+    assert "permissive_object" in by_name["suite_hygiene"].detail
+    assert by_name["secrets_scan"].status == "WARN"
+    assert "OPENAI_KEY=1" in by_name["secrets_scan"].detail
+    assert secret not in by_name["secrets_scan"].detail
+

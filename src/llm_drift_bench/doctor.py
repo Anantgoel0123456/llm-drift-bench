@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import platform
+from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -12,8 +13,9 @@ from llm_drift_bench import __version__
 from llm_drift_bench._matching import require_same_ids
 from llm_drift_bench.engine import load_model_samples, load_prompt_cases
 from llm_drift_bench.policy import load_policy
+from llm_drift_bench.prompt_lint import lint_prompt_suite
+from llm_drift_bench.redaction import redact_samples
 from llm_drift_bench.scorers import list_scorers
-from llm_drift_bench.validator import _schema_support_issues
 
 
 @dataclass(frozen=True)
@@ -94,23 +96,24 @@ def run_doctor(
             checks.append(DoctorCheck("config", "FAIL", str(exc)))
 
     id_sets: dict[str, set[str]] = {}
+    secret_counts: Counter[str] = Counter()
+    captures_scanned = 0
 
     if suite_path is not None:
         try:
             cases = load_prompt_cases(suite_path)
             if not cases:
                 raise ValueError("Prompt suite is empty.")
-            schema_errors: list[str] = []
-            with_schema = 0
-            for case in cases:
-                if case.schema is not None:
-                    with_schema += 1
-                    issues = _schema_support_issues(case.schema, "$")
-                    for issue in issues:
-                        schema_errors.append(f"{case.prompt_id} ({issue.path}): {issue.message}")
-            if schema_errors:
-                preview = "; ".join(schema_errors[:3])
-                extra_n = f" (+{len(schema_errors) - 3} more)" if len(schema_errors) > 3 else ""
+            with_schema = sum(1 for case in cases if case.schema is not None)
+            lint_findings = lint_prompt_suite(cases)
+            lint_errors = [item for item in lint_findings if item.severity == "error"]
+            lint_warnings = [item for item in lint_findings if item.severity == "warning"]
+            if lint_errors:
+                preview = "; ".join(
+                    f"{item.prompt_id or 'suite'} ({item.code}): {item.message}"
+                    for item in lint_errors[:3]
+                )
+                extra_n = f" (+{len(lint_errors) - 3} more)" if len(lint_errors) > 3 else ""
                 checks.append(
                     DoctorCheck("suite_schemas", "FAIL", f"{preview}{extra_n}")
                 )
@@ -121,6 +124,18 @@ def run_doctor(
                         "suite",
                         "OK",
                         f"{len(cases)} prompt case(s) valid ({with_schema} with JSON Schema)",
+                    )
+                )
+            if lint_warnings:
+                warn_preview = "; ".join(
+                    f"{item.prompt_id or 'suite'} ({item.code})" for item in lint_warnings[:3]
+                )
+                extra_w = f" (+{len(lint_warnings) - 3} more)" if len(lint_warnings) > 3 else ""
+                checks.append(
+                    DoctorCheck(
+                        "suite_hygiene",
+                        "WARN",
+                        f"{len(lint_warnings)} lint warning(s): {warn_preview}{extra_w}",
                     )
                 )
         except (OSError, ValueError) as exc:
@@ -142,6 +157,9 @@ def run_doctor(
                 raise ValueError(f"{label} mixes multiple model names: {models!r}.")
             missing_lat = sum(1 for s in samples if s.latency_ms is None)
             id_sets[label] = {s.prompt_id for s in samples}
+            captures_scanned += 1
+            _, red_summary = redact_samples(samples, include_pii=False)
+            secret_counts.update(red_summary.counts_by_kind)
             status: Literal["OK", "WARN"] = "WARN" if 0 < missing_lat < len(samples) else "OK"
             if missing_lat == 0:
                 lat_note = "complete timings"
@@ -158,6 +176,22 @@ def run_doctor(
             )
         except (OSError, ValueError) as exc:
             checks.append(DoctorCheck(key, "FAIL", str(exc)))
+
+    if captures_scanned > 0:
+        if secret_counts:
+            breakdown = ", ".join(f"{k}={v}" for k, v in sorted(secret_counts.items()))
+            checks.append(
+                DoctorCheck(
+                    "secrets_scan",
+                    "WARN",
+                    f"Detected {sum(secret_counts.values())} potential credential(s) "
+                    f"({breakdown}); run 'redact' before committing captures.",
+                )
+            )
+        else:
+            checks.append(
+                DoctorCheck("secrets_scan", "OK", "No credentials detected in loaded captures.")
+            )
 
     if len(id_sets) >= 2:
         items = list(id_sets.items())
