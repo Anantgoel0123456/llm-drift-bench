@@ -57,11 +57,18 @@ class PromptDiff:
     unified_diff: tuple[str, ...] = ()
     ignored_paths: tuple[str, ...] = ()
 
+    def summary_counts(self) -> dict[str, int]:
+        counts = {"added": 0, "removed": 0, "changed": 0, "type_changed": 0}
+        for change in self.field_changes:
+            counts[change.kind] += 1
+        return counts
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "prompt_id": self.prompt_id,
             "mode": self.mode,
             "changed": self.changed,
+            "summary": self.summary_counts(),
             "field_changes": [change.to_dict() for change in self.field_changes],
             "unified_diff": list(self.unified_diff),
             "ignored_paths": list(self.ignored_paths),
@@ -96,6 +103,17 @@ def diff_sample_pair(
 
         flat_a_raw = flatten_json_paths(payload_a)
         flat_b_raw = flatten_json_paths(payload_b)
+        # Comparing an empty container ({} or []) with a non-empty container of the same kind
+        # should report only the added/removed child paths, not a spurious root '$' removal.
+        same_container_empty_mismatch = (
+            (isinstance(payload_a, dict) and isinstance(payload_b, dict))
+            or (isinstance(payload_a, list) and isinstance(payload_b, list))
+        ) and (bool(payload_a) != bool(payload_b))
+        if same_container_empty_mismatch:
+            if not payload_a:
+                flat_a_raw = {}
+            else:
+                flat_b_raw = {}
         ignored_rules = tuple(p for p, r in field_rules.items() if r.ignore)
 
         ignored_seen: set[str] = set()

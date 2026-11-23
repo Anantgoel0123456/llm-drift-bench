@@ -140,3 +140,19 @@ def test_cli_diff_on_examples_text_and_json(
     assert payload["diffs"][0]["prompt_id"] == "invoice-01"
 
     assert main(["diff", "-b", str(base), "-c", str(drift), "--limit", "0"]) == 2
+
+
+def test_diff_empty_containers_do_not_report_spurious_root_removal() -> None:
+    d_obj = diff_sample_pair(
+        ModelSample(prompt_id="p1", output="{}"),
+        ModelSample(prompt_id="p1", output='{"a": 1}'),
+    )
+    assert [(c.path, c.kind) for c in d_obj.field_changes] == [("$.a", "added")]
+    assert d_obj.summary_counts() == {"added": 1, "removed": 0, "changed": 0, "type_changed": 0}
+
+    d_arr = diff_sample_pair(
+        ModelSample(prompt_id="p1", output="[10]"),
+        ModelSample(prompt_id="p1", output="[]"),
+    )
+    assert [(c.path, c.kind) for c in d_arr.field_changes] == [("$[0]", "removed")]
+
