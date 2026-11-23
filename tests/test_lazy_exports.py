@@ -20,6 +20,10 @@ def test_all_exports_resolve_cleanly() -> None:
     assert "calibrate_from_reports" in exported
     assert "mcnemar_exact_test" in exported
     assert "register_scorer" in exported
+    assert "diff_captures" in exported
+    assert "export_csv_report" in exported
+    assert "markdown_structure_similarity" in exported
+    assert "detect_history_regression" in exported
 
     for name in llm_drift_bench.__all__:
         value = getattr(llm_drift_bench, name)
