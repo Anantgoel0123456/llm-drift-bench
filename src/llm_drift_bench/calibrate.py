@@ -6,11 +6,12 @@ import json
 import math
 import re
 from collections import defaultdict
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Any
 
 from llm_drift_bench._matching import require_same_ids
+from llm_drift_bench._numbers import finite_number
 from llm_drift_bench.metrics import _values_equal, flatten_json_paths
 from llm_drift_bench.models import DriftBenchmarkReport, DriftThresholds, ModelSample
 from llm_drift_bench.validator import extract_json_payload
@@ -37,6 +38,7 @@ class CalibrationResult:
     observed_max_latency_regression_pct: float | None
     headroom: float
     runs_analyzed: int
+    numeric_tolerances: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize calibration summary to a JSON-compatible dictionary."""
@@ -60,6 +62,7 @@ class CalibrationResult:
                 ),
             },
             "volatile_fields": list(self.volatile_fields),
+            "numeric_tolerances": dict(self.numeric_tolerances),
         }
 
 
@@ -109,12 +112,75 @@ def detect_volatile_fields(
     return sorted(collapsed)
 
 
+def detect_numeric_tolerances(
+    baseline_samples: Sequence[ModelSample],
+    repeat_samples: Sequence[ModelSample],
+    *,
+    headroom: float = 1.25,
+    collapse_array_wildcards: bool = True,
+) -> dict[str, float]:
+    """Suggest tolerance_abs rules for numeric fields that jitter across identical-model runs."""
+    if not baseline_samples or not repeat_samples:
+        raise ValueError("Both baseline and repeat sample collections must be non-empty.")
+    if (
+        isinstance(headroom, bool)
+        or not isinstance(headroom, (int, float))
+        or not math.isfinite(headroom)
+        or headroom < 1.0
+    ):
+        raise ValueError("headroom must be a finite number >= 1.0.")
+
+    base_map = {sample.prompt_id: sample for sample in baseline_samples}
+    repeat_map = {sample.prompt_id: sample for sample in repeat_samples}
+    require_same_ids(set(base_map), set(repeat_map), "Repeat capture")
+
+    max_diff: dict[str, float] = {}
+    for prompt_id in sorted(base_map):
+        ok_a, payload_a, _ = extract_json_payload(base_map[prompt_id].output)
+        ok_b, payload_b, _ = extract_json_payload(repeat_map[prompt_id].output)
+        if not (ok_a and ok_b):
+            continue
+        flat_a = flatten_json_paths(payload_a)
+        flat_b = flatten_json_paths(payload_b)
+        for path in set(flat_a) & set(flat_b):
+            val_a, val_b = flat_a[path], flat_b[path]
+            if (
+                isinstance(val_a, (int, float))
+                and not isinstance(val_a, bool)
+                and isinstance(val_b, (int, float))
+                and not isinstance(val_b, bool)
+            ):
+                diff = abs(finite_number(val_a) - finite_number(val_b))
+                if diff > 0:
+                    max_diff[path] = max(max_diff.get(path, 0.0), diff)
+
+    if collapse_array_wildcards:
+        grouped: dict[str, list[str]] = defaultdict(list)
+        for path in max_diff:
+            grouped[_generalize_array_indices(path)].append(path)
+        merged: dict[str, float] = {}
+        for pattern, concretes in grouped.items():
+            if "[*]" in pattern and len(concretes) >= 2:
+                merged[pattern] = max(max_diff[c] for c in concretes)
+            else:
+                for c in concretes:
+                    merged[c] = max_diff[c]
+        max_diff = merged
+
+    return {
+        path: round(diff * headroom, 6)
+        for path, diff in sorted(max_diff.items())
+        if math.isfinite(diff * headroom)
+    }
+
+
 def calibrate_from_reports(
     reports: Sequence[DriftBenchmarkReport],
     *,
     headroom: float = 1.25,
     min_floor_drift: float = 0.05,
     volatile_fields: Sequence[str] = (),
+    numeric_tolerances: Mapping[str, float] | None = None,
 ) -> CalibrationResult:
     """Recommend DriftThresholds with headroom from one or more baseline noise reports."""
     if not reports:
@@ -174,7 +240,20 @@ def calibrate_from_reports(
         max_numeric_relative_drift=rec_num,
         max_latency_regression_pct=rec_lat,
     )
-    cleaned_volatile = tuple(sorted({p for p in volatile_fields if p.startswith("$")}))
+    bad_paths = [p for p in volatile_fields if not isinstance(p, str) or not p.startswith("$")]
+    if bad_paths:
+        raise ValueError(f"Volatile field path(s) must start with '$': {bad_paths!r}.")
+    cleaned_tols: dict[str, float] = {}
+    if numeric_tolerances:
+        for path, tol in sorted(numeric_tolerances.items()):
+            if not isinstance(path, str) or not path.startswith("$"):
+                raise ValueError(f"Tolerance path must start with '$': {path!r}.")
+            tol_num = finite_number(tol)
+            if tol_num < 0:
+                raise ValueError(f"Tolerance for {path!r} must be non-negative.")
+            cleaned_tols[path] = tol_num
+
+    cleaned_volatile = tuple(sorted(set(volatile_fields) - set(cleaned_tols)))
     return CalibrationResult(
         recommended_thresholds=thresholds,
         volatile_fields=cleaned_volatile,
@@ -184,6 +263,7 @@ def calibrate_from_reports(
         observed_max_latency_regression_pct=obs_max_lat,
         headroom=float(headroom),
         runs_analyzed=len(reports),
+        numeric_tolerances=cleaned_tols,
     )
 
 
@@ -210,6 +290,11 @@ def render_calibrated_toml(result: CalibrationResult) -> str:
             lines.append(f"[fields.{json.dumps(path, ensure_ascii=True)}]")
             lines.append("ignore = true")
             lines.append("")
-    else:
+    if result.numeric_tolerances:
         lines.append("")
+        lines.append("# Suggested absolute tolerances for numeric jitter fields")
+        for path, tol in sorted(result.numeric_tolerances.items()):
+            lines.append(f"[fields.{json.dumps(path, ensure_ascii=True)}]")
+            lines.append(f"tolerance_abs = {tol}")
+            lines.append("")
     return "\n".join(lines).rstrip() + "\n"

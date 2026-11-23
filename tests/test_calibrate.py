@@ -253,3 +253,30 @@ def test_detect_volatile_fields_collapses_repeated_array_indices_and_init_policy
     starter_policy = load_policy(sample_dir / "drift.toml")
     assert starter_policy.field_rules["$.tags"].unordered_array is True
 
+
+def test_detect_numeric_tolerances_and_invalid_volatile_path_rejection(tmp_path: Path) -> None:
+    from llm_drift_bench.calibrate import detect_numeric_tolerances
+
+    run1 = _make_samples({"p1": '{"confidence": 0.92, "timestamp": "t1"}'})
+    run2 = _make_samples({"p1": '{"confidence": 0.95, "timestamp": "t2"}'})
+    tols = detect_numeric_tolerances(run1, run2, headroom=1.25)
+    assert tols == {"$.confidence": pytest.approx(0.0375, abs=1e-6)}
+
+    report = DriftBenchmarkEngine().evaluate(run1, run2)
+    cal = calibrate_from_reports(
+        [report],
+        volatile_fields=["$.timestamp", "$.confidence"],
+        numeric_tolerances=tols,
+    )
+    assert cal.volatile_fields == ("$.timestamp",)
+    assert cal.numeric_tolerances["$.confidence"] == pytest.approx(0.0375, abs=1e-6)
+    toml_path = tmp_path / "tol.toml"
+    toml_path.write_text(render_calibrated_toml(cal), encoding="utf-8")
+    loaded = load_policy(toml_path)
+    assert loaded.field_rules["$.confidence"].tolerance_abs == pytest.approx(0.0375, abs=1e-6)
+    assert loaded.field_rules["$.timestamp"].ignore is True
+
+    with pytest.raises(ValueError, match="must start with"):
+        calibrate_from_reports([report], volatile_fields=["timestamp"])
+
+
