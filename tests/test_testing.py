@@ -50,3 +50,22 @@ def test_failure_details_are_bounded_and_deterministic() -> None:
     assert message.count("- Prompt") == 5
     assert message.index("Prompt '0'") < message.index("Prompt '4'")
     assert "2 additional drifted samples" in message
+
+
+def test_assert_no_drift_type_guard_and_assert_no_regression() -> None:
+    from pathlib import Path
+
+    from llm_drift_bench.report_io import load_engine_report
+    from llm_drift_bench.testing import assert_no_regression
+
+    with pytest.raises(TypeError, match="DriftBenchmarkReport"):
+        assert_no_drift(None)  # type: ignore[arg-type]
+
+    examples = Path(__file__).resolve().parents[1] / "examples"
+    pass_rep = load_engine_report(examples / "expected-pass.json")
+    drift_rep = load_engine_report(examples / "expected-drift.json")
+
+    assert assert_no_regression([drift_rep, pass_rep], against="demo-candidate-drift") is None
+    with pytest.raises(AssertionError, match="2 prompt\\(s\\) newly regressed"):
+        assert_no_regression([pass_rep, drift_rep], against="demo-candidate-pass")
+
