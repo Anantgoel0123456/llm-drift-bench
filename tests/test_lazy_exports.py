@@ -27,6 +27,15 @@ def test_all_exports_resolve_cleanly() -> None:
     assert "export_sarif_report" in exported
     assert "run_doctor" in exported
     assert "json_key_jaccard_similarity" in exported
+    assert "export_comparison_markdown" in exported
+    assert "detect_numeric_tolerances" in exported
+    assert "assert_no_regression" in exported
+    assert "redact_samples" in exported
+    assert "sample_prompt_suite" in exported
+    assert "estimate_cost_drift" in exported
+    assert "build_drift_matrix" in exported
+    assert "lint_prompt_suite" in exported
+    assert "evaluate_release_gates" in exported
 
     for name in llm_drift_bench.__all__:
         value = getattr(llm_drift_bench, name)

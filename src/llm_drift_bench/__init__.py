@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 __version__ = "0.3.0"
 
 if TYPE_CHECKING:
+    from llm_drift_bench._comparison_md import export_comparison_markdown
     from llm_drift_bench.adapters import (
         from_anthropic_transcript,
         from_openai_tool_calls,
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
     from llm_drift_bench.calibrate import (
         CalibrationResult,
         calibrate_from_reports,
+        detect_numeric_tolerances,
         detect_volatile_fields,
         render_calibrated_toml,
     )
@@ -32,6 +34,11 @@ if TYPE_CHECKING:
         PromptChange,
         compare_reports,
         prompt_changes,
+    )
+    from llm_drift_bench.cost import (
+        CostComparison,
+        ModelPricing,
+        estimate_cost_drift,
     )
     from llm_drift_bench.csv_export import export_csv_report
     from llm_drift_bench.diagnostics import Finding, diagnose_report
@@ -65,6 +72,11 @@ if TYPE_CHECKING:
         load_benchmark_result,
         load_test_prompts,
     )
+    from llm_drift_bench.gates import (
+        GateCheck,
+        ReleaseVerdict,
+        evaluate_release_gates,
+    )
     from llm_drift_bench.history import (
         HistoryEntry,
         HistoryTrendCheck,
@@ -76,6 +88,13 @@ if TYPE_CHECKING:
         sparkline,
     )
     from llm_drift_bench.junit import export_junit_report
+    from llm_drift_bench.matrix import (
+        DriftMatrix,
+        MatrixRow,
+        build_drift_matrix,
+        export_drift_matrix_html,
+        format_drift_matrix_text,
+    )
     from llm_drift_bench.metrics import (
         compute_composite_drift_score,
         compute_percentile,
@@ -106,6 +125,16 @@ if TYPE_CHECKING:
         MetricWeights,
         load_policy,
     )
+    from llm_drift_bench.prompt_lint import (
+        LintIssue,
+        format_lint_issues_text,
+        lint_prompt_suite,
+    )
+    from llm_drift_bench.redaction import (
+        RedactionReport,
+        redact_samples,
+        redact_text,
+    )
     from llm_drift_bench.report_io import load_report
     from llm_drift_bench.reporter import (
         export_comparison_html,
@@ -113,6 +142,10 @@ if TYPE_CHECKING:
         export_markdown_report,
         export_pr_comment,
         render_console_report,
+    )
+    from llm_drift_bench.sampling import (
+        sample_prompt_suite,
+        slice_samples_for_suite,
     )
     from llm_drift_bench.sarif import export_sarif_report
     from llm_drift_bench.schema_infer import (
@@ -145,7 +178,7 @@ if TYPE_CHECKING:
         paired_permutation_test,
         summarize_multi_run,
     )
-    from llm_drift_bench.testing import assert_no_drift
+    from llm_drift_bench.testing import assert_no_drift, assert_no_regression
     from llm_drift_bench.tool_events import (
         ToolCheckResult,
         ToolEvent,
@@ -173,10 +206,12 @@ _EXPORTS: dict[str, str] = {
     "CalibrationResult": "calibrate",
     "CandidateSummary": "comparison",
     "CaptureConfig": "capture",
+    "CostComparison": "cost",
     "DoctorCheck": "doctor",
     "DoctorReport": "doctor",
     "DriftBenchmarkEngine": "engine",
     "DriftBenchmarkReport": "models",
+    "DriftMatrix": "matrix",
     "DriftMetrics": "models",
     "DriftPolicy": "policy",
     "DriftThresholds": "models",
@@ -184,10 +219,14 @@ _EXPORTS: dict[str, str] = {
     "FieldChange": "diffing",
     "FieldRule": "policy",
     "Finding": "diagnostics",
+    "GateCheck": "gates",
     "HistoryEntry": "history",
     "HistoryTrendCheck": "history",
+    "LintIssue": "prompt_lint",
+    "MatrixRow": "matrix",
     "McNemarResult": "stats",
     "MetricWeights": "policy",
+    "ModelPricing": "cost",
     "ModelSample": "models",
     "MultiRunSummary": "stats",
     "PairedSignificance": "stats",
@@ -195,6 +234,8 @@ _EXPORTS: dict[str, str] = {
     "PromptChange": "comparison",
     "PromptDiff": "diffing",
     "PromptStability": "stats",
+    "RedactionReport": "redaction",
+    "ReleaseVerdict": "gates",
     "SampleDriftResult": "models",
     "SchemaValidationResult": "models",
     "Scorer": "scorers",
@@ -205,7 +246,9 @@ _EXPORTS: dict[str, str] = {
     "ToolEvent": "tool_events",
     "ValidationIssue": "models",
     "assert_no_drift": "testing",
+    "assert_no_regression": "testing",
     "bootstrap_mean_ci": "stats",
+    "build_drift_matrix": "matrix",
     "calibrate_from_reports": "calibrate",
     "capture_suite": "capture",
     "char_ngram_cosine_similarity": "scorers",
@@ -222,16 +265,21 @@ _EXPORTS: dict[str, str] = {
     "compute_token_diff_ratio": "evaluator",
     "compute_tokens_per_sec": "evaluator",
     "detect_history_regression": "history",
+    "detect_numeric_tolerances": "calibrate",
     "detect_volatile_fields": "calibrate",
     "diagnose_report": "diagnostics",
     "diff_captures": "diffing",
     "diff_sample_pair": "diffing",
+    "estimate_cost_drift": "cost",
     "evaluate_many": "batch",
+    "evaluate_release_gates": "gates",
     "evaluate_response_pair": "evaluator",
     "evaluate_sample_pair": "engine",
     "evaluate_suite": "evaluator",
     "export_comparison_html": "reporter",
+    "export_comparison_markdown": "_comparison_md",
     "export_csv_report": "csv_export",
+    "export_drift_matrix_html": "matrix",
     "export_history_html": "history",
     "export_html_report": "reporter",
     "export_junit_report": "junit",
@@ -242,7 +290,9 @@ _EXPORTS: dict[str, str] = {
     "flatten_json_paths": "metrics",
     "format_diffs_text": "diffing",
     "format_doctor_text": "doctor",
+    "format_drift_matrix_text": "matrix",
     "format_history_text": "history",
+    "format_lint_issues_text": "prompt_lint",
     "format_report_table": "engine",
     "from_anthropic_transcript": "adapters",
     "from_openai_tool_calls": "adapters",
@@ -255,6 +305,7 @@ _EXPORTS: dict[str, str] = {
     "json_key_jaccard_similarity": "scorers",
     "json_numeric_drift": "metrics",
     "json_structural_similarity": "metrics",
+    "lint_prompt_suite": "prompt_lint",
     "list_scorers": "scorers",
     "load_adapted_tool_events": "adapters",
     "load_benchmark_result": "evaluator",
@@ -277,12 +328,16 @@ _EXPORTS: dict[str, str] = {
     "prompt_changes": "comparison",
     "python_ast_similarity": "scorers",
     "record_report": "history",
+    "redact_samples": "redaction",
+    "redact_text": "redaction",
     "register_scorer": "scorers",
     "render_calibrated_toml": "calibrate",
     "render_console_report": "reporter",
     "run_doctor": "doctor",
+    "sample_prompt_suite": "sampling",
     "score_captures": "scorers",
     "serialize_samples_jsonl": "capture",
+    "slice_samples_for_suite": "sampling",
     "sparkline": "history",
     "summarize_multi_run": "stats",
     "tfidf_cosine_similarity": "scorers",
@@ -297,10 +352,12 @@ __all__ = [
     "CalibrationResult",
     "CandidateSummary",
     "CaptureConfig",
+    "CostComparison",
     "DoctorCheck",
     "DoctorReport",
     "DriftBenchmarkEngine",
     "DriftBenchmarkReport",
+    "DriftMatrix",
     "DriftMetrics",
     "DriftPolicy",
     "DriftThresholds",
@@ -308,10 +365,14 @@ __all__ = [
     "FieldChange",
     "FieldRule",
     "Finding",
+    "GateCheck",
     "HistoryEntry",
     "HistoryTrendCheck",
+    "LintIssue",
+    "MatrixRow",
     "McNemarResult",
     "MetricWeights",
+    "ModelPricing",
     "ModelSample",
     "MultiRunSummary",
     "PairedSignificance",
@@ -319,6 +380,8 @@ __all__ = [
     "PromptChange",
     "PromptDiff",
     "PromptStability",
+    "RedactionReport",
+    "ReleaseVerdict",
     "SampleDriftResult",
     "SchemaValidationResult",
     "Scorer",
@@ -330,7 +393,9 @@ __all__ = [
     "ValidationIssue",
     "__version__",
     "assert_no_drift",
+    "assert_no_regression",
     "bootstrap_mean_ci",
+    "build_drift_matrix",
     "calibrate_from_reports",
     "capture_suite",
     "char_ngram_cosine_similarity",
@@ -347,16 +412,21 @@ __all__ = [
     "compute_token_diff_ratio",
     "compute_tokens_per_sec",
     "detect_history_regression",
+    "detect_numeric_tolerances",
     "detect_volatile_fields",
     "diagnose_report",
     "diff_captures",
     "diff_sample_pair",
+    "estimate_cost_drift",
     "evaluate_many",
+    "evaluate_release_gates",
     "evaluate_response_pair",
     "evaluate_sample_pair",
     "evaluate_suite",
     "export_comparison_html",
+    "export_comparison_markdown",
     "export_csv_report",
+    "export_drift_matrix_html",
     "export_history_html",
     "export_html_report",
     "export_junit_report",
@@ -367,7 +437,9 @@ __all__ = [
     "flatten_json_paths",
     "format_diffs_text",
     "format_doctor_text",
+    "format_drift_matrix_text",
     "format_history_text",
+    "format_lint_issues_text",
     "format_report_table",
     "from_anthropic_transcript",
     "from_openai_tool_calls",
@@ -380,6 +452,7 @@ __all__ = [
     "json_key_jaccard_similarity",
     "json_numeric_drift",
     "json_structural_similarity",
+    "lint_prompt_suite",
     "list_scorers",
     "load_adapted_tool_events",
     "load_benchmark_result",
@@ -402,12 +475,16 @@ __all__ = [
     "prompt_changes",
     "python_ast_similarity",
     "record_report",
+    "redact_samples",
+    "redact_text",
     "register_scorer",
     "render_calibrated_toml",
     "render_console_report",
     "run_doctor",
+    "sample_prompt_suite",
     "score_captures",
     "serialize_samples_jsonl",
+    "slice_samples_for_suite",
     "sparkline",
     "summarize_multi_run",
     "tfidf_cosine_similarity",
