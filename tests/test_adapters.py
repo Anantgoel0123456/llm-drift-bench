@@ -263,3 +263,55 @@ def test_openai_responses_output_wrapper_and_otlp_resource_spans(tmp_path) -> No
     with pytest.raises(ValueError, match="unrecognized transcript wrapper"):
         load_adapted_tool_events(bad_wrapper, adapter="openai")
 
+
+def test_expanded_secret_patterns_and_cli_max_failed_calls(tmp_path, capsys) -> None:
+    import json
+
+    from llm_drift_bench.cli import main
+
+    ant_key = "sk-ant-api03-1234567890abcdefghij"
+    google_key = "AIza" + "A" * 35
+    slack_tok = "xoxb-1234567890-abcdef"
+    res = check_no_secret_in_tool_args([ant_key, google_key, slack_tok])
+    assert res.status == "FAIL"
+    assert "anthropic_key" in res.reason
+    assert "openai_key" not in res.reason
+    assert "google_api_key" in res.reason
+    assert "slack_token" in res.reason
+    assert ant_key not in res.reason and google_key not in res.reason
+
+    trace = tmp_path / "retries.jsonl"
+    trace.write_text(
+        '{"kind": "read", "resource": "g@1", "start": 0, "end": 10, "success": true}\n'
+        '{"kind": "edit", "resource": "a@1", "success": false}\n'
+        '{"kind": "edit", "resource": "a@1", "success": false}\n',
+        encoding="utf-8",
+    )
+    # read_before_edit passes, but 2 failed calls exceeds --max-failed-calls 1 -> exit 1!
+    rc = main([
+        "check-tools",
+        "-i", str(trace),
+        "--resource", "g@1",
+        "--end", "10",
+        "--trace-complete",
+        "--max-failed-calls", "1",
+        "--format", "json",
+    ])
+    assert rc == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out["status"] == "PASS"
+    assert out["max_failed_calls_check"]["status"] == "FAIL"
+
+    # Raising the budget to 2 succeeds with exit 0.
+    rc_ok = main([
+        "check-tools",
+        "-i", str(trace),
+        "--resource", "g@1",
+        "--end", "10",
+        "--trace-complete",
+        "--max-failed-calls", "2",
+    ])
+    assert rc_ok == 0
+    assert "max_tool_retries: PASS" in capsys.readouterr().out
+
+

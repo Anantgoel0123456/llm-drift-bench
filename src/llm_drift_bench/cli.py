@@ -570,6 +570,13 @@ def _add_check_tools_subparser(
         help="Attest that the trace includes every read and edit of the run.",
     )
     parser.add_argument(
+        "--max-failed-calls",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Optional retry budget: fail (exit 1) if more than N tool calls failed.",
+    )
+    parser.add_argument(
         "--format", choices=("text", "json"), default="text",
         help="Stdout format: text (default) or json (the saved check file).",
     )
@@ -582,13 +589,16 @@ def _add_check_tools_subparser(
 def _handle_check_tools(args: argparse.Namespace) -> int:
     """Execute the 'check-tools' subcommand."""
     _protect_inputs(args.output, args.input)
+    events = None
     if args.adapter == "normalized":
-        from llm_drift_bench.tool_log import check_trace_file
+        from llm_drift_bench.tool_log import check_trace_file, load_tool_events
 
         record = check_trace_file(
             args.input, resource=args.resource, required_start=args.start,
             required_end=args.end, trace_complete=args.trace_complete,
         )
+        if args.max_failed_calls is not None:
+            events = load_tool_events(args.input)
     else:
         from llm_drift_bench.adapters import load_adapted_tool_events
         from llm_drift_bench.tool_log import check_trace
@@ -598,12 +608,30 @@ def _handle_check_tools(args: argparse.Namespace) -> int:
             events, resource=args.resource, required_start=args.start,
             required_end=args.end, trace_complete=args.trace_complete,
         )
+    retry_result = None
+    if args.max_failed_calls is not None and events is not None:
+        from llm_drift_bench.tool_events import check_max_tool_retries
+
+        retry_result = check_max_tool_retries(
+            events,
+            max_failed_calls=args.max_failed_calls,
+            trace_complete=args.trace_complete,
+        )
     payload = json.dumps(record.to_dict(), indent=2)
     if args.output:
         _atomic_write_text(Path(args.output), payload + "\n")
     result = record.result
     if args.format == "json":
-        print(payload)
+        if retry_result is None:
+            print(payload)
+        else:
+            out_obj = record.to_dict()
+            out_obj["max_failed_calls_check"] = {
+                "status": retry_result.status,
+                "reason": retry_result.reason,
+                "limit": args.max_failed_calls,
+            }
+            print(json.dumps(out_obj, indent=2))
     else:
         print(f"read_before_edit: {result.status}")
         print(f"Resource: {record.resource}")
@@ -616,9 +644,13 @@ def _handle_check_tools(args: argparse.Namespace) -> int:
         print(f"First edit sequence: {edit}")
         print(f"Trace attested complete: {'yes' if record.trace_complete else 'no'}")
         print(f"Reason: {result.reason}")
-    if result.status == "PASS":
+        if retry_result is not None:
+            print(f"max_tool_retries: {retry_result.status} ({retry_result.reason})")
+    if result.status == "FAIL" or (retry_result is not None and retry_result.status == "FAIL"):
+        return 1
+    if result.status == "PASS" and (retry_result is None or retry_result.status == "PASS"):
         return 0
-    return 1 if result.status == "FAIL" else EXIT_TOOL_UNKNOWN
+    return EXIT_TOOL_UNKNOWN
 
 
 def _add_init_sample_subparser(
