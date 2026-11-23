@@ -154,14 +154,18 @@ Commands are:
 - `validate` (supports `--category` and `--strict`)
 - `report` (supports `markdown`, `console`/`table`, `json`, `csv`, `sarif`, `html`, `junit`, `pr-comment`)
 - `diagnose`
-- `compare-many` (supports `--sort-by`, `--format rich`, `--html-output`, `--json-output`, `--config`)
-- `compare-reports` (supports `--sort-by`, `--format rich`, `--html-output`, `--json-output`)
+- `compare-many` (supports `--sort-by`, `--format rich`, `--html-output`, `--markdown-output`, `--json-output`, `--config`)
+- `compare-reports` (supports `--sort-by`, `--format rich`, `--html-output`, `--markdown-output`, `--json-output`)
+- `matrix` (Prompt x Candidate drift heatmap matrix in `text`, `json`, or offline `html`)
 - `check-tools` (supports `--adapter normalized|openai|anthropic|otel` and `--max-failed-calls`)
 - `stats` (bootstrap confidence intervals, multi-run flakiness, paired permutation with Cohen's `d`, and overflow-safe exact two-sided McNemar tests)
 - `history` (`record`, `show` with `--candidate`/`--tag` filters, sparklines & SVG tooltips, and `check` moving-window regression gate)
-- `capture` (zero-dependency OpenAI-compatible endpoint collector with `--concurrency`, `--runs`, `--json-mode`, `--resume`, and `--header`)
+- `capture` (zero-dependency OpenAI-compatible & Anthropic `--provider anthropic` endpoint collector with `--concurrency`, `--runs`, `--json-mode`, `--resume`, `--header`, `Retry-After` backoff, and connection-drop retries)
+- `redact` (deterministic credential and optional PII redactor for capture files)
+- `subsample` (deterministic stratified prompt suite subsampling and lockstep capture slicing)
 - `infer-schema` (automatic supported-subset JSON Schema suite inference from captured baseline JSON outputs)
-- `calibrate` (automatic `drift.toml` threshold calibration and volatile JSON field detection with `[*]` array wildcard collapsing)
+- `lint-suite` (prompt suite quality and JSON Schema hygiene auditor)
+- `calibrate` (automatic `drift.toml` threshold calibration, volatile JSON field detection with `[*]` wildcard collapse, and `--numeric-tolerances`)
 - `init-sample` (optional `--with-policy` to scaffold `drift.toml`)
 - `doctor` (pre-flight validation of environment, policies, suite schemas/regex safety, and capture alignment)
 - `ai-devices`
@@ -169,17 +173,24 @@ Commands are:
 Additional library modules:
 
 - `policy.py`: `drift.toml` / `drift.json` evaluation policies with custom metric weights and exact or `[*]` wildcard JSONPath `ignore` / `unordered_array` / `tolerance_abs` / `tolerance_rel` rules.
-- `diffing.py`: policy-aware semantic JSON field diffing and unified text diff formatting.
-- `csv_export.py`: RFC-4180 per-prompt CSV exporter for canonical engine reports.
+- `diffing.py`: policy-aware semantic JSON field diffing, summary counts, and unified text diff formatting.
+- `csv_export.py`: RFC-4180 per-prompt CSV exporter with spreadsheet formula-injection sanitization for canonical engine reports.
 - `sarif.py`: OASIS SARIF 2.1.0 exporter for GitHub Code Scanning and IDE diagnostics.
 - `doctor.py`: pre-flight environment, policy, schema-subset, and ID-alignment validator.
 - `stats.py`: deterministic bootstrap CIs, multi-run stability, paired permutation significance tests (with Cohen's `d`), and overflow-safe exact two-sided McNemar conformity tests.
 - `history.py`: append-only JSONL drift ledger with strict validation, moving-window regression detection, sparklines, and SVG HTML trend charts with tooltips.
-- `capture.py`: OpenAI-compatible HTTP capture collector with bounded reads, sanitized errors, `--concurrency`, `--runs`, `--json-mode`, `--resume` checkpointing, custom `--header` support, timeouts, and retries.
+- `capture.py`: OpenAI-compatible and Anthropic HTTP capture collector with bounded reads, sanitized errors, `Retry-After` support, `--concurrency`, `--runs`, `--json-mode`, `--resume` checkpointing, custom `--header` support, timeouts, and retries.
 - `adapters.py`: offline transcript adapters for OpenAI Chat & Responses APIs (`output` wrapper), Anthropic/Claude `tool_use`/`tool_result` logs, and OpenTelemetry GenAI / OTLP `resourceSpans` JSON.
 - `scorers.py`: pluggable scorer protocol & registry (`char_ngram_cosine`, `json_key_jaccard`, `markdown_structure`, `python_ast`, `tfidf_cosine`, plus `llm_drift_bench.scorers` entry-point discovery).
-- `schema_infer.py`: automatic JSON Schema inference & merging (including nullable object/array constraint preservation).
-- `calibrate.py`: baseline noise threshold calibration, volatile field detection with `[*]` wildcard collapse, and `drift.toml` synthesis.
+- `schema_infer.py`: automatic JSON Schema inference & merging (including nullable object/array constraint preservation and deep-copied single schemas).
+- `calibrate.py`: baseline noise threshold calibration, volatile field detection with `[*]` wildcard collapse, numeric tolerance suggestion, and `drift.toml` synthesis.
+- `redaction.py`: deterministic credential and optional PII redaction for text and `ModelSample` captures.
+- `sampling.py`: deterministic stratified prompt suite subsampler and lockstep capture slicer.
+- `cost.py`: explicit token volume and USD output-cost drift estimator (returns `complete=False` if any sample omits `tokens_generated`).
+- `matrix.py`: multi-candidate Prompt x Candidate drift heatmap matrix (text, JSON, offline HTML).
+- `prompt_lint.py`: prompt suite and JSON Schema hygiene linter.
+- `gates.py`: composite GO/NO-GO release gate evaluator aggregating canonical drift, history trend, statistical, and tool-trace evidence.
+- `_comparison_md.py` and `_cli_extras.py`: GitHub-Flavored Markdown multi-candidate comparison exporter and lazily imported extra CLI subcommand handlers.
 
 All CLI run formats render one DriftBenchmarkReport. Rich, Markdown, and HTML
 use the canonical summary/detail values without calling evaluate_suite. The

@@ -58,9 +58,10 @@ flowchart LR
 | **JSON & Schema Conformity** | Available | Strict extraction (direct, fenced, prose), duplicate-key & `NaN`/`Inf` rejection, safe bounded regex subset |
 | **Composite Drift & Policies** | Available | Token Jaccard, n-gram Dice, exact Levenshtein, JSON structure/field/numeric drift, `drift.toml` weights & per-field/wildcard `[*]` rules (`ignore`, `unordered_array`, `tolerance_abs`/`tolerance_rel`) |
 | **Semantic Field Diffs** | Available | `diff` CLI inspects exact JSON field additions/removals/type shifts/numeric deltas or unified text diffs while respecting `drift.toml` rules |
-| **Zero-Setup Onboarding** | Available | `infer-schema` generates strict JSON Schemas; `calibrate` auto-tunes `drift.toml` & collapses volatile arrays to `[*]`; `doctor` runs pre-flight checks |
-| **Endpoint Capture Collector** | Available | Zero-dependency OpenAI-compatible collector (Ollama, vLLM, llama.cpp, OpenAI) with `--concurrency`, `--runs`, `--json-mode`, `--resume`, `--header`, bounded retries |
-| **Multi-Candidate Ranking** | Available | `compare-many` & `compare-reports` with `--sort-by`, `--against`, `--hotspots`, `--inspect-prompt`, Rich tables & SVG Pareto frontier HTML |
+| **Zero-Setup Onboarding** | Available | `infer-schema` generates strict JSON Schemas; `calibrate` auto-tunes `drift.toml`, collapses volatile arrays to `[*]`, & suggests `--numeric-tolerances`; `lint-suite` & `doctor` audit suites and workspace setup |
+| **Endpoint Capture Collector** | Available | Zero-dependency OpenAI-compatible & Anthropic (`--provider anthropic`) collector with `--concurrency`, `--runs`, `--json-mode`, `--resume`, `--header`, `Retry-After` backoff, & connection-drop retries |
+| **Multi-Candidate Ranking** | Available | `compare-many`, `compare-reports` (`--markdown-output`, SVG Pareto HTML, Rich tables), & `matrix` Prompt x Candidate heatmaps (text, JSON, offline HTML) |
+| **Privacy, Sampling & Release Gates** | Available | `redact` (secrets + optional PII), `subsample` (stratified suite & lockstep capture slicing), `estimate_cost_drift` (explicit tokens only), & `evaluate_release_gates` composite GO/NO-GO verdicts |
 | **Statistical Rigor** | Available | `stats` with deterministic bootstrap CIs, flaky-prompt detection, paired permutation tests (with Cohen's `d`), and exact two-sided McNemar conformity tests |
 | **Drift History & Trends** | Available | Append-only JSONL ledger (`history record\|show\|check`) with moving-window regression alerts, `--candidate`/`--tag` filters, sparklines & SVG trend HTML |
 | **Agent Tool-Trace Audits** | Available | `check-tools --adapter normalized\|openai\|anthropic\|otel` (OpenAI Responses + OTLP `resourceSpans`), `--max-failed-calls` retry budgets, & secret-leak checks |
@@ -288,14 +289,18 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | `validate` | Validate captures for JSON syntax and JSON Schema conformity (`--category`, `--strict`) |
 | `report` | Render a saved report as `markdown`, `console`/`table`, `json`, `csv`, `sarif`, `html`, `junit`, or `pr-comment` (`--previous`, `--tool-check`) |
 | `diagnose` | Explain why a saved comparison failed (`--scope`, `--kind`, `--prompt-id`, optional local OpenVINO `--ai-model`) |
-| `compare-many` | Evaluate 2+ labeled candidate captures against one baseline (`--sort-by`, `--against`, `--hotspots`, `--format rich`, `--html-output`) |
-| `compare-reports` | Rank saved candidate reports and export SVG Pareto frontier dashboards |
+| `compare-many` | Evaluate 2+ labeled candidate captures against one baseline (`--sort-by`, `--against`, `--hotspots`, `--format rich`, `--html-output`, `--markdown-output`) |
+| `compare-reports` | Rank saved candidate reports and export SVG Pareto HTML or GFM `--markdown-output` leaderboards |
+| `matrix` | Render a Prompt x Candidate drift heatmap matrix across 2+ saved reports (`--sort-prompts`, `--format text\|json\|html`) |
 | `check-tools` | Offline read-before-edit & `--max-failed-calls` checks on normalized, OpenAI, Anthropic, or OTel traces (`--adapter`) |
 | `stats` | Multi-run bootstrap CIs, flaky-prompt detection, paired permutation (with Cohen's `d`), and exact two-sided McNemar tests |
 | `history` | Record reports (`record`), inspect sparklines/SVG trends (`show`), and gate on moving-window regressions (`check`) |
-| `capture` | Capture reproducible JSONL outputs from OpenAI-compatible endpoints (`--concurrency`, `--runs`, `--json-mode`, `--resume`, `--header`) |
+| `capture` | Capture reproducible JSONL outputs from OpenAI-compatible or Anthropic (`--provider anthropic`) endpoints (`--concurrency`, `--runs`, `--json-mode`, `--resume`, `--header`) |
+| `redact` | Deterministically scrub API keys, private keys, and optional PII from captures before sharing or archiving (`--secrets-only`) |
+| `subsample` | Deterministically draw stratified prompt subsamples and slice matching captures in lockstep (`--size`, `--seed`, `--slice-capture`) |
 | `infer-schema` | Auto-infer a supported-subset JSON Schema prompt suite from baseline captures |
-| `calibrate` | Auto-calibrate `drift.toml` thresholds and detect/collapse volatile JSON fields from baseline noise runs |
+| `lint-suite` | Audit prompt suites for duplicate IDs/prompts, unsatisfiable schemas, permissive objects, and unsupported keywords (`--strict`) |
+| `calibrate` | Auto-calibrate `drift.toml` thresholds, detect/collapse volatile JSON fields, and suggest `--numeric-tolerances` |
 | `init-sample` | Scaffold starter prompt, baseline, and candidate datasets (`--with-policy` adds `drift.toml`) |
 | `doctor` | Pre-flight check for environment, `drift.toml` policies, suite schemas/regex safety, and capture ID alignment |
 | `ai-devices` | List devices visible to the optional local OpenVINO runtime |
@@ -308,7 +313,7 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 
 ### Automated Regression Test Gate (`pytest` / `unittest`)
 
-`assert_no_drift(report)` enforces the canonical engine verdict and prints suite failure reasons plus up to 5 failing prompt IDs without leaking raw captured responses:
+`assert_no_drift(report)` enforces the canonical engine verdict and prints suite failure reasons plus up to 5 failing prompt IDs without leaking raw captured responses; `assert_no_regression(reports, against=...)` gates multi-candidate regressions, `evaluate_release_gates(...)` combines drift, history trend, statistical, and tool checks into an auditable GO/NO-GO verdict, and `estimate_cost_drift(...)` compares explicit token usage and optional USD pricing without fabricating token counts:
 
 ```python
 from pathlib import Path
