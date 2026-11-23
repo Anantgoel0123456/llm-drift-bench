@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
-from llm_drift_bench.models import PromptCase
+from llm_drift_bench.cli import main
+from llm_drift_bench.models import ModelSample, PromptCase
 from llm_drift_bench.scorers import (
+    _SCORER_REGISTRY,
     ScorerResult,
     char_ngram_cosine_similarity,
     get_scorer,
     list_scorers,
+    markdown_structure_similarity,
     python_ast_similarity,
     register_scorer,
+    score_captures,
     tfidf_cosine_similarity,
 )
 
@@ -77,8 +84,95 @@ def test_scorer_registry_builtins_and_custom_plugin() -> None:
             return ScorerResult(self.name, round(ratio, 4))
 
     register_scorer(CustomLenScorer())
-    assert "custom_length_ratio" in list_scorers()
-    assert get_scorer("custom_length_ratio").score("abcd", "ab").similarity == 0.5
+    try:
+        assert "custom_length_ratio" in list_scorers()
+        assert get_scorer("custom_length_ratio").score("abcd", "ab").similarity == 0.5
+    finally:
+        _SCORER_REGISTRY.pop("custom_length_ratio", None)
 
     with pytest.raises(ValueError, match="Unknown scorer"):
         get_scorer("nonexistent_scorer")
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        ScorerResult("bad", 1.5)
+    with pytest.raises(ValueError, match="positive integer"):
+        char_ngram_cosine_similarity("a", "b", n=0)
+
+
+def test_markdown_structure_similarity() -> None:
+    md_a = (
+        "# Summary\n\n"
+        "- Item one\n"
+        "- Item two\n\n"
+        "> Note\n\n"
+        "| A | B |\n| --- | --- |\n| 1 | 2 |\n\n"
+        "```python\nx = 1\n```\n"
+    )
+    md_b = (
+        "# Overview\n\n"
+        "- Alpha\n"
+        "- Beta\n\n"
+        "> Callout\n\n"
+        "| K | V |\n| :--- | ---: |\n| 3 | 4 |\n\n"
+        "```python\ny = 2\n```\n"
+    )
+    assert markdown_structure_similarity(md_a, md_b) == 1.0
+    assert markdown_structure_similarity("plain prose", "more prose") == 1.0
+    assert markdown_structure_similarity(md_a, "plain prose only") == 0.0
+    assert get_scorer("markdown_structure").score(md_a, md_b).similarity == 1.0
+
+
+def test_score_captures_and_cli_score(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    examples = Path(__file__).resolve().parents[1] / "examples"
+    base = examples / "baseline.jsonl"
+    drift = examples / "candidate-drift.jsonl"
+
+    assert main(["score", "--list-scorers"]) == 0
+    listed = capsys.readouterr().out
+    assert "markdown_structure" in listed
+    assert "python_ast" in listed
+
+    assert main(["score", "--list-scorers", "--format", "json"]) == 0
+    assert "tfidf_cosine" in json.loads(capsys.readouterr().out)["scorers"]
+
+    assert main([
+        "score",
+        "-b",
+        str(base),
+        "-c",
+        str(drift),
+        "--scorer",
+        "char_ngram_cosine",
+        "--scorer",
+        "python_ast",
+    ]) == 0
+    out_text = capsys.readouterr().out
+    assert "Pluggable Scorer Summary (2 prompt(s))" in out_text
+    assert "char_ngram_cosine" in out_text
+
+    out_json = tmp_path / "scores.json"
+    assert main([
+        "score",
+        "-b",
+        str(base),
+        "-c",
+        str(drift),
+        "--scorer",
+        "tfidf_cosine",
+        "--format",
+        "json",
+        "-o",
+        str(out_json),
+    ]) == 0
+    payload = json.loads(out_json.read_text(encoding="utf-8"))
+    assert payload["total_prompts"] == 2
+    assert payload["summary"]["tfidf_cosine"]["available_prompts"] == 2
+
+    # Missing required capture args fails cleanly with exit 2.
+    assert main(["score"]) == 2
+    capsys.readouterr()
+
+    with pytest.raises(ValueError, match="non-empty"):
+        score_captures([], [ModelSample(prompt_id="p1", output="x")])
+

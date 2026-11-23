@@ -11,10 +11,17 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from llm_drift_bench._matching import require_same_ids
 from llm_drift_bench.metrics import tokenize_text
-from llm_drift_bench.models import PromptCase
+from llm_drift_bench.models import ModelSample, PromptCase
 
 _CODE_BLOCK_RE = re.compile(r"```(?:python|py)?\s*\n?(.*?)\n?\s*```", re.DOTALL)
+_MD_HEADING_RE = re.compile(r"^(#{1,6})\s+\S")
+_MD_FENCE_RE = re.compile(r"^```([A-Za-z0-9_+-]*)")
+_MD_BULLET_RE = re.compile(r"^\s*[-*+]\s+\S")
+_MD_ORDERED_RE = re.compile(r"^\s*\d+[.)]\s+\S")
+_MD_TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
+_MD_QUOTE_RE = re.compile(r"^\s*>\s*\S")
 
 
 @dataclass(frozen=True)
@@ -170,6 +177,48 @@ def python_ast_similarity(code_a: str, code_b: str) -> float | None:
     return (2.0 * overlap) / total
 
 
+def _markdown_structural_bag(text: str) -> Counter[str]:
+    """Extract Markdown layout elements (headings, fences, lists, tables, quotes)."""
+    bag: Counter[str] = Counter()
+    in_fence = False
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        fence = _MD_FENCE_RE.match(line)
+        if fence:
+            if not in_fence:
+                lang = (fence.group(1) or "plain").lower()
+                bag[f"CODE:{lang}"] += 1
+                in_fence = True
+            else:
+                in_fence = False
+            continue
+        if in_fence or not line:
+            continue
+        heading = _MD_HEADING_RE.match(line)
+        if heading:
+            bag[f"H{len(heading.group(1))}"] += 1
+        elif _MD_TABLE_SEP_RE.match(line):
+            bag["TABLE"] += 1
+        elif _MD_BULLET_RE.match(raw_line):
+            bag["BULLET"] += 1
+        elif _MD_ORDERED_RE.match(raw_line):
+            bag["ORDERED"] += 1
+        elif _MD_QUOTE_RE.match(raw_line):
+            bag["QUOTE"] += 1
+    return bag
+
+
+def markdown_structure_similarity(text_a: str, text_b: str) -> float:
+    """Compute structural Markdown Dice similarity in [0.0, 1.0]."""
+    bag_a = _markdown_structural_bag(text_a)
+    bag_b = _markdown_structural_bag(text_b)
+    total = sum(bag_a.values()) + sum(bag_b.values())
+    if total == 0:
+        return 1.0
+    overlap = sum((bag_a & bag_b).values())
+    return (2.0 * overlap) / total
+
+
 class _CharNgramScorer:
     name = "char_ngram_cosine"
 
@@ -203,11 +252,77 @@ class _PythonAstScorer:
         return ScorerResult(self.name, round(sim, 4), available=True)
 
 
+class _MarkdownStructureScorer:
+    name = "markdown_structure"
+
+    def score(
+        self, baseline: str, candidate: str, *, prompt: PromptCase | None = None
+    ) -> ScorerResult:
+        del prompt
+        return ScorerResult(self.name, round(markdown_structure_similarity(baseline, candidate), 4))
+
+
 _SCORER_REGISTRY: dict[str, Scorer] = {
     "char_ngram_cosine": _CharNgramScorer(),
-    "tfidf_cosine": _TfidfScorer(),
+    "markdown_structure": _MarkdownStructureScorer(),
     "python_ast": _PythonAstScorer(),
+    "tfidf_cosine": _TfidfScorer(),
 }
+
+
+def score_captures(
+    baseline_samples: Sequence[ModelSample],
+    candidate_samples: Sequence[ModelSample],
+    *,
+    scorer_names: Sequence[str] | None = None,
+    prompt_cases: Sequence[PromptCase] | None = None,
+) -> dict[str, Any]:
+    """Run one or more pluggable scorers over matched baseline/candidate captures."""
+    if not baseline_samples or not candidate_samples:
+        raise ValueError("Baseline and candidate captures must both be non-empty.")
+    base_map = {s.prompt_id: s for s in baseline_samples}
+    cand_map = {s.prompt_id: s for s in candidate_samples}
+    if len(base_map) != len(baseline_samples) or len(cand_map) != len(candidate_samples):
+        raise ValueError("Captures contain duplicate prompt_id entries.")
+    require_same_ids(set(base_map), set(cand_map), "Candidate capture")
+
+    prompt_map: dict[str, PromptCase] = {}
+    if prompt_cases is not None:
+        prompt_map = {case.prompt_id: case for case in prompt_cases}
+        require_same_ids(set(base_map), set(prompt_map), "Prompt suite")
+
+    selected_names = list(scorer_names) if scorer_names else list_scorers()
+    active_scorers = [get_scorer(name) for name in selected_names]
+
+    per_prompt: list[dict[str, Any]] = []
+    buckets: dict[str, list[float]] = {s.name: [] for s in active_scorers}
+    for pid in sorted(base_map):
+        row_scores: dict[str, float | None] = {}
+        prompt_case = prompt_map.get(pid)
+        for scorer in active_scorers:
+            res = scorer.score(base_map[pid].output, cand_map[pid].output, prompt=prompt_case)
+            row_scores[scorer.name] = res.similarity if res.available else None
+            if res.available and res.similarity is not None:
+                buckets[scorer.name].append(res.similarity)
+        per_prompt.append({"prompt_id": pid, "scores": row_scores})
+
+    summary: dict[str, dict[str, Any]] = {}
+    total_prompts = len(base_map)
+    for scorer in active_scorers:
+        vals = buckets[scorer.name]
+        summary[scorer.name] = {
+            "mean": round(sum(vals) / len(vals), 4) if vals else None,
+            "min": round(min(vals), 4) if vals else None,
+            "available_prompts": len(vals),
+            "total_prompts": total_prompts,
+        }
+
+    return {
+        "total_prompts": total_prompts,
+        "scorers": [s.name for s in active_scorers],
+        "summary": summary,
+        "prompts": per_prompt,
+    }
 
 
 def register_scorer(scorer: Scorer) -> None:

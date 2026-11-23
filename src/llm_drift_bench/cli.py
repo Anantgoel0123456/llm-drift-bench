@@ -1645,6 +1645,99 @@ def _handle_diff(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_score_subparser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    parser = subparsers.add_parser(
+        "score",
+        help="Run pluggable similarity scorers (char_ngram_cosine, tfidf_cosine, python_ast, ...).",
+    )
+    parser.add_argument(
+        "--list-scorers",
+        action="store_true",
+        help="List all built-in and entry-point scorers and exit.",
+    )
+    parser.add_argument("-b", "--baseline", default=None, help="Baseline capture (.json/.jsonl).")
+    parser.add_argument("-c", "--candidate", default=None, help="Candidate capture (.json/.jsonl).")
+    parser.add_argument(
+        "-s", "--suite", "-p", "--prompts", dest="suite", default=None,
+        help="Optional prompt suite passed to scorers.",
+    )
+    parser.add_argument(
+        "--scorer",
+        action="append",
+        dest="scorers",
+        metavar="NAME",
+        help="Scorer name to run (repeatable; defaults to all registered scorers).",
+    )
+    parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format: text (default) or json.",
+    )
+    parser.add_argument(
+        "-o", "--output", default=None, help="Optional file path to save score output."
+    )
+
+
+def _handle_score(args: argparse.Namespace) -> int:
+    from llm_drift_bench.scorers import list_scorers, score_captures
+
+    if args.list_scorers:
+        names = list_scorers()
+        if args.format == "json":
+            print(json.dumps({"scorers": names}, indent=2))
+        else:
+            print("\n".join(names))
+        return 0
+
+    if not args.baseline or not args.candidate:
+        raise ValueError("Provide both --baseline and --candidate (or use --list-scorers).")
+    _protect_inputs(args.output, args.baseline, args.candidate, args.suite)
+
+    from llm_drift_bench.engine import load_model_samples, load_prompt_cases
+
+    baseline = load_model_samples(args.baseline)
+    candidate = load_model_samples(args.candidate)
+    suite = load_prompt_cases(args.suite) if args.suite else None
+    result = score_captures(
+        baseline,
+        candidate,
+        scorer_names=args.scorers,
+        prompt_cases=suite,
+    )
+
+    if args.format == "json":
+        rendered = json.dumps(result, indent=2) + "\n"
+    else:
+        lines = [
+            f"Pluggable Scorer Summary ({result['total_prompts']} prompt(s))",
+            "-" * 72,
+            f" {'Scorer':<24} | {'Mean':>8} | {'Min':>8} | {'Coverage':>10}",
+            "-" * 72,
+        ]
+        for name in result["scorers"]:
+            stats = result["summary"][name]
+            mean_s = "n/a" if stats["mean"] is None else f"{stats['mean']:.4f}"
+            min_s = "n/a" if stats["min"] is None else f"{stats['min']:.4f}"
+            cov = f"{stats['available_prompts']}/{stats['total_prompts']}"
+            lines.append(f" {name:<24} | {mean_s:>8} | {min_s:>8} | {cov:>10}")
+        lines.append("-" * 72)
+        for row in result["prompts"]:
+            parts = [
+                f"{k}={'n/a' if v is None else f'{v:.4f}'}"
+                for k, v in row["scores"].items()
+            ]
+            lines.append(f" {row['prompt_id']:<18} | " + ", ".join(parts))
+        rendered = "\n".join(lines) + "\n"
+
+    if args.output:
+        _atomic_write_text(Path(args.output), rendered)
+    print(rendered, end="")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build and return the top-level CLI ArgumentParser."""
     parser = argparse.ArgumentParser(
@@ -1663,6 +1756,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
     _add_run_subparser(subparsers)
     _add_diff_subparser(subparsers)
+    _add_score_subparser(subparsers)
     _add_validate_subparser(subparsers)
     _add_report_subparser(subparsers)
     diagnosis = subparsers.add_parser("diagnose", help="Explain a saved engine report.")
@@ -1716,6 +1810,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _handle_run(args)
         if args.command == "diff":
             return _handle_diff(args)
+        if args.command == "score":
+            return _handle_score(args)
         if args.command == "report":
             return _handle_report(args)
         if args.command == "validate":
