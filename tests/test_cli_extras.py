@@ -304,3 +304,229 @@ def test_cli_capture_provider_anthropic(
     row = json.loads(out.read_text(encoding="utf-8").strip())
     assert row["output"] == '{"ok": true}'
     assert row["tokens_generated"] == 5
+
+
+def test_cli_gate_cost_snapshot_gemini_and_history_prune(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import shutil
+
+    # 1. gate command: GO on passing report, NO-GO on drifted report
+    assert main(["gate", "-i", str(EXAMPLES / "expected-pass.json")]) == 0
+    assert "GO (APPROVED)" in capsys.readouterr().out
+
+    assert main(["gate", "-i", str(EXAMPLES / "expected-drift.json"), "--format", "json"]) == 1
+    gate_data = json.loads(capsys.readouterr().out)
+    assert gate_data["approved"] is False
+
+    # gate with --compare-against runs significance tests cleanly
+    assert (
+        main(
+            [
+                "gate",
+                "-i",
+                str(EXAMPLES / "expected-pass.json"),
+                "--compare-against",
+                str(EXAMPLES / "expected-pass.json"),
+                "--resamples",
+                "100",
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    gate_sig = json.loads(capsys.readouterr().out)
+    assert {c["name"] for c in gate_sig["checks"]} >= {
+        "benchmark_drift",
+        "statistical_drift_shift",
+        "mcnemar_conformity",
+    }
+
+    # 2. cost command: incomplete tokens reported honestly as n/a, complete tokens compute USD
+    assert (
+        main(
+            [
+                "cost",
+                "-b",
+                str(EXAMPLES / "baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "candidate-pass.jsonl"),
+            ]
+        )
+        == 0
+    )
+    assert "incomplete explicit tokens_generated" in capsys.readouterr().out
+
+    tok_b = tmp_path / "tok_b.jsonl"
+    tok_c = tmp_path / "tok_c.jsonl"
+    tok_b.write_text(
+        json.dumps({"prompt_id": "p1", "model_name": "b", "output": "hi", "tokens_generated": 1000})
+        + "\n",
+        encoding="utf-8",
+    )
+    tok_c.write_text(
+        json.dumps({"prompt_id": "p1", "model_name": "c", "output": "hi", "tokens_generated": 1500})
+        + "\n",
+        encoding="utf-8",
+    )
+    assert (
+        main(
+            [
+                "cost",
+                "-b",
+                str(tok_b),
+                "-c",
+                str(tok_c),
+                "--baseline-price",
+                "2.0",
+                "--candidate-price",
+                "1.0",
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    cost_out = json.loads(capsys.readouterr().out)
+    assert cost_out["complete"] is True
+    assert cost_out["token_delta"] == 500
+    assert cost_out["cost_delta_usd"] == pytest.approx(-0.0005)
+
+    # 3. snapshot create & verify
+    snap_dir = tmp_path / "snap"
+    snap_dir.mkdir()
+    shutil.copy2(EXAMPLES / "baseline.jsonl", snap_dir / "baseline.jsonl")
+    shutil.copy2(EXAMPLES / "extraction-suite.json", snap_dir / "extraction-suite.json")
+    manifest_path = snap_dir / "snapshot.manifest.json"
+    assert (
+        main(
+            [
+                "snapshot",
+                "create",
+                "-b",
+                str(snap_dir / "baseline.jsonl"),
+                "-s",
+                str(snap_dir / "extraction-suite.json"),
+                "-o",
+                str(manifest_path),
+            ]
+        )
+        == 0
+    )
+    assert "Created snapshot manifest" in capsys.readouterr().out
+    assert main(["snapshot", "verify", "-i", str(manifest_path)]) == 0
+    assert "VALID" in capsys.readouterr().out
+    (snap_dir / "baseline.jsonl").write_text("tampered\n", encoding="utf-8")
+    assert main(["snapshot", "verify", "-i", str(manifest_path), "--format", "json"]) == 1
+    assert json.loads(capsys.readouterr().out)["valid"] is False
+
+    # 4. check-tools --adapter gemini
+    gem_trace = tmp_path / "gemini_trace.json"
+    gem_trace.write_text(
+        json.dumps(
+            {
+                "contents": [
+                    {
+                        "role": "model",
+                        "parts": [
+                            {"functionCall": {"name": "read_file", "args": {"path": "g@1"}}},
+                            {"functionCall": {"name": "edit_file", "args": {"path": "a@1"}}},
+                        ],
+                    },
+                    {
+                        "role": "user",
+                        "parts": [
+                            {
+                                "functionResponse": {
+                                    "name": "read_file",
+                                    "response": {"range": {"start": 0, "end": 50}},
+                                }
+                            }
+                        ],
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        main(
+            [
+                "check-tools",
+                "-i",
+                str(gem_trace),
+                "--adapter",
+                "gemini",
+                "--resource",
+                "g@1",
+                "--end",
+                "50",
+                "--trace-complete",
+            ]
+        )
+        == 0
+    )
+    _ = capsys.readouterr()
+
+    # 5. capture --provider gemini
+    suite = tmp_path / "g_suite.json"
+    suite.write_text(json.dumps([{"prompt_id": "p1", "prompt": "Hi"}]), encoding="utf-8")
+    g_out = tmp_path / "g_cap.jsonl"
+
+    def fake_gemini(
+        url: str, body: dict[str, Any], headers: dict[str, str], timeout: float
+    ) -> dict[str, Any]:
+        del body, headers, timeout
+        assert ":generateContent" in url
+        return {"candidates": [{"content": {"parts": [{"text": "hello"}]}}]}
+
+    monkeypatch.setattr("llm_drift_bench.capture._default_transport", fake_gemini)
+    assert (
+        main(
+            [
+                "capture",
+                "-s",
+                str(suite),
+                "--endpoint",
+                "https://generativelanguage.googleapis.com",
+                "--provider",
+                "gemini",
+                "--model",
+                "gemini-2.5-flash",
+                "-o",
+                str(g_out),
+            ]
+        )
+        == 0
+    )
+    _ = capsys.readouterr()
+    assert json.loads(g_out.read_text(encoding="utf-8").strip())["output"] == "hello"
+
+    # 6. history summary & prune
+    ledger = tmp_path / "hist.jsonl"
+    for tag in ("v1", "v2", "v3"):
+        assert (
+            main(
+                [
+                    "history",
+                    "record",
+                    "--ledger",
+                    str(ledger),
+                    "-i",
+                    str(EXAMPLES / "expected-pass.json"),
+                    "--tag",
+                    tag,
+                ]
+            )
+            == 0
+        )
+    _ = capsys.readouterr()
+    assert main(["history", "summary", "--ledger", str(ledger), "--format", "json"]) == 0
+    hist_sum = json.loads(capsys.readouterr().out)
+    assert hist_sum["total_entries"] == 3
+    assert main(["history", "prune", "--ledger", str(ledger), "--keep-last", "1",
+                 "--format", "json"]) == 0
+    prune_out = json.loads(capsys.readouterr().out)
+    assert prune_out["kept"] == 1 and prune_out["removed"] == 2
+

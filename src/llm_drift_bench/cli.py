@@ -642,9 +642,9 @@ def _add_check_tools_subparser(
     parser.add_argument("-i", "--input", required=True, help="Trace or transcript file.")
     parser.add_argument(
         "--adapter",
-        choices=("normalized", "openai", "anthropic", "otel"),
+        choices=("normalized", "openai", "anthropic", "gemini", "otel"),
         default="normalized",
-        help="Input trace adapter: normalized (default), openai, anthropic, or otel.",
+        help="Input trace adapter: normalized (default), openai, anthropic, gemini, or otel.",
     )
     parser.add_argument(
         "--resource", required=True,
@@ -1444,11 +1444,44 @@ def _add_history_subparser(
         help="Output format: text (default) or json.",
     )
 
+    summ = hist_sub.add_parser(
+        "summary",
+        help="Show per-candidate pass rates, drift ranges, and trend deltas from a ledger.",
+    )
+    summ.add_argument("--ledger", required=True, metavar="FILE", help="Path to JSONL ledger file.")
+    summ.add_argument("--candidate", default=None, help="Filter entries by candidate model name.")
+    summ.add_argument("--tag", default=None, help="Filter entries by tag.")
+    summ.add_argument(
+        "--format", choices=("text", "json"), default="text", help="Output format: text or json."
+    )
+
+    prune = hist_sub.add_parser(
+        "prune",
+        help="Atomically compact a JSONL history ledger, retaining only the latest N runs.",
+    )
+    prune.add_argument("--ledger", required=True, metavar="FILE", help="Path to JSONL ledger file.")
+    prune.add_argument(
+        "--keep-last",
+        type=int,
+        required=True,
+        metavar="N",
+        help="Retain the newest N runs (per candidate by default, or globally with --global).",
+    )
+    prune.add_argument(
+        "--global",
+        dest="global_prune",
+        action="store_true",
+        help="Retain the newest N entries overall instead of N per candidate.",
+    )
+    prune.add_argument(
+        "--format", choices=("text", "json"), default="text", help="Output format: text or json."
+    )
+
 
 def _handle_history(args: argparse.Namespace) -> int:
     action = getattr(args, "history_action", None)
     if action is None:
-        raise ValueError("Specify a history action: 'record', 'show', or 'check'.")
+        raise ValueError("Specify a history action: 'record', 'show', 'check', 'summary', 'prune'.")
     if action == "record":
         _protect_inputs(args.ledger, args.input)
         from llm_drift_bench.history import record_report
@@ -1513,6 +1546,40 @@ def _handle_history(args: argparse.Namespace) -> int:
             )
             print(f"  Detail          : {check.reason}")
         return 1 if check.regressed else 0
+    if action == "summary":
+        from llm_drift_bench.history import load_history, summarize_history
+
+        entries = load_history(args.ledger)
+        if args.candidate is not None:
+            entries = [e for e in entries if e.candidate_model == args.candidate]
+        if args.tag is not None:
+            entries = [e for e in entries if e.tag == args.tag]
+        summary = summarize_history(entries)
+        if args.format == "json":
+            print(json.dumps(summary, indent=2))
+        else:
+            print(f"Drift History Summary ({summary['total_entries']} run(s))")
+            for cand, info in summary["candidates"].items():
+                print(
+                    f"  {cand}: {info['runs']} run(s), pass={info['pass_rate']:.1%}, "
+                    f"latest drift={info['latest_mean_drift']:.4f} "
+                    f"({info['drift_change_since_first']:+.4f} vs first), "
+                    f"range=[{info['min_mean_drift']:.4f}, {info['max_mean_drift']:.4f}]"
+                )
+        return 0
+    if action == "prune":
+        from llm_drift_bench.history import prune_history
+
+        kept, removed = prune_history(
+            args.ledger,
+            keep_last=args.keep_last,
+            per_candidate=not args.global_prune,
+        )
+        if args.format == "json":
+            print(json.dumps({"ledger": str(args.ledger), "kept": kept, "removed": removed}))
+        else:
+            print(f"Pruned {args.ledger}: kept {kept} entry(ies), removed {removed}.")
+        return 0
     raise ValueError(f"Unsupported history action: {action!r}.")
 
 
@@ -1521,7 +1588,7 @@ def _add_capture_subparser(
 ) -> None:
     parser = subparsers.add_parser(
         "capture",
-        help="Capture model outputs from an OpenAI-compatible or Anthropic endpoint.",
+        help="Capture model outputs from an OpenAI-compatible, Anthropic, or Gemini endpoint.",
     )
     parser.add_argument(
         "-s",
@@ -1535,14 +1602,17 @@ def _add_capture_subparser(
     parser.add_argument(
         "--endpoint",
         required=True,
-        help="Endpoint base URL (e.g. http://localhost:11434/v1 or https://api.anthropic.com).",
+        help=(
+            "Endpoint base URL (e.g. http://localhost:11434/v1, "
+            "https://api.anthropic.com, or https://generativelanguage.googleapis.com)."
+        ),
     )
     parser.add_argument("--model", required=True, help="Model identifier to query.")
     parser.add_argument(
         "--provider",
-        choices=("openai", "anthropic"),
+        choices=("openai", "anthropic", "gemini"),
         default="openai",
-        help="Endpoint wire protocol: openai (default, OpenAI-compatible) or anthropic.",
+        help="Endpoint wire protocol: openai (default), anthropic, or gemini.",
     )
     parser.add_argument(
         "--api-key-env",
