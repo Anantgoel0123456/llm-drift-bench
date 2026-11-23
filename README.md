@@ -17,7 +17,7 @@ Lightweight, deterministic CLI and Python library for offline LLM drift detectio
 </div>
 
 > [!NOTE]
-> **Branch status:** This `main` checkout develops **0.3.0** (`0.3.0.dev0`). Published PyPI releases are cut separately — see the [Changelog](CHANGELOG.md) and [0.2 migration guide](docs/migration-0.2.md) for version differences.
+> **Release status:** Ready for **`v0.3.0`**. See the [Changelog](CHANGELOG.md) for everything new in `0.3.0` and the [0.2 migration guide](docs/migration-0.2.md) if upgrading from `0.1.x`.
 
 ---
 
@@ -53,19 +53,19 @@ flowchart LR
 
 ## Capabilities
 
-| Capability | Status (`0.3.0.dev0`) | Highlights |
+| Capability | Status (`0.3.0`) | Highlights |
 | :--- | :---: | :--- |
 | **JSON & Schema Conformity** | Available | Strict extraction (direct, fenced, prose), duplicate-key & `NaN`/`Inf` rejection, safe bounded regex subset |
 | **Composite Drift & Policies** | Available | Token Jaccard, n-gram Dice, exact Levenshtein, JSON structure/field/numeric drift, `drift.toml` weights & per-field/wildcard `[*]` rules (`ignore`, `unordered_array`, `tolerance_abs`/`tolerance_rel`) |
 | **Semantic Field Diffs** | Available | `diff` CLI inspects exact JSON field additions/removals/type shifts/numeric deltas or unified text diffs while respecting `drift.toml` rules |
-| **Zero-Setup Onboarding** | Available | `infer-schema` generates strict JSON Schemas from captures; `calibrate` auto-tunes `drift.toml` & collapses volatile array fields into `[*]` |
+| **Zero-Setup Onboarding** | Available | `infer-schema` generates strict JSON Schemas; `calibrate` auto-tunes `drift.toml` & collapses volatile arrays to `[*]`; `doctor` runs pre-flight checks |
 | **Endpoint Capture Collector** | Available | Zero-dependency OpenAI-compatible collector (Ollama, vLLM, llama.cpp, OpenAI) with `--concurrency`, `--runs`, `--json-mode`, `--resume`, `--header`, bounded retries |
 | **Multi-Candidate Ranking** | Available | `compare-many` & `compare-reports` with `--sort-by`, `--against`, `--hotspots`, `--inspect-prompt`, Rich tables & SVG Pareto frontier HTML |
-| **Statistical Rigor** | Available | `stats` with deterministic bootstrap CIs, flaky-prompt detection, paired permutation tests, and exact two-sided McNemar conformity tests |
+| **Statistical Rigor** | Available | `stats` with deterministic bootstrap CIs, flaky-prompt detection, paired permutation tests (with Cohen's `d`), and exact two-sided McNemar conformity tests |
 | **Drift History & Trends** | Available | Append-only JSONL ledger (`history record\|show\|check`) with moving-window regression alerts, `--candidate`/`--tag` filters, sparklines & SVG trend HTML |
-| **Agent Tool-Trace Audits** | Available | `check-tools --adapter normalized\|openai\|anthropic\|otel` (including OpenAI Responses API), plus retry & secret-leak workflow checks |
-| **Pluggable Scorers** | Available | `score` CLI + pure-stdlib `char_ngram_cosine`, `tfidf_cosine`, `python_ast`, and `markdown_structure` scorers + `llm_drift_bench.scorers` entry points |
-| **CI-Native Exports** | Available | Table, Rich, JSON, CSV, Markdown, GitHub PR comments (`--previous` deltas), offline HTML (`--include-diffs`), JUnit XML, `--github-summary` |
+| **Agent Tool-Trace Audits** | Available | `check-tools --adapter normalized\|openai\|anthropic\|otel` (OpenAI Responses + OTLP `resourceSpans`), `--max-failed-calls` retry budgets, & secret-leak checks |
+| **Pluggable Scorers** | Available | `score` CLI + pure-stdlib `char_ngram_cosine`, `json_key_jaccard`, `markdown_structure`, `python_ast`, `tfidf_cosine` + `llm_drift_bench.scorers` entry points |
+| **CI-Native Exports** | Available | Table, Rich, JSON, CSV, SARIF 2.1.0, Markdown, GitHub PR comments (`--previous` deltas), offline HTML (`--include-diffs`), JUnit XML, `--github-summary` |
 
 ---
 
@@ -77,7 +77,7 @@ Requires **Python 3.10+**. Install the latest published release from PyPI or ins
 # Option A: Install from PyPI
 pip install llm-drift-bench
 
-# Option B: Install latest 0.3.0.dev0 from source
+# Option B: Install from source
 git clone https://github.com/anant-goel/llm-drift-bench.git
 cd llm-drift-bench
 python -m venv .venv
@@ -282,21 +282,22 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 
 | Command | Purpose |
 | :--- | :--- |
-| `run` | Compare baseline and candidate captures (`--config`, `--long-text-mode`, `--include-diffs`, `--format`, `--junit-output`, `--github-summary`) |
+| `run` | Compare baseline and candidate captures (`--config`, `--category`, `--long-text-mode`, `--include-diffs`, `--format`, `--junit-output`, `--sarif-output`, `--github-summary`) |
 | `diff` | Show policy-aware JSON field-level or unified text diffs between two captures (`--only-changed`, `--prompt-id`, `--format json`) |
-| `score` | Run pluggable scorers (`char_ngram_cosine`, `tfidf_cosine`, `python_ast`, `markdown_structure`, or entry-point plugins; `--list-scorers`) |
-| `validate` | Validate captures for JSON syntax and JSON Schema conformity (`--strict`) |
-| `report` | Render a saved report as `markdown`, `console`/`table`, `json`, `csv`, `html`, `junit`, or `pr-comment` (`--previous`, `--tool-check`) |
+| `score` | Run pluggable scorers (`char_ngram_cosine`, `json_key_jaccard`, `markdown_structure`, `python_ast`, `tfidf_cosine`, or entry-point plugins; `--list-scorers`) |
+| `validate` | Validate captures for JSON syntax and JSON Schema conformity (`--category`, `--strict`) |
+| `report` | Render a saved report as `markdown`, `console`/`table`, `json`, `csv`, `sarif`, `html`, `junit`, or `pr-comment` (`--previous`, `--tool-check`) |
 | `diagnose` | Explain why a saved comparison failed (`--scope`, `--kind`, `--prompt-id`, optional local OpenVINO `--ai-model`) |
 | `compare-many` | Evaluate 2+ labeled candidate captures against one baseline (`--sort-by`, `--against`, `--hotspots`, `--format rich`, `--html-output`) |
 | `compare-reports` | Rank saved candidate reports and export SVG Pareto frontier dashboards |
-| `check-tools` | Offline read-before-edit checks on normalized, OpenAI, Anthropic, or OTel traces (`--adapter`) |
-| `stats` | Multi-run bootstrap CIs, flaky-prompt detection, paired permutation, and exact two-sided McNemar tests |
+| `check-tools` | Offline read-before-edit & `--max-failed-calls` checks on normalized, OpenAI, Anthropic, or OTel traces (`--adapter`) |
+| `stats` | Multi-run bootstrap CIs, flaky-prompt detection, paired permutation (with Cohen's `d`), and exact two-sided McNemar tests |
 | `history` | Record reports (`record`), inspect sparklines/SVG trends (`show`), and gate on moving-window regressions (`check`) |
 | `capture` | Capture reproducible JSONL outputs from OpenAI-compatible endpoints (`--concurrency`, `--runs`, `--json-mode`, `--resume`, `--header`) |
 | `infer-schema` | Auto-infer a supported-subset JSON Schema prompt suite from baseline captures |
 | `calibrate` | Auto-calibrate `drift.toml` thresholds and detect/collapse volatile JSON fields from baseline noise runs |
 | `init-sample` | Scaffold starter prompt, baseline, and candidate datasets (`--with-policy` adds `drift.toml`) |
+| `doctor` | Pre-flight check for environment, `drift.toml` policies, suite schemas/regex safety, and capture ID alignment |
 | `ai-devices` | List devices visible to the optional local OpenVINO runtime |
 
 **Standard exit codes:** `0` passed / succeeded · `1` drift or threshold failure (suppressible via `--no-fail-on-drift`, report still records failure) · `2` usage or input error · `3` (`check-tools` only) `UNKNOWN`.
@@ -345,7 +346,7 @@ from llm_drift_bench import (
     tfidf_cosine_similarity,
 )
 
-print(list_scorers())  # ['char_ngram_cosine', 'markdown_structure', 'python_ast', 'tfidf_cosine']
+print(list_scorers())  # ['char_ngram_cosine', 'json_key_jaccard', 'markdown_structure', 'python_ast', 'tfidf_cosine']
 
 # Identifier-invariant structural similarity for generated Python code
 assert python_ast_similarity("def add(x, y): return x + y", "def sum2(a, b): return a + b") == 1.0
@@ -371,6 +372,7 @@ Drop `llm-drift-bench` directly into GitHub Actions with JUnit test reporting, n
       --config drift.toml \
       -o drift-report.json \
       --junit-output junit.xml \
+      --sarif-output drift.sarif \
       --github-summary
 
 - name: Render PR comment (even on failure)

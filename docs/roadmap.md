@@ -36,18 +36,19 @@ This is a prioritized plan, not a list of shipped capabilities or release dates.
 
 The CI version constraint and integral-float schema-limit issues are fixed locally.
 
-## 0.3.0 development (implemented on `main`)
+## 0.3.0 (ready for release)
 
-- [x] JUnit XML exports with per-prompt cases and an overall benchmark gate (`--junit-output`, `--format junit`).
+- [x] JUnit XML (`--junit-output`), OASIS SARIF 2.1.0 (`--sarif-output`, `--format sarif`), and RFC-4180 CSV (`--format csv`) exports.
 - [x] GitHub step summaries (`run --github-summary`) and compact PR comments (`--format pr-comment --previous`).
-- [x] Evaluate and rank multiple candidates (`compare-many`, `compare-reports`, `--sort-by`, `--format rich`, `--against`, `--hotspots`, `--inspect-prompt`, offline SVG Pareto frontier HTML).
-- [x] Configurable evaluation policies (`drift.toml` / `drift.json`): custom metric weights, per-JSONPath `ignore` / `unordered_array` / `tolerance_abs` / `tolerance_rel` rules, and `--long-text-mode skip_levenshtein`.
-- [x] Zero-dependency OpenAI-compatible capture collector (`capture` with `--concurrency`, `--runs`, `--json-mode`, bounded retries, timeouts, and env-var secret handling).
-- [x] Multi-run statistics (`stats`): deterministic bootstrap confidence intervals, flaky-prompt detection, paired sign-flip permutation tests, and exact two-sided McNemar conformity tests.
-- [x] Append-only drift history ledger (`history record|show`) with `--candidate`/`--tag` filters, Unicode sparklines, and offline SVG trend HTML.
-- [x] Offline vendor transcript adapters (`adapters.py` + `check-tools --adapter normalized|openai|anthropic|otel`, including OpenAI Responses API) plus retry and secret-leak workflow checks.
-- [x] Automatic JSON Schema inference (`infer-schema`) and threshold auto-calibration + volatile field detection (`calibrate`).
-- [x] Pluggable scorer registry (`scorers.py`: `char_ngram_cosine`, `tfidf_cosine`, `python_ast`, and `llm_drift_bench.scorers` entry-point discovery).
+- [x] Policy-aware semantic JSON/text `diff` CLI and policy-aware HTML response diffs (`--include-diffs`).
+- [x] Evaluate and rank multiple candidates (`compare-many`, `compare-reports`, `--sort-by`, `--format rich`, `--against`, `--hotspots`, `--inspect-prompt`, offline SVG Pareto frontier HTML) plus `--category` filtering on `run`/`validate`.
+- [x] Configurable evaluation policies (`drift.toml` / `drift.json`): custom metric weights, exact and `[*]` wildcard JSONPath `ignore` / `unordered_array` / `tolerance_abs` / `tolerance_rel` rules, and `--long-text-mode skip_levenshtein`.
+- [x] Zero-dependency OpenAI-compatible capture collector (`capture` with `--concurrency`, `--runs`, `--json-mode`, `--resume`, `--header`, bounded retries, timeouts, and env-var secret handling).
+- [x] Multi-run statistics (`stats`): deterministic bootstrap CIs, flaky-prompt detection, paired sign-flip permutation tests with Cohen's `d`, and overflow-safe exact two-sided McNemar conformity tests.
+- [x] Append-only drift history ledger (`history record|show|check`) with moving-window regression alerts, `--candidate`/`--tag` filters, Unicode sparklines, and offline SVG trend HTML with tooltips.
+- [x] Offline vendor transcript adapters (`adapters.py` + `check-tools --adapter normalized|openai|anthropic|otel`, supporting OpenAI Responses `output` & OTLP `resourceSpans`) plus `--max-failed-calls` retry budgets and secret-leak checks.
+- [x] Automatic JSON Schema inference (`infer-schema`), threshold auto-calibration with `[*]` wildcard collapsing (`calibrate`), and pre-flight validation (`doctor`).
+- [x] Pluggable scorer registry & `score` CLI (`char_ngram_cosine`, `json_key_jaccard`, `markdown_structure`, `python_ast`, `tfidf_cosine`, and `llm_drift_bench.scorers` entry-point discovery).
 - [x] Lightweight PEP 562 lazy exports and lazy CLI/Rich/Pydantic loading (~8 ms package import).
 
 ## Future exploration
