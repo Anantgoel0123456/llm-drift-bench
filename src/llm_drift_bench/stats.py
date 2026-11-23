@@ -47,10 +47,12 @@ class PairedSignificance:
     significant: bool
     permutations: int
     sample_size: int
+    effect_size_d: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "observed_diff": round(self.observed_diff, 4),
+            "effect_size_d": round(self.effect_size_d, 4),
             "p_value": round(self.p_value, 6),
             "alpha": self.alpha,
             "significant": self.significant,
@@ -81,6 +83,20 @@ class McNemarResult:
         }
 
 
+def _exact_binomial_lower_tail(n: int, k_max: int) -> float:
+    """Compute P(Bin(n, 0.5) <= k_max) without integer-to-float overflow for large n."""
+    if n <= 1000:
+        return sum(math.comb(n, k) for k in range(k_max + 1)) / float(1 << n)
+    log_denom = n * math.log(2.0)
+    log_n_fact = math.lgamma(n + 1)
+    log_terms = [
+        log_n_fact - math.lgamma(k + 1) - math.lgamma(n - k + 1) - log_denom
+        for k in range(k_max + 1)
+    ]
+    max_log = max(log_terms)
+    return math.exp(max_log) * sum(math.exp(lt - max_log) for lt in log_terms)
+
+
 def mcnemar_exact_test(
     passed_a: Sequence[bool],
     passed_b: Sequence[bool],
@@ -94,7 +110,7 @@ def mcnemar_exact_test(
     """
     if not passed_a or len(passed_a) != len(passed_b):
         raise ValueError("passed_a and passed_b must be non-empty sequences of equal length.")
-    if not (0.0 < alpha < 1.0):
+    if isinstance(alpha, bool) or not math.isfinite(alpha) or not (0.0 < alpha < 1.0):
         raise ValueError("alpha must lie strictly between 0 and 1.")
 
     b_reg = sum(1 for a, b in zip(passed_a, passed_b, strict=True) if a and not b)
@@ -104,8 +120,7 @@ def mcnemar_exact_test(
         return McNemarResult(0, 0, 1.0, alpha, False, len(passed_a))
 
     tail = min(b_reg, c_rec)
-    denom = 2**discordant
-    one_sided = sum(math.comb(discordant, k) for k in range(tail + 1)) / denom
+    one_sided = _exact_binomial_lower_tail(discordant, tail)
     p_val = min(1.0, 2.0 * one_sided)
     return McNemarResult(
         b_regressed=b_reg,
@@ -176,7 +191,11 @@ def bootstrap_mean_ci(
     if not values:
         raise ValueError("values cannot be empty.")
     cleaned = [finite_number(v) for v in values]
-    if not (0.0 < confidence < 1.0):
+    if (
+        isinstance(confidence, bool)
+        or not math.isfinite(confidence)
+        or not (0.0 < confidence < 1.0)
+    ):
         raise ValueError("confidence must lie strictly between 0 and 1.")
     if isinstance(n_resamples, bool) or n_resamples < 10:
         raise ValueError("n_resamples must be an integer >= 10.")
@@ -216,7 +235,7 @@ def paired_permutation_test(
     """Run a two-sided paired sign-flip permutation test on mean(scores_b - scores_a)."""
     if not scores_a or len(scores_a) != len(scores_b):
         raise ValueError("scores_a and scores_b must be non-empty sequences of equal length.")
-    if not (0.0 < alpha < 1.0):
+    if isinstance(alpha, bool) or not math.isfinite(alpha) or not (0.0 < alpha < 1.0):
         raise ValueError("alpha must lie strictly between 0 and 1.")
     if isinstance(n_permutations, bool) or n_permutations < 10:
         raise ValueError("n_permutations must be an integer >= 10.")
@@ -225,11 +244,18 @@ def paired_permutation_test(
     observed = fmean(diffs)
     abs_obs = abs(observed)
     if math.isclose(abs_obs, 0.0, abs_tol=1e-12):
-        return PairedSignificance(0.0, 1.0, alpha, False, n_permutations, len(diffs))
+        return PairedSignificance(0.0, 1.0, alpha, False, n_permutations, len(diffs), 0.0)
+
+    n = len(diffs)
+    sd_diff = (
+        math.sqrt(sum((d - observed) ** 2 for d in diffs) / (n - 1))
+        if n > 1
+        else 0.0
+    )
+    effect_d = (observed / sd_diff) if sd_diff > 1e-12 else 0.0
 
     rng = random.Random(seed)
     extreme = 0
-    n = len(diffs)
     for _ in range(n_permutations):
         signed_sum = sum(d if rng.getrandbits(1) else -d for d in diffs)
         if abs(signed_sum / n) >= abs_obs - 1e-12:
@@ -243,6 +269,7 @@ def paired_permutation_test(
         significant=p_value < alpha,
         permutations=n_permutations,
         sample_size=n,
+        effect_size_d=effect_d,
     )
 
 

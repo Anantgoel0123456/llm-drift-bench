@@ -119,3 +119,26 @@ def test_mcnemar_exact_test_binary_shifts() -> None:
 
     same = mcnemar_exact_test([True, False], [True, False])
     assert same.p_value == 1.0 and same.significant is False
+
+    # Large discordant counts (>1024) must not raise float OverflowError.
+    large_a = [True] * 1500
+    large_b = [False] * 800 + [True] * 700
+    large = mcnemar_exact_test(large_a, large_b)
+    assert large.b_regressed == 800 and large.c_recovered == 0
+    assert large.p_value < 1e-100 and large.significant is True
+
+    # Balanced large discordant count (600 regressed vs 600 recovered) gives p == 1.0.
+    bal_a = [True] * 600 + [False] * 600
+    bal_b = [False] * 600 + [True] * 600
+    bal = mcnemar_exact_test(bal_a, bal_b)
+    assert bal.p_value == pytest.approx(1.0, abs=1e-6)
+    assert bal.significant is False
+
+    # Paired Cohen's d effect size is populated on paired_permutation_test.
+    sig = paired_permutation_test([0.01, 0.02, 0.03, 0.01], [0.40, 0.44, 0.48, 0.42], seed=1)
+    assert sig.effect_size_d > 5.0
+    assert sig.to_dict()["effect_size_d"] == round(sig.effect_size_d, 4)
+
+    with pytest.raises(ValueError, match="alpha"):
+        mcnemar_exact_test([True], [False], alpha=True)  # type: ignore[arg-type]
+
