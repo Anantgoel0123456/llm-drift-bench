@@ -149,7 +149,7 @@ other thresholds does not certify latency performance.
 Commands are:
 
 - `run` (with `--config`, `--category`, `--long-text-mode`, `--include-diffs`, `--format pr-comment|csv|sarif`, `--junit-output`, `--sarif-output`, `--github-summary`)
-- `diff` (policy-aware JSON field-level and unified text diff inspector)
+- `diff` (policy-aware JSON field-level and unified text diff inspector in `text`, `json`, or GFM `markdown`)
 - `score` (pluggable scorer CLI supporting `--list-scorers` and repeatable `--scorer`)
 - `validate` (supports `--category` and `--strict`)
 - `report` (supports `markdown`, `console`/`table`, `json`, `csv`, `sarif`, `html`, `junit`, `pr-comment`)
@@ -158,9 +158,11 @@ Commands are:
 - `compare-reports` (supports `--sort-by`, `--format rich`, `--html-output`, `--markdown-output`, `--json-output`)
 - `matrix` (Prompt x Candidate drift heatmap matrix in `text`, `json`, or offline `html`)
 - `gate` (composite GO/NO-GO release gate combining drift, history trends, statistical tests, and tool checks)
-- `cost` (explicit generated token volume and optional USD output cost drift comparator)
+- `cost` (explicit generated token volume, optional USD output cost drift comparator, and `--max-token-increase-pct` / `--max-cost-increase-pct` budgets)
+- `badge` (offline shields-style static SVG drift status badge generator)
+- `import-captures` (offline importers for OpenAI Batch API JSONL, Anthropic Message Batches JSONL, and CSV captures)
 - `snapshot` (`create` and `verify` offline SHA-256 baseline fixture integrity manifests)
-- `check-tools` (supports `--adapter normalized|openai|anthropic|gemini|otel` and `--max-failed-calls`)
+- `check-tools` (supports `--adapter normalized|openai|anthropic|gemini|otel`, `--max-failed-calls`, `--max-tool-calls`, and `--allow-resource`)
 - `stats` (bootstrap confidence intervals, multi-run flakiness, paired permutation with Cohen's `d`, and overflow-safe exact two-sided McNemar tests)
 - `history` (`record`, `show` with `--candidate`/`--tag` filters, sparklines & SVG tooltips, `check` moving-window gate, `summary`, and atomic `prune`)
 - `capture` (zero-dependency OpenAI-compatible, Anthropic `--provider anthropic`, and Gemini `--provider gemini` endpoint collector with `--concurrency`, `--runs`, `--json-mode`, `--resume`, `--header`, `Retry-After` backoff, and connection-drop retries)
@@ -194,6 +196,8 @@ Additional library modules:
 - `prompt_lint.py`: prompt suite and JSON Schema hygiene linter.
 - `gates.py`: composite GO/NO-GO release gate evaluator aggregating canonical drift, history trend, statistical, and tool-trace evidence.
 - `snapshot.py`: offline SHA-256 baseline fixture integrity manifests and tamper verification with path-traversal protection.
+- `batch_import.py`: offline importers converting OpenAI Batch API JSONL, Anthropic Message Batches JSONL, and CSV exports into validated `ModelSample` records.
+- `badge.py`: offline script-free shields-style static SVG drift status badge generator.
 - `_comparison_md.py` and `_cli_extras.py`: GitHub-Flavored Markdown multi-candidate comparison exporter and lazily imported extra CLI subcommand handlers.
 
 All CLI run formats render one DriftBenchmarkReport. Rich, Markdown, and HTML

@@ -4,6 +4,13 @@
 
 ### Added
 
+- Offline batch and table capture importers (`batch_import.py`: `import_openai_batch_jsonl`, `import_anthropic_batch_jsonl`, `import_csv_captures`, and `llm-drift-bench import-captures --from openai-batch|anthropic-batch|csv`) converting OpenAI Chat/Responses batch JSONL, Anthropic Message Batches JSONL, and CSV files into canonical `ModelSample` JSONL while rejecting failed items and duplicate IDs.
+- Offline shields-style static SVG drift status badge generator (`badge.py`, `export_drift_badge_svg`, and `llm-drift-bench badge -i REPORT [-o badge.svg] [--label ...]`).
+- Policy composition and round-trippable serialization (`merge_policies`, `render_policy_toml` in `policy.py`).
+- GitHub-Flavored Markdown semantic diff exporter (`format_diffs_markdown` and `llm-drift-bench diff --format markdown`).
+- Multi-candidate cost ranking and budget gate checks (`rank_candidate_costs`, `check_cost_budget`, and `--max-token-increase-pct` / `--max-cost-increase-pct` on `llm-drift-bench cost`).
+- Tool-call step budget (`check_max_tool_calls`, `--max-tool-calls`), resource prefix boundary auditing (`check_allowed_resources`, `--allow-resource`), and JWT + database URL secret detection in `tool_events.py` and `redaction.py` (plus ReDoS-safe `custom_patterns` redaction rules).
+- Multi-category breakdown mini-table inside GitHub PR comments (`canonical_pr_comment`) whenever a benchmark spans 2+ prompt categories.
 - Offline baseline snapshot integrity manifests (`snapshot.py`, `SnapshotArtifact`, `SnapshotManifest`, `SnapshotVerification`, `create_snapshot_manifest`, `verify_snapshot_manifest`, and `llm-drift-bench snapshot create|verify`) with SHA-256 artifact digests, prompt-ID hashing, and strict path-traversal rejection.
 - Composite release gate CLI (`llm-drift-bench gate`) combining canonical drift reports, history ledgers, paired statistical tests, and saved tool checks into GO/NO-GO exit codes, plus token/USD output cost CLI (`llm-drift-bench cost`).
 - Native Google Gemini support across both live capture (`capture --provider gemini` using `/v1beta/models/{model}:generateContent` and `x-goog-api-key`) and offline tool-trace auditing (`from_gemini_transcript` and `check-tools --adapter gemini`).

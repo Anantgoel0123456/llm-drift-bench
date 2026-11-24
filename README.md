@@ -284,7 +284,7 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | Command | Purpose |
 | :--- | :--- |
 | `run` | Compare baseline and candidate captures (`--config`, `--category`, `--long-text-mode`, `--include-diffs`, `--format`, `--junit-output`, `--sarif-output`, `--github-summary`) |
-| `diff` | Show policy-aware JSON field-level or unified text diffs between two captures (`--only-changed`, `--prompt-id`, `--format json`) |
+| `diff` | Show policy-aware JSON field-level or unified text diffs between two captures (`--only-changed`, `--prompt-id`, `--format text\|json\|markdown`) |
 | `score` | Run pluggable scorers (`char_ngram_cosine`, `json_key_jaccard`, `markdown_structure`, `numeric_prose`, `python_ast`, `tfidf_cosine`, or entry-point plugins; `--list-scorers`) |
 | `validate` | Validate captures for JSON syntax and JSON Schema conformity (`--category`, `--strict`) |
 | `report` | Render a saved report as `markdown`, `console`/`table`, `json`, `csv`, `sarif`, `html`, `junit`, or `pr-comment` (`--previous`, `--tool-check`) |
@@ -293,9 +293,11 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | `compare-reports` | Rank saved candidate reports and export SVG Pareto HTML or GFM `--markdown-output` leaderboards |
 | `matrix` | Render a Prompt x Candidate drift heatmap matrix across 2+ saved reports (`--sort-prompts`, `--format text\|json\|html`) |
 | `gate` | Evaluate a composite GO/NO-GO release gate combining drift report, history trends, significance tests, and tool checks |
-| `cost` | Compare explicit generated token counts and optional USD output cost drift without fabricating missing tokens |
+| `cost` | Compare explicit generated token counts & optional USD output cost drift (`--max-token-increase-pct`, `--max-cost-increase-pct`) |
+| `badge` | Generate an offline shields-style static SVG drift status badge from a saved engine report (`--label`) |
+| `import-captures` | Convert OpenAI Batch API JSONL, Anthropic Message Batches JSONL, or CSV exports into canonical `ModelSample` JSONL (`--from`) |
 | `snapshot` | Create or verify offline SHA-256 integrity manifests (`create`, `verify`) for golden baseline fixtures and policies |
-| `check-tools` | Offline read-before-edit & `--max-failed-calls` checks on normalized, OpenAI, Anthropic, Gemini, or OTel traces (`--adapter`) |
+| `check-tools` | Offline read-before-edit, `--max-failed-calls`, `--max-tool-calls`, & `--allow-resource` checks on normalized/OpenAI/Anthropic/Gemini/OTel traces |
 | `stats` | Multi-run bootstrap CIs, flaky-prompt detection, paired permutation (with Cohen's `d`), and exact two-sided McNemar tests |
 | `history` | Record reports (`record`), inspect sparklines/SVG trends (`show`), gate on regressions (`check`), view summaries (`summary`), and compact ledgers (`prune`) |
 | `capture` | Capture reproducible JSONL outputs from OpenAI-compatible, Anthropic (`--provider anthropic`), or Gemini (`--provider gemini`) endpoints |
