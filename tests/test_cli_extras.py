@@ -530,3 +530,124 @@ def test_cli_gate_cost_snapshot_gemini_and_history_prune(
     prune_out = json.loads(capsys.readouterr().out)
     assert prune_out["kept"] == 1 and prune_out["removed"] == 2
 
+
+def test_cli_import_captures_badge_diff_markdown_cost_and_tool_budgets(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # 1. import-captures (csv, openai-batch, anthropic-batch)
+    csv_in = tmp_path / "raw.csv"
+    csv_in.write_text(
+        'prompt_id,output,tokens_generated\np1,"{""ok"": true}",10\n', encoding="utf-8"
+    )
+    csv_out = tmp_path / "from_csv.jsonl"
+    assert (
+        main(
+            [
+                "import-captures",
+                "--from",
+                "csv",
+                "-i",
+                str(csv_in),
+                "-o",
+                str(csv_out),
+                "--model",
+                "q4",
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    imp_meta = json.loads(capsys.readouterr().out)
+    assert imp_meta["imported_samples"] == 1 and imp_meta["model_names"] == ["q4"]
+
+    # 2. badge command (file output & stdout)
+    svg_file = tmp_path / "drift.svg"
+    assert main(["badge", "-i", str(EXAMPLES / "expected-pass.json"), "-o", str(svg_file)]) == 0
+    _ = capsys.readouterr()
+    assert "PASS 0.00" in svg_file.read_text(encoding="utf-8")
+
+    # 3. diff --format markdown
+    assert (
+        main(
+            [
+                "diff",
+                "-b",
+                str(EXAMPLES / "baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "candidate-drift.jsonl"),
+                "--format",
+                "markdown",
+            ]
+        )
+        == 0
+    )
+    md_diff = capsys.readouterr().out
+    assert "## Semantic Response Diff" in md_diff and "| Field Path |" in md_diff
+
+    # 4. cost budget breach returns exit 1
+    b_tok = tmp_path / "b.jsonl"
+    c_tok = tmp_path / "c.jsonl"
+    b_tok.write_text(
+        json.dumps({"prompt_id": "p1", "model_name": "b", "output": "a", "tokens_generated": 100})
+        + "\n",
+        encoding="utf-8",
+    )
+    c_tok.write_text(
+        json.dumps({"prompt_id": "p1", "model_name": "c", "output": "a", "tokens_generated": 200})
+        + "\n",
+        encoding="utf-8",
+    )
+    assert (
+        main(
+            [
+                "cost",
+                "-b",
+                str(b_tok),
+                "-c",
+                str(c_tok),
+                "--max-token-increase-pct",
+                "25",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    cost_payload = json.loads(capsys.readouterr().out)
+    assert cost_payload["budget_passed"] is False
+
+    # 5. check-tools --max-tool-calls & --allow-resource
+    trace = tmp_path / "trace.jsonl"
+    trace.write_text(
+        '{"kind": "read", "resource": "src/a.py@1", "start": 0, "end": 10}\n'
+        '{"kind": "edit", "resource": "src/a.py@1"}\n'
+        '{"kind": "edit", "resource": "secret/k.env@1"}\n',
+        encoding="utf-8",
+    )
+    assert (
+        main(
+            [
+                "check-tools",
+                "-i",
+                str(trace),
+                "--resource",
+                "src/a.py@1",
+                "--end",
+                "10",
+                "--trace-complete",
+                "--max-tool-calls",
+                "2",
+                "--allow-resource",
+                "src/",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    tool_out = json.loads(capsys.readouterr().out)
+    assert tool_out["max_tool_calls_check"]["status"] == "FAIL"
+    assert tool_out["allowed_resources_check"]["status"] == "FAIL"
+
+

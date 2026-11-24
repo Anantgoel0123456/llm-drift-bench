@@ -225,6 +225,20 @@ def register_extra_subcommands(
         help="Optional candidate output price in USD per 1M tokens.",
     )
     cost_p.add_argument(
+        "--max-token-increase-pct",
+        type=float,
+        default=None,
+        metavar="PCT",
+        help="Optional output token increase budget in percent (exits 1 if exceeded).",
+    )
+    cost_p.add_argument(
+        "--max-cost-increase-pct",
+        type=float,
+        default=None,
+        metavar="PCT",
+        help="Optional USD output cost increase budget in percent (exits 1 if exceeded).",
+    )
+    cost_p.add_argument(
         "--format",
         choices=("text", "json"),
         default="text",
@@ -264,6 +278,40 @@ def register_extra_subcommands(
     )
     snap_verify.add_argument(
         "--format", choices=("text", "json"), default="text", help="Stdout format: text or json."
+    )
+
+    imp_p = subparsers.add_parser(
+        "import-captures",
+        help="Convert OpenAI Batch, Anthropic Batch, or CSV exports into ModelSample JSONL.",
+    )
+    imp_p.add_argument(
+        "--from",
+        dest="source_format",
+        choices=("openai-batch", "anthropic-batch", "csv"),
+        required=True,
+        help="Source format: openai-batch, anthropic-batch, or csv.",
+    )
+    imp_p.add_argument("-i", "--input", required=True, help="Source batch JSONL or CSV file.")
+    imp_p.add_argument("-o", "--output", required=True, help="Output ModelSample JSONL file.")
+    imp_p.add_argument(
+        "--model",
+        default=None,
+        help="Optional model_name override (for CSV, overrides default when column is blank).",
+    )
+    imp_p.add_argument(
+        "--format", choices=("text", "json"), default="text", help="Summary format: text or json."
+    )
+
+    badge_p = subparsers.add_parser(
+        "badge",
+        help="Generate an offline shields-style static SVG status badge from a saved report.",
+    )
+    badge_p.add_argument("-i", "--input", required=True, help="Saved engine report JSON file.")
+    badge_p.add_argument(
+        "-o", "--output", default=None, help="Optional output .svg path (stdout if omitted)."
+    )
+    badge_p.add_argument(
+        "--label", default="llm-drift", help="Left-side badge label (default: llm-drift)."
     )
 
 
@@ -476,7 +524,7 @@ def _handle_gate(args: argparse.Namespace) -> int:
 
 
 def _handle_cost(args: argparse.Namespace) -> int:
-    from llm_drift_bench.cost import ModelPricing, estimate_cost_drift
+    from llm_drift_bench.cost import ModelPricing, check_cost_budget, estimate_cost_drift
     from llm_drift_bench.engine import load_model_samples
 
     base = load_model_samples(args.baseline)
@@ -492,15 +540,29 @@ def _handle_cost(args: argparse.Namespace) -> int:
         else None
     )
     res = estimate_cost_drift(base, cand, baseline_pricing=b_price, candidate_pricing=c_price)
+    budget_ok = True
+    budget_detail: str | None = None
+    if args.max_token_increase_pct is not None or args.max_cost_increase_pct is not None:
+        budget_ok, budget_detail = check_cost_budget(
+            res,
+            max_token_increase_pct=args.max_token_increase_pct,
+            max_cost_increase_pct=args.max_cost_increase_pct,
+        )
     if args.format == "json":
-        print(json.dumps(res.to_dict(), indent=2))
-        return 0
+        payload = res.to_dict()
+        if budget_detail is not None:
+            payload["budget_passed"] = budget_ok
+            payload["budget_detail"] = budget_detail
+        print(json.dumps(payload, indent=2))
+        return 0 if budget_ok else 1
     if not res.complete:
         print(
             f"Token & Cost Drift ({res.total_samples} sample(s)): "
             "n/a (incomplete explicit tokens_generated measurements)."
         )
-        return 0
+        if budget_detail is not None:
+            print(f"  Budget check  : {'PASS' if budget_ok else 'FAIL'} ({budget_detail})")
+        return 0 if budget_ok else 1
     pct_s = "n/a" if res.token_delta_pct is None else f"{res.token_delta_pct:+.2f}%"
     print(f"Token & Cost Drift ({res.total_samples} sample(s))")
     print(
@@ -520,7 +582,9 @@ def _handle_cost(args: argparse.Namespace) -> int:
         )
         d_s = "n/a" if res.cost_delta_usd is None else f"${res.cost_delta_usd:+.6f}"
         print(f"  Output cost   : baseline={b_s}, candidate={c_s} (delta={d_s})")
-    return 0
+    if budget_detail is not None:
+        print(f"  Budget check  : {'PASS' if budget_ok else 'FAIL'} ({budget_detail})")
+    return 0 if budget_ok else 1
 
 
 def _handle_snapshot(args: argparse.Namespace, protect_inputs: ProtectFn) -> int:
@@ -561,6 +625,67 @@ def _handle_snapshot(args: argparse.Namespace, protect_inputs: ProtectFn) -> int
     raise ValueError(f"Unsupported snapshot action: {action!r}.")
 
 
+def _handle_import_captures(
+    args: argparse.Namespace,
+    protect_inputs: ProtectFn,
+    atomic_write_text: AtomicWriteFn,
+) -> int:
+    protect_inputs(args.output, args.input)
+    from llm_drift_bench.batch_import import (
+        import_anthropic_batch_jsonl,
+        import_csv_captures,
+        import_openai_batch_jsonl,
+    )
+    from llm_drift_bench.capture import serialize_samples_jsonl
+
+    if args.source_format == "openai-batch":
+        samples = import_openai_batch_jsonl(args.input, model_name=args.model)
+    elif args.source_format == "anthropic-batch":
+        samples = import_anthropic_batch_jsonl(args.input, model_name=args.model)
+    else:
+        samples = import_csv_captures(
+            args.input,
+            default_model=args.model or "unknown",
+        )
+    atomic_write_text(Path(args.output), serialize_samples_jsonl(samples))
+    if args.format == "json":
+        print(
+            json.dumps(
+                {
+                    "source_format": args.source_format,
+                    "imported_samples": len(samples),
+                    "model_names": sorted({s.model_name for s in samples}),
+                    "output": str(args.output),
+                },
+                indent=2,
+            )
+        )
+    else:
+        print(
+            f"Imported {len(samples)} sample(s) from {args.source_format} -> {args.output}"
+        )
+    return 0
+
+
+def _handle_badge(
+    args: argparse.Namespace,
+    protect_inputs: ProtectFn,
+    atomic_write_text: AtomicWriteFn,
+) -> int:
+    protect_inputs(args.output, args.input)
+    from llm_drift_bench.badge import export_drift_badge_svg
+    from llm_drift_bench.report_io import load_engine_report
+
+    report = load_engine_report(args.input)
+    svg = export_drift_badge_svg(report, label=args.label)
+    if args.output:
+        atomic_write_text(Path(args.output), svg)
+        print(f"Wrote drift status badge -> {args.output}")
+    else:
+        print(svg, end="")
+    return 0
+
+
 def dispatch_extra_command(
     args: argparse.Namespace,
     *,
@@ -582,4 +707,8 @@ def dispatch_extra_command(
         return _handle_cost(args)
     if args.command == "snapshot":
         return _handle_snapshot(args, protect_inputs)
+    if args.command == "import-captures":
+        return _handle_import_captures(args, protect_inputs, atomic_write_text)
+    if args.command == "badge":
+        return _handle_badge(args, protect_inputs, atomic_write_text)
     return None

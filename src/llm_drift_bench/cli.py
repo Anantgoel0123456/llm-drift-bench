@@ -670,6 +670,20 @@ def _add_check_tools_subparser(
         help="Optional retry budget: fail (exit 1) if more than N tool calls failed.",
     )
     parser.add_argument(
+        "--max-tool-calls",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Optional total step budget: fail (exit 1) if more than N tool calls occurred.",
+    )
+    parser.add_argument(
+        "--allow-resource",
+        action="append",
+        default=[],
+        metavar="PREFIX",
+        help="Optional allowed resource prefix (repeatable; fail if any tool touched outside).",
+    )
+    parser.add_argument(
         "--format", choices=("text", "json"), default="text",
         help="Stdout format: text (default) or json (the saved check file).",
     )
@@ -683,6 +697,11 @@ def _handle_check_tools(args: argparse.Namespace) -> int:
     """Execute the 'check-tools' subcommand."""
     _protect_inputs(args.output, args.input)
     events = None
+    need_events = (
+        args.max_failed_calls is not None
+        or args.max_tool_calls is not None
+        or bool(args.allow_resource)
+    )
     if args.adapter == "normalized":
         from llm_drift_bench.tool_log import check_trace_file, load_tool_events
 
@@ -690,7 +709,7 @@ def _handle_check_tools(args: argparse.Namespace) -> int:
             args.input, resource=args.resource, required_start=args.start,
             required_end=args.end, trace_complete=args.trace_complete,
         )
-        if args.max_failed_calls is not None:
+        if need_events:
             events = load_tool_events(args.input)
     else:
         from llm_drift_bench.adapters import load_adapted_tool_events
@@ -701,29 +720,59 @@ def _handle_check_tools(args: argparse.Namespace) -> int:
             events, resource=args.resource, required_start=args.start,
             required_end=args.end, trace_complete=args.trace_complete,
         )
-    retry_result = None
-    if args.max_failed_calls is not None and events is not None:
-        from llm_drift_bench.tool_events import check_max_tool_retries
+    extra_checks: dict[str, tuple[Any, dict[str, Any]]] = {}
+    if events is not None:
+        if args.max_failed_calls is not None:
+            from llm_drift_bench.tool_events import check_max_tool_retries
 
-        retry_result = check_max_tool_retries(
-            events,
-            max_failed_calls=args.max_failed_calls,
-            trace_complete=args.trace_complete,
-        )
+            r_res = check_max_tool_retries(
+                events,
+                max_failed_calls=args.max_failed_calls,
+                trace_complete=args.trace_complete,
+            )
+            extra_checks["max_failed_calls_check"] = (
+                r_res,
+                {"status": r_res.status, "reason": r_res.reason, "limit": args.max_failed_calls},
+            )
+        if args.max_tool_calls is not None:
+            from llm_drift_bench.tool_events import check_max_tool_calls
+
+            c_res = check_max_tool_calls(
+                events,
+                max_calls=args.max_tool_calls,
+                trace_complete=args.trace_complete,
+            )
+            extra_checks["max_tool_calls_check"] = (
+                c_res,
+                {"status": c_res.status, "reason": c_res.reason, "limit": args.max_tool_calls},
+            )
+        if args.allow_resource:
+            from llm_drift_bench.tool_events import check_allowed_resources
+
+            a_res = check_allowed_resources(
+                events,
+                allowed_prefixes=args.allow_resource,
+                trace_complete=args.trace_complete,
+            )
+            extra_checks["allowed_resources_check"] = (
+                a_res,
+                {
+                    "status": a_res.status,
+                    "reason": a_res.reason,
+                    "allowed_prefixes": list(args.allow_resource),
+                },
+            )
     payload = json.dumps(record.to_dict(), indent=2)
     if args.output:
         _atomic_write_text(Path(args.output), payload + "\n")
     result = record.result
     if args.format == "json":
-        if retry_result is None:
+        if not extra_checks:
             print(payload)
         else:
             out_obj = record.to_dict()
-            out_obj["max_failed_calls_check"] = {
-                "status": retry_result.status,
-                "reason": retry_result.reason,
-                "limit": args.max_failed_calls,
-            }
+            for key, (_, meta) in extra_checks.items():
+                out_obj[key] = meta
             print(json.dumps(out_obj, indent=2))
     else:
         print(f"read_before_edit: {result.status}")
@@ -737,11 +786,13 @@ def _handle_check_tools(args: argparse.Namespace) -> int:
         print(f"First edit sequence: {edit}")
         print(f"Trace attested complete: {'yes' if record.trace_complete else 'no'}")
         print(f"Reason: {result.reason}")
-        if retry_result is not None:
-            print(f"max_tool_retries: {retry_result.status} ({retry_result.reason})")
-    if result.status == "FAIL" or (retry_result is not None and retry_result.status == "FAIL"):
+        for key, (extra_res, _) in extra_checks.items():
+            label = "max_tool_retries" if key == "max_failed_calls_check" else key
+            print(f"{label}: {extra_res.status} ({extra_res.reason})")
+    all_statuses = [result.status, *(res.status for res, _ in extra_checks.values())]
+    if any(st == "FAIL" for st in all_statuses):
         return 1
-    if result.status == "PASS" and (retry_result is None or retry_result.status == "PASS"):
+    if all(st == "PASS" for st in all_statuses):
         return 0
     return EXIT_TOOL_UNKNOWN
 
@@ -1982,9 +2033,9 @@ def _add_diff_subparser(
     )
     parser.add_argument(
         "--format",
-        choices=("text", "json"),
+        choices=("text", "json", "markdown"),
         default="text",
-        help="Output format: text (default) or json.",
+        help="Output format: text (default), json, or markdown.",
     )
     parser.add_argument(
         "-o",
@@ -1999,7 +2050,7 @@ def _handle_diff(args: argparse.Namespace) -> int:
         raise ValueError("--limit must be a positive integer.")
     _protect_inputs(args.output, args.baseline, args.candidate, args.config)
 
-    from llm_drift_bench.diffing import diff_captures, format_diffs_text
+    from llm_drift_bench.diffing import diff_captures, format_diffs_markdown, format_diffs_text
     from llm_drift_bench.engine import load_model_samples
     from llm_drift_bench.policy import load_policy
 
@@ -2025,6 +2076,10 @@ def _handle_diff(args: argparse.Namespace) -> int:
             "diffs": [item.to_dict() for item in displayed],
         }
         rendered = json.dumps(payload, indent=2) + "\n"
+    elif args.format == "markdown":
+        rendered = format_diffs_markdown(displayed)
+        if omitted:
+            rendered += f"\n_{omitted} additional prompt diff(s) omitted._\n"
     else:
         rendered = format_diffs_text(displayed) + "\n"
         if omitted:
