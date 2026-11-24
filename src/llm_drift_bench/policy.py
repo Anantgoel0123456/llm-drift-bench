@@ -483,3 +483,69 @@ def compute_weighted_composite_drift(
         combined = max(combined, 0.75) + 0.25 * (1.0 - max(combined, 0.75))
 
     return max(0.0, min(1.0, combined))
+
+
+def merge_policies(base: DriftPolicy, override: DriftPolicy) -> DriftPolicy:
+    """Compose a base DriftPolicy with an override policy (field rules merge by path).
+
+    Non-default thresholds, weights, or long_text_mode on `override` supersede `base`;
+    field rules combine with `override` winning on identical JSONPaths.
+    """
+    if not isinstance(base, DriftPolicy) or not isinstance(override, DriftPolicy):
+        raise TypeError("merge_policies requires two DriftPolicy instances.")
+    default_t = DriftThresholds()
+    default_w = MetricWeights()
+    thresholds = override.thresholds if override.thresholds != default_t else base.thresholds
+    weights = override.weights if override.weights != default_w else base.weights
+    long_text_mode = (
+        override.long_text_mode if override.long_text_mode != "error" else base.long_text_mode
+    )
+    merged_fields = {**base.field_rules, **override.field_rules}
+    return DriftPolicy(
+        thresholds=thresholds,
+        weights=weights,
+        field_rules=merged_fields,
+        long_text_mode=long_text_mode,
+    )
+
+
+def render_policy_toml(policy: DriftPolicy) -> str:
+    """Serialize a DriftPolicy to round-trippable drift.toml text."""
+    if not isinstance(policy, DriftPolicy):
+        raise TypeError("render_policy_toml requires a DriftPolicy instance.")
+    t = policy.thresholds
+    w = policy.weights
+    lines = [
+        f'long_text_mode = "{policy.long_text_mode}"',
+        "",
+        "[thresholds]",
+        f"max_composite_drift = {t.max_composite_drift}",
+        f"min_json_conformity_rate = {t.min_json_conformity_rate}",
+        f"max_numeric_relative_drift = {t.max_numeric_relative_drift}",
+        f"max_latency_regression_pct = {t.max_latency_regression_pct}",
+    ]
+    if w != MetricWeights():
+        lines += [
+            "",
+            "[weights]",
+            f"text_weight = {w.text_weight}",
+            f"json_weight = {w.json_weight}",
+            f"token_jaccard = {w.token_jaccard}",
+            f"ngram = {w.ngram}",
+            f"levenshtein = {w.levenshtein}",
+            f"json_structure = {w.json_structure}",
+            f"json_exact_field = {w.json_exact_field}",
+            f"json_numeric = {w.json_numeric}",
+        ]
+    for path in sorted(policy.field_rules):
+        rule = policy.field_rules[path]
+        lines += ["", f"[fields.{json.dumps(path, ensure_ascii=True)}]"]
+        if rule.ignore:
+            lines.append("ignore = true")
+        if rule.unordered_array:
+            lines.append("unordered_array = true")
+        if rule.tolerance_abs is not None:
+            lines.append(f"tolerance_abs = {rule.tolerance_abs}")
+        if rule.tolerance_rel is not None:
+            lines.append(f"tolerance_rel = {rule.tolerance_rel}")
+    return "\n".join(lines) + "\n"

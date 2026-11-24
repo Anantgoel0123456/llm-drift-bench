@@ -264,3 +264,48 @@ def test_toml_fallback_single_quoted_headers_keys_and_hash_values() -> None:
     assert parsed["fields"]["$.items[*].tag#1"]["ignore"] is True
 
 
+def test_merge_policies_and_render_policy_toml_roundtrip(tmp_path: Path) -> None:
+    from llm_drift_bench.models import DriftThresholds
+    from llm_drift_bench.policy import (
+        DriftPolicy,
+        FieldRule,
+        MetricWeights,
+        merge_policies,
+        render_policy_toml,
+    )
+
+    org_base = DriftPolicy(
+        thresholds=DriftThresholds(max_composite_drift=0.15, min_json_conformity_rate=0.98),
+        weights=MetricWeights(text_weight=0.2, json_weight=0.8),
+        field_rules={
+            "$.request_id": FieldRule(path="$.request_id", ignore=True),
+            "$.confidence": FieldRule(path="$.confidence", tolerance_abs=0.02),
+        },
+        long_text_mode="skip_levenshtein",
+    )
+    service_override = DriftPolicy(
+        field_rules={
+            "$.confidence": FieldRule(path="$.confidence", tolerance_abs=0.05),
+            "$.tags": FieldRule(path="$.tags", unordered_array=True),
+        }
+    )
+    merged = merge_policies(org_base, service_override)
+    assert merged.thresholds.max_composite_drift == 0.15
+    assert merged.weights.json_weight == 0.8
+    assert merged.long_text_mode == "skip_levenshtein"
+    assert set(merged.field_rules) == {"$.request_id", "$.confidence", "$.tags"}
+    assert merged.field_rules["$.confidence"].tolerance_abs == 0.05
+    assert merged.field_rules["$.tags"].unordered_array is True
+
+    toml_file = tmp_path / "merged.toml"
+    toml_file.write_text(render_policy_toml(merged), encoding="utf-8")
+    reloaded = load_policy(toml_file)
+    assert reloaded == merged
+
+    with pytest.raises(TypeError, match="DriftPolicy"):
+        merge_policies(org_base, {})  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="DriftPolicy"):
+        render_policy_toml({})  # type: ignore[arg-type]
+
+
+
