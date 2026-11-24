@@ -44,6 +44,9 @@ def test_cli_pr_comment_format_with_previous_deltas(tmp_path: Path, capsys) -> N
     assert "**FAILED**" in text
     assert "(+0.6694)" in text
     assert "(-50.0%)" in text
+    assert "| Category | Drifted | Mean Drift |" in text
+    assert "| `classification` | 1/1 | 0.9597 |" in text
+    assert "| `extraction` | 1/1 | 0.3791 |" in text
     assert "<details>" in text
     assert out_md.read_text(encoding="utf-8") == text
 

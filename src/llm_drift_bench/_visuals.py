@@ -178,6 +178,23 @@ def canonical_pr_comment(
         lines += ["", "**Gate failures:**"]
         lines.extend(f"- {markdown_cell(reason)}" for reason in report.failure_reasons)
 
+    categories = {row.category for row in report.results}
+    if len(categories) >= 2:
+        cat_rows = sorted(
+            category_summary([report]),
+            key=lambda item: (-item.mean_drift, item.category),
+        )
+        lines += [
+            "",
+            "| Category | Drifted | Mean Drift |",
+            "| :--- | ---: | ---: |",
+        ]
+        lines.extend(
+            f"| `{markdown_cell(item.category)}` | {item.drifted}/{item.samples} | "
+            f"{item.mean_drift:.4f} |"
+            for item in cat_rows
+        )
+
     lines += [
         "",
         "<details>",
