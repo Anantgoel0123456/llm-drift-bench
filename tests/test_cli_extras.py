@@ -651,3 +651,268 @@ def test_cli_import_captures_badge_diff_markdown_cost_and_tool_budgets(
     assert tool_out["allowed_resources_check"]["status"] == "FAIL"
 
 
+def test_cli_distribution_wizard_logprobs_check_quality_and_capture_top_logprobs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import math
+
+    # 1. distribution command (json, markdown, html, threshold exit 1)
+    base_d = tmp_path / "dist_base.jsonl"
+    cand_d = tmp_path / "dist_cand.jsonl"
+    base_d.write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "prompt_id": f"p{i}",
+                    "model_name": "b",
+                    "output": json.dumps({"label": "high", "score": 0.9}),
+                }
+            )
+            for i in range(4)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    cand_d.write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "prompt_id": f"p{i}",
+                    "model_name": "c",
+                    "output": json.dumps({"label": "high" if i < 2 else "low", "score": 0.5}),
+                }
+            )
+            for i in range(4)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert main(["distribution", "-b", str(base_d), "-c", str(cand_d), "--format", "json"]) == 0
+    dist_json = json.loads(capsys.readouterr().out)
+    assert dist_json["max_tvd"] == pytest.approx(0.5)
+
+    assert (
+        main(
+            [
+                "distribution",
+                "-b",
+                str(base_d),
+                "-c",
+                str(cand_d),
+                "--max-tvd",
+                "0.2",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    dist_fail = json.loads(capsys.readouterr().out)
+    assert dist_fail["passed"] is False and dist_fail["threshold_failures"]
+
+    dist_html = tmp_path / "dist.html"
+    assert (
+        main(
+            [
+                "distribution",
+                "-b",
+                str(base_d),
+                "-c",
+                str(cand_d),
+                "--format",
+                "html",
+                "-o",
+                str(dist_html),
+            ]
+        )
+        == 0
+    )
+    _ = capsys.readouterr()
+    assert "<table" in dist_html.read_text(encoding="utf-8")
+
+    # 2. wizard command (--preset + -o file, and --non-interactive stdout)
+    wiz_out = tmp_path / "drift.toml"
+    assert main(["wizard", "--preset", "classification", "-o", str(wiz_out)]) == 0
+    wiz_stdout = capsys.readouterr().out
+    assert "Next steps" in wiz_stdout
+    assert "max_composite_drift = 0.1" in wiz_out.read_text(encoding="utf-8")
+
+    assert main(["wizard", "--non-interactive"]) == 0
+    assert "preset: extraction" in capsys.readouterr().out
+
+    # 3. logprobs command (passes on clean, exits 1 when threshold breached or incomplete)
+    lp_b = tmp_path / "lp_b.jsonl"
+    lp_c = tmp_path / "lp_c.jsonl"
+    lp_b.write_text(
+        json.dumps(
+            {
+                "prompt_id": "p1",
+                "model_name": "fp16",
+                "output": "yes",
+                "metadata": {
+                    "logprobs": [
+                        {
+                            "token": "yes",
+                            "logprob": math.log(0.99),
+                            "top_logprobs": [
+                                {"token": "yes", "logprob": math.log(0.99)},
+                                {"token": "no", "logprob": math.log(0.01)},
+                            ],
+                        }
+                    ]
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    lp_c.write_text(
+        json.dumps(
+            {
+                "prompt_id": "p1",
+                "model_name": "q4",
+                "output": "yes",
+                "metadata": {
+                    "logprobs": [
+                        {
+                            "token": "yes",
+                            "logprob": math.log(0.55),
+                            "top_logprobs": [
+                                {"token": "yes", "logprob": math.log(0.55)},
+                                {"token": "no", "logprob": math.log(0.45)},
+                            ],
+                        }
+                    ]
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert main(["logprobs", "-b", str(lp_b), "-c", str(lp_c), "--format", "json"]) == 0
+    lp_res = json.loads(capsys.readouterr().out)
+    assert lp_res["complete"] is True and lp_res["max_top_k_jsd"] > 0.2
+
+    assert (
+        main(
+            [
+                "logprobs",
+                "-b",
+                str(lp_b),
+                "-c",
+                str(lp_c),
+                "--max-jsd",
+                "0.1",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    assert json.loads(capsys.readouterr().out)["passed"] is False
+
+    # Incomplete logprobs with a limit must fail honestly
+    assert (
+        main(
+            [
+                "logprobs",
+                "-b",
+                str(base_d),
+                "-c",
+                str(cand_d),
+                "--max-jsd",
+                "0.5",
+            ]
+        )
+        == 1
+    )
+    assert "incomplete logprobs coverage" in capsys.readouterr().out
+
+    # 4. check-quality command
+    q_b = tmp_path / "q_b.jsonl"
+    q_c = tmp_path / "q_c.jsonl"
+    q_b.write_text(
+        json.dumps(
+            {
+                "prompt_id": "p1",
+                "model_name": "fp16",
+                "output": "Here is the complete technical answer with clear reasoning steps.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    q_c.write_text(
+        json.dumps(
+            {
+                "prompt_id": "p1",
+                "model_name": "q4",
+                "output": "I'm sorry, I cannot assist with that request.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert main(["check-quality", "-b", str(q_b), "-c", str(q_c), "--format", "json"]) == 1
+    q_payload = json.loads(capsys.readouterr().out)
+    assert q_payload["passed"] is False and q_payload["counts_by_check"]["refusal_flip"] == 1
+
+    assert (
+        main(["check-quality", "-b", str(q_b), "-c", str(q_c), "--no-fail-on-issues"]) == 0
+    )
+    assert "ISSUES DETECTED" in capsys.readouterr().out
+
+    # 5. capture --top-logprobs
+    suite = tmp_path / "lp_suite.json"
+    suite.write_text(json.dumps([{"prompt_id": "p1", "prompt": "Say yes"}]), encoding="utf-8")
+    lp_out = tmp_path / "lp_captured.jsonl"
+    seen_bodies: list[dict[str, Any]] = []
+
+    def fake_lp_post(
+        url: str, body: dict[str, Any], headers: dict[str, str], timeout: float
+    ) -> dict[str, Any]:
+        del url, headers, timeout
+        seen_bodies.append(body)
+        return {
+            "choices": [
+                {
+                    "message": {"content": "yes"},
+                    "logprobs": {
+                        "content": [
+                            {
+                                "token": "yes",
+                                "logprob": -0.05,
+                                "top_logprobs": [{"token": "yes", "logprob": -0.05}],
+                            }
+                        ]
+                    },
+                }
+            ]
+        }
+
+    monkeypatch.setattr("llm_drift_bench.capture._default_transport", fake_lp_post)
+    assert (
+        main(
+            [
+                "capture",
+                "-s",
+                str(suite),
+                "--endpoint",
+                "http://localhost:11434/v1",
+                "--model",
+                "llama3:8b",
+                "--top-logprobs",
+                "5",
+                "-o",
+                str(lp_out),
+            ]
+        )
+        == 0
+    )
+    _ = capsys.readouterr()
+    assert seen_bodies[0]["logprobs"] is True and seen_bodies[0]["top_logprobs"] == 5
+    captured_row = json.loads(lp_out.read_text(encoding="utf-8").strip())
+    assert captured_row["metadata"]["logprobs"][0]["token"] == "yes"
+
+
+

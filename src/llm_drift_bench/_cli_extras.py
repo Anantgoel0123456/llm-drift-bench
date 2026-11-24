@@ -1,9 +1,10 @@
-"""Additional CLI subcommands (redact, matrix, lint-suite, subsample, gate, cost, snapshot)."""
+"""Additional CLI subcommands (redact, matrix, lint-suite, distribution, wizard, logprobs, ...)."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -312,6 +313,138 @@ def register_extra_subcommands(
     )
     badge_p.add_argument(
         "--label", default="llm-drift", help="Left-side badge label (default: llm-drift)."
+    )
+
+    dist_p = subparsers.add_parser(
+        "distribution",
+        help="Measure cross-prompt JSON field distribution drift (TVD, JSD, Wasserstein).",
+    )
+    dist_p.add_argument("-b", "--baseline", required=True, help="Baseline capture (.json/.jsonl).")
+    dist_p.add_argument(
+        "-c", "--candidate", required=True, help="Candidate capture (.json/.jsonl)."
+    )
+    dist_p.add_argument(
+        "--config", default=None, help="Optional drift.toml/drift.json policy for ignored fields."
+    )
+    dist_p.add_argument(
+        "--no-collapse-arrays",
+        action="store_true",
+        help="Keep concrete array indices ([0], [1]) separate instead of collapsing into [*].",
+    )
+    dist_p.add_argument(
+        "--max-tvd",
+        type=float,
+        default=None,
+        help="Optional max categorical Total Variation Distance in [0, 1] (exits 1 if exceeded).",
+    )
+    dist_p.add_argument(
+        "--max-jsd",
+        type=float,
+        default=None,
+        help="Optional max categorical Jensen-Shannon Divergence in [0, 1] (exits 1 if exceeded).",
+    )
+    dist_p.add_argument(
+        "--max-wasserstein",
+        type=float,
+        default=None,
+        help="Optional max normalized 1D Wasserstein shift in [0, 1] (exits 1 if exceeded).",
+    )
+    dist_p.add_argument(
+        "--format",
+        choices=("text", "json", "markdown", "html"),
+        default="text",
+        help="Output format: text (default), json, markdown, or html.",
+    )
+    dist_p.add_argument(
+        "-o", "--output", default=None, help="Optional output file path to write the report."
+    )
+
+    wiz_p = subparsers.add_parser(
+        "wizard",
+        help="Guided plain-English setup wizard or preset generator for drift.toml.",
+    )
+    wiz_p.add_argument(
+        "--preset",
+        choices=("extraction", "classification", "coding", "rag", "strict"),
+        default=None,
+        help="Generate drift.toml directly from a use-case preset without interactive prompts.",
+    )
+    wiz_p.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="Skip interactive questions (defaults to --preset extraction when omitted).",
+    )
+    wiz_p.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Optional output path (e.g. drift.toml); prints TOML to stdout if omitted.",
+    )
+
+    lp_p = subparsers.add_parser(
+        "logprobs",
+        help="Compare optional top_logprobs token entropy and top-k JSD across captures.",
+    )
+    lp_p.add_argument("-b", "--baseline", required=True, help="Baseline capture (.json/.jsonl).")
+    lp_p.add_argument(
+        "-c", "--candidate", required=True, help="Candidate capture (.json/.jsonl)."
+    )
+    lp_p.add_argument(
+        "--max-entropy-delta",
+        type=float,
+        default=None,
+        help="Optional max allowed absolute mean entropy shift in bits (exits 1 if exceeded).",
+    )
+    lp_p.add_argument(
+        "--max-jsd",
+        type=float,
+        default=None,
+        help="Optional max allowed prompt top-k JSD in [0, 1] (exits 1 if exceeded).",
+    )
+    lp_p.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format: text (default) or json.",
+    )
+
+    qual_p = subparsers.add_parser(
+        "check-quality",
+        help="Detect repetition loops, refusal flips, and length anomalies across captures.",
+    )
+    qual_p.add_argument("-b", "--baseline", required=True, help="Baseline capture (.json/.jsonl).")
+    qual_p.add_argument(
+        "-c", "--candidate", required=True, help="Candidate capture (.json/.jsonl)."
+    )
+    qual_p.add_argument(
+        "--max-length-ratio",
+        type=float,
+        default=3.0,
+        help="Flag candidate outputs longer than this multiple of baseline (default: 3.0).",
+    )
+    qual_p.add_argument(
+        "--min-length-ratio",
+        type=float,
+        default=0.25,
+        help="Flag candidate outputs shorter than this fraction of baseline (default: 0.25).",
+    )
+    qual_p.add_argument(
+        "--min-baseline-chars",
+        type=int,
+        default=40,
+        help="Minimum baseline character count before length-ratio checks apply (default: 40).",
+    )
+    qual_p.add_argument(
+        "--fail-on-issues",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Exit 1 when any quality regression is detected (default: enabled).",
+    )
+    qual_p.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format: text (default) or json.",
     )
 
 
@@ -686,6 +819,184 @@ def _handle_badge(
     return 0
 
 
+def _validate_unit_threshold(flag: str, value: float | None) -> None:
+    if value is not None and (not math.isfinite(value) or not 0.0 <= value <= 1.0):
+        raise ValueError(f"{flag} must be a finite number between 0.0 and 1.0.")
+
+
+def _handle_distribution(
+    args: argparse.Namespace,
+    protect_inputs: ProtectFn,
+    atomic_write_text: AtomicWriteFn,
+) -> int:
+    _validate_unit_threshold("--max-tvd", args.max_tvd)
+    _validate_unit_threshold("--max-jsd", args.max_jsd)
+    _validate_unit_threshold("--max-wasserstein", args.max_wasserstein)
+    protect_inputs(args.output, args.baseline, args.candidate, args.config)
+
+    from llm_drift_bench.distribution import (
+        analyze_field_distributions,
+        export_distribution_html,
+        format_distribution_markdown,
+        format_distribution_text,
+    )
+    from llm_drift_bench.engine import load_model_samples
+    from llm_drift_bench.policy import load_policy
+
+    base = load_model_samples(args.baseline)
+    cand = load_model_samples(args.candidate)
+    policy = load_policy(args.config) if args.config else None
+    report = analyze_field_distributions(
+        base,
+        cand,
+        policy=policy,
+        collapse_array_indices=not args.no_collapse_arrays,
+    )
+
+    failures: list[str] = []
+    if args.max_tvd is not None and report.max_tvd > args.max_tvd:
+        failures.append(f"max_tvd {report.max_tvd:.4f} exceeded limit {args.max_tvd:.4f}")
+    if args.max_jsd is not None and report.max_jsd > args.max_jsd:
+        failures.append(f"max_jsd {report.max_jsd:.4f} exceeded limit {args.max_jsd:.4f}")
+    if (
+        args.max_wasserstein is not None
+        and report.max_normalized_wasserstein > args.max_wasserstein
+    ):
+        failures.append(
+            f"max_normalized_wasserstein {report.max_normalized_wasserstein:.4f} "
+            f"exceeded limit {args.max_wasserstein:.4f}"
+        )
+    passed = len(failures) == 0
+
+    if args.format == "json":
+        payload = report.to_dict()
+        if any(
+            val is not None for val in (args.max_tvd, args.max_jsd, args.max_wasserstein)
+        ):
+            payload["passed"] = passed
+            payload["threshold_failures"] = failures
+        rendered = json.dumps(payload, indent=2) + "\n"
+    elif args.format == "markdown":
+        rendered = format_distribution_markdown(report)
+    elif args.format == "html":
+        rendered = export_distribution_html(report)
+    else:
+        rendered = format_distribution_text(report)
+        if failures:
+            rendered += "Threshold failures:\n" + "".join(f"  - {msg}\n" for msg in failures)
+
+    if args.output:
+        atomic_write_text(Path(args.output), rendered)
+        if args.format == "html":
+            print(f"Wrote field distribution report -> {args.output}")
+        else:
+            print(rendered, end="")
+    else:
+        print(rendered, end="")
+    return 0 if passed else 1
+
+
+def _handle_wizard(
+    args: argparse.Namespace,
+    atomic_write_text: AtomicWriteFn,
+) -> int:
+    from llm_drift_bench.wizard import (
+        PRESET_ANSWERS,
+        format_wizard_next_steps,
+        render_wizard_config,
+        run_guided_wizard,
+    )
+
+    if args.preset is not None or args.non_interactive:
+        answers = PRESET_ANSWERS[args.preset or "extraction"]
+    else:
+        answers, _ = run_guided_wizard()
+
+    toml_text = render_wizard_config(answers)
+    if args.output:
+        atomic_write_text(Path(args.output), toml_text)
+        print(f"Wrote {answers.use_case} drift policy -> {args.output}")
+        print(format_wizard_next_steps(answers, config_path=args.output), end="")
+    else:
+        print(toml_text, end="")
+    return 0
+
+
+def _handle_logprobs(args: argparse.Namespace) -> int:
+    if args.max_entropy_delta is not None and (
+        not math.isfinite(args.max_entropy_delta) or args.max_entropy_delta < 0.0
+    ):
+        raise ValueError("--max-entropy-delta must be a finite non-negative number.")
+    _validate_unit_threshold("--max-jsd", args.max_jsd)
+
+    from llm_drift_bench.engine import load_model_samples
+    from llm_drift_bench.logprobs import analyze_logprobs_drift, format_logprobs_text
+
+    base = load_model_samples(args.baseline)
+    cand = load_model_samples(args.candidate)
+    summary = analyze_logprobs_drift(base, cand)
+
+    has_limits = args.max_entropy_delta is not None or args.max_jsd is not None
+    failures: list[str] = []
+    if has_limits and not summary.complete:
+        failures.append(
+            f"incomplete logprobs coverage ({summary.comparable_samples}/{summary.total_samples})"
+        )
+    if (
+        args.max_entropy_delta is not None
+        and summary.mean_entropy_delta_bits is not None
+        and abs(summary.mean_entropy_delta_bits) > args.max_entropy_delta
+    ):
+        failures.append(
+            f"abs(mean_entropy_delta_bits) {abs(summary.mean_entropy_delta_bits):.4f} "
+            f"exceeded limit {args.max_entropy_delta:.4f}"
+        )
+    if (
+        args.max_jsd is not None
+        and summary.max_top_k_jsd is not None
+        and summary.max_top_k_jsd > args.max_jsd
+    ):
+        failures.append(
+            f"max_top_k_jsd {summary.max_top_k_jsd:.4f} exceeded limit {args.max_jsd:.4f}"
+        )
+    passed = len(failures) == 0
+
+    if args.format == "json":
+        payload = summary.to_dict()
+        if has_limits:
+            payload["passed"] = passed
+            payload["threshold_failures"] = failures
+        print(json.dumps(payload, indent=2))
+    else:
+        text = format_logprobs_text(summary)
+        if failures:
+            text += "Threshold failures:\n" + "".join(f"  - {msg}\n" for msg in failures)
+        print(text, end="")
+    return 0 if passed else 1
+
+
+def _handle_check_quality(args: argparse.Namespace) -> int:
+    from llm_drift_bench.engine import load_model_samples
+    from llm_drift_bench.quality_checks import format_quality_report_text, run_quality_checks
+
+    base = load_model_samples(args.baseline)
+    cand = load_model_samples(args.candidate)
+    report = run_quality_checks(
+        base,
+        cand,
+        max_length_ratio=args.max_length_ratio,
+        min_length_ratio=args.min_length_ratio,
+        min_baseline_chars=args.min_baseline_chars,
+    )
+    if args.format == "json":
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(format_quality_report_text(report), end="")
+    if not report.passed and args.fail_on_issues:
+        return 1
+    return 0
+
+
 def dispatch_extra_command(
     args: argparse.Namespace,
     *,
@@ -711,4 +1022,12 @@ def dispatch_extra_command(
         return _handle_import_captures(args, protect_inputs, atomic_write_text)
     if args.command == "badge":
         return _handle_badge(args, protect_inputs, atomic_write_text)
+    if args.command == "distribution":
+        return _handle_distribution(args, protect_inputs, atomic_write_text)
+    if args.command == "wizard":
+        return _handle_wizard(args, atomic_write_text)
+    if args.command == "logprobs":
+        return _handle_logprobs(args)
+    if args.command == "check-quality":
+        return _handle_check_quality(args)
     return None

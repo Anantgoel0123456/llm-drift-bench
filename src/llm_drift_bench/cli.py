@@ -1697,6 +1697,12 @@ def _add_capture_subparser(
         help="Request response_format={'type': 'json_object'} from the endpoint.",
     )
     parser.add_argument(
+        "--top-logprobs",
+        type=int,
+        default=None,
+        help="Optional OpenAI-compatible top_logprobs count (1..20) stored in metadata.",
+    )
+    parser.add_argument(
         "--concurrency",
         type=int,
         default=1,
@@ -1756,6 +1762,7 @@ def _handle_capture(args: argparse.Namespace) -> int:
         concurrency=args.concurrency,
         extra_headers=extra_headers,
         provider=args.provider,
+        top_logprobs=args.top_logprobs,
     )
 
     def _run_one_target(target: Path) -> tuple[int, int]:
