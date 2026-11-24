@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 from llm_drift_bench._matching import require_same_ids
 from llm_drift_bench._numbers import finite_number
+from llm_drift_bench._report_views import markdown_cell
 from llm_drift_bench.metrics import _json_type_tag, _values_equal, flatten_json_paths
 from llm_drift_bench.models import ModelSample
 from llm_drift_bench.policy import (
@@ -293,3 +294,57 @@ def format_diffs_text(diffs: Sequence[PromptDiff]) -> str:
             for raw_line in item.unified_diff:
                 lines.append(f"  {raw_line}")
     return "\n".join(lines)
+
+
+def format_diffs_markdown(
+    diffs: Sequence[PromptDiff],
+    *,
+    max_changes_per_prompt: int = 25,
+) -> str:
+    """Render PromptDiff items as GitHub-Flavored Markdown tables and diff blocks."""
+    if type(max_changes_per_prompt) is not int or max_changes_per_prompt < 1:
+        raise ValueError("max_changes_per_prompt must be a positive integer.")
+    total = len(diffs)
+    changed_count = sum(1 for d in diffs if d.changed)
+    lines = [
+        "## Semantic Response Diff",
+        "",
+        f"**Changed prompts:** `{changed_count}/{total}`",
+    ]
+    if not diffs:
+        lines += ["", "No matching prompts to display."]
+        return "\n".join(lines) + "\n"
+
+    for item in diffs:
+        lines += ["", f"### `{markdown_cell(item.prompt_id)}` ({item.mode})"]
+        if not item.changed:
+            note = (
+                f" ({len(item.ignored_paths)} path(s) ignored via policy)"
+                if item.ignored_paths
+                else ""
+            )
+            lines.append(f"Unchanged{note}.")
+            continue
+        if item.mode == "json":
+            lines += [
+                "",
+                "| Field Path | Change | Baseline | Candidate | Rel Drift |",
+                "| :--- | :---: | :--- | :--- | ---: |",
+            ]
+            shown = item.field_changes[:max_changes_per_prompt]
+            for fc in shown:
+                base_s = "(missing)" if fc.kind == "added" else _fmt_val(fc.baseline)
+                cand_s = "(missing)" if fc.kind == "removed" else _fmt_val(fc.candidate)
+                rel_s = "-" if fc.numeric_rel_drift is None else f"{fc.numeric_rel_drift:.4f}"
+                lines.append(
+                    f"| `{markdown_cell(fc.path)}` | **{fc.kind}** | "
+                    f"`{markdown_cell(base_s)}` | `{markdown_cell(cand_s)}` | {rel_s} |"
+                )
+            omitted = len(item.field_changes) - len(shown)
+            if omitted > 0:
+                lines += ["", f"_{omitted} additional field change(s) omitted._"]
+            if item.ignored_paths:
+                lines += ["", f"_Ignored {len(item.ignored_paths)} path(s) via policy._"]
+        else:
+            lines += ["", "```diff", *item.unified_diff[:max_changes_per_prompt], "```"]
+    return "\n".join(lines) + "\n"

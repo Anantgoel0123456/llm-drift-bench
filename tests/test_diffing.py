@@ -156,3 +156,30 @@ def test_diff_empty_containers_do_not_report_spurious_root_removal() -> None:
     )
     assert [(c.path, c.kind) for c in d_arr.field_changes] == [("$[0]", "removed")]
 
+
+def test_format_diffs_markdown_renders_json_tables_and_text_diffs() -> None:
+    from llm_drift_bench.diffing import format_diffs_markdown
+
+    d_json = diff_sample_pair(
+        ModelSample(prompt_id="inv-1", output='{"total": 100, "note": "a|b"}'),
+        ModelSample(prompt_id="inv-1", output='{"total": 150, "extra": true}'),
+    )
+    d_text = diff_sample_pair(
+        ModelSample(prompt_id="txt-1", output="hello world"),
+        ModelSample(prompt_id="txt-1", output="hello earth"),
+    )
+    d_same = diff_sample_pair(
+        ModelSample(prompt_id="same-1", output='{"x": 1}'),
+        ModelSample(prompt_id="same-1", output='{"x": 1}'),
+    )
+    md = format_diffs_markdown([d_json, d_text, d_same])
+    assert "**Changed prompts:** `2/3`" in md
+    assert "| `$.total` | **changed**" in md
+    assert "a&#124;b" in md and "a|b" not in md  # pipe escaped safely inside GFM table
+    assert "```diff" in md
+    assert "Unchanged." in md
+
+    with pytest.raises(ValueError, match="positive integer"):
+        format_diffs_markdown([d_json], max_changes_per_prompt=0)
+
+
