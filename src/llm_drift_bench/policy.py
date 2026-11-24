@@ -105,6 +105,13 @@ class DriftPolicy:
                 f"long_text_mode must be one of {_VALID_LONG_TEXT_MODES}, "
                 f"got {self.long_text_mode!r}."
             )
+        for key, rule in self.field_rules.items():
+            if not isinstance(rule, FieldRule):
+                raise ValueError(f"field_rules[{key!r}] must be a FieldRule instance.")
+            if key != rule.path:
+                raise ValueError(
+                    f"field_rules key {key!r} does not match FieldRule.path {rule.path!r}."
+                )
 
 
 def _strip_toml_comment(line: str) -> str:
@@ -134,7 +141,10 @@ def _parse_toml_scalar(raw: str) -> Any:
     if value.startswith('"') and value.endswith('"') and len(value) >= 2:
         return json.loads(value)
     if value.startswith("'") and value.endswith("'") and len(value) >= 2:
-        return value[1:-1]
+        inner = value[1:-1]
+        if "'" in inner:
+            raise ValueError(f"Invalid single-quoted TOML string: {raw!r}.")
+        return inner
     if re.fullmatch(r"[+-]?\d+", value):
         return int(value)
     if re.fullmatch(r"[+-]?(\d+\.\d*|\.\d+)([eE][+-]?\d+)?|[+-]?\d+[eE][+-]?\d+", value):
@@ -180,6 +190,8 @@ def _parse_toml_fallback(text: str) -> dict[str, Any]:
             key = json.loads(key)
         elif key.startswith("'") and key.endswith("'") and len(key) >= 2:
             key = key[1:-1]
+        if not key:
+            raise ValueError(f"Line {lineno}: TOML key cannot be empty.")
         if key in current:
             raise ValueError(f"Line {lineno}: duplicate TOML key {key!r}.")
         current[key] = _parse_toml_scalar(val_raw)

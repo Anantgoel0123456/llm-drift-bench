@@ -307,5 +307,15 @@ def test_merge_policies_and_render_policy_toml_roundtrip(tmp_path: Path) -> None
     with pytest.raises(TypeError, match="DriftPolicy"):
         render_policy_toml({})  # type: ignore[arg-type]
 
+    # Split-brain field_rules dict key vs FieldRule.path is rejected explicitly.
+    with pytest.raises(ValueError, match="does not match FieldRule.path"):
+        DriftPolicy(field_rules={"$.a": FieldRule(path="$.b", ignore=True)})
+
+    # Malformed single-quoted TOML string & empty key rejected by fallback parser.
+    with pytest.raises(ValueError, match="Invalid single-quoted TOML string"):
+        _parse_toml_fallback("long_text_mode = 'bad'value'\n")
+    with pytest.raises(ValueError, match="cannot be empty"):
+        _parse_toml_fallback('"" = true\n')
+
 
 
