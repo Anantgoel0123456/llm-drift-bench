@@ -123,3 +123,40 @@ def test_import_csv_captures_preserves_missing_metrics_and_rejects_dups(tmp_path
     bad_hdr.write_text("id,text\np1,a\n", encoding="utf-8")
     with pytest.raises(ValueError, match="header columns"):
         import_csv_captures(bad_hdr)
+
+    # Multipart OpenAI chat message.content list is supported cleanly.
+    mp = tmp_path / "multipart.jsonl"
+    mp.write_text(
+        json.dumps(
+            {
+                "custom_id": "m1",
+                "response": {
+                    "status_code": 200,
+                    "body": {
+                        "model": "gpt-4o",
+                        "choices": [
+                            {
+                                "message": {
+                                    "content": [
+                                        {"type": "text", "text": '{"a": '},
+                                        {"type": "text", "text": "1}"},
+                                    ]
+                                }
+                            }
+                        ],
+                    },
+                },
+                "error": None,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    mp_samples = import_openai_batch_jsonl(mp)
+    assert mp_samples[0].output == '{"a": 1}'
+
+    # Invalid negative latency in CSV reports exact row location.
+    neg_csv = tmp_path / "neg.csv"
+    neg_csv.write_text("prompt_id,output,latency_ms\np1,ok,-5.0\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=r"row 2"):
+        import_csv_captures(neg_csv)

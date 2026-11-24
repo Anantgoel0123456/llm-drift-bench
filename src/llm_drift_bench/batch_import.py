@@ -38,15 +38,29 @@ def _extract_openai_body_text_and_tokens(
         if not isinstance(first, dict):
             raise ValueError(f"{where}: choice entry must be an object.")
         msg = first.get("message")
-        if not isinstance(msg, dict) or not isinstance(msg.get("content"), str):
-            raise ValueError(f"{where}: missing string choices[0].message.content.")
+        if not isinstance(msg, dict):
+            raise ValueError(f"{where}: missing choices[0].message object.")
+        raw_content = msg.get("content")
+        if isinstance(raw_content, str):
+            text_out = raw_content
+        elif isinstance(raw_content, list):
+            content_parts = [
+                block["text"]
+                for block in raw_content
+                if isinstance(block, dict) and isinstance(block.get("text"), str)
+            ]
+            if not content_parts:
+                raise ValueError(f"{where}: choices[0].message.content list has no text blocks.")
+            text_out = "".join(content_parts)
+        else:
+            raise ValueError(f"{where}: missing string or text-block choices[0].message.content.")
         usage = body.get("usage")
         tokens: int | None = None
         if isinstance(usage, dict):
             raw_toks = usage.get("completion_tokens")
             if type(raw_toks) is int and raw_toks >= 0:
                 tokens = raw_toks
-        return msg["content"], tokens
+        return text_out, tokens
 
     # Support OpenAI Responses API batch output bodies too.
     output_items = body.get("output")
@@ -251,15 +265,18 @@ def import_csv_captures(
             except ValueError as exc:
                 raise ValueError(f"{where}: invalid {tokens_col!r} value {raw_toks!r}.") from exc
 
-        samples.append(
-            ModelSample(
-                prompt_id=pid,
-                output=output,
-                model_name=model,
-                latency_ms=latency,
-                tokens_generated=tokens,
+        try:
+            samples.append(
+                ModelSample(
+                    prompt_id=pid,
+                    output=output,
+                    model_name=model,
+                    latency_ms=latency,
+                    tokens_generated=tokens,
+                )
             )
-        )
+        except ValueError as exc:
+            raise ValueError(f"{where}: {exc}") from exc
     if not samples:
         raise ValueError(f"{source}: CSV contains zero data rows.")
     return sorted(samples, key=lambda s: s.prompt_id)
