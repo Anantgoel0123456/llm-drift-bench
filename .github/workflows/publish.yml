@@ -157,3 +157,57 @@ jobs:
         env:
           PACKAGE_VERSION: ${{ needs.build.outputs.version }}
         run: python scripts/verify_registry.py pypi "$PACKAGE_VERSION"
+
+  github-release:
+    name: Publish GitHub release and assets
+    needs: [build, pypi, verify-pypi]
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish == 'Yes' && inputs.registry == 'PyPI')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: distributions
+          path: dist/
+      - name: Extract release notes from CHANGELOG.md
+        env:
+          PACKAGE_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ["PACKAGE_VERSION"]
+          text = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          pattern = re.compile(
+              rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)",
+              re.MULTILINE | re.DOTALL,
+          )
+          match = pattern.search(text)
+          notes = match.group(1).strip() if match else ""
+          if notes:
+              Path("release-notes.md").write_text(notes + "\n", encoding="utf-8")
+          PY
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_VERSION: ${{ needs.build.outputs.version }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          TAG="v${PACKAGE_VERSION}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          elif [ -s release-notes.md ]; then
+            gh release create "$TAG" dist/* \
+              --target "$TARGET_SHA" \
+              --title "$TAG" \
+              --notes-file release-notes.md
+          else
+            gh release create "$TAG" dist/* \
+              --target "$TARGET_SHA" \
+              --title "$TAG" \
+              --generate-notes
+          fi

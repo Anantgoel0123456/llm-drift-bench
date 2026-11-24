@@ -6,8 +6,12 @@ Manual `workflow_dispatch` has a Yes/No choice, defaulting to No. No runs tests,
 builds and checks artifacts without uploading. With Yes, choose the registry:
 TestPyPI (default) or PyPI. Open Actions, Publish distributions, Run workflow to
 select these options. Manual PyPI publishing does not require creating a GitHub
-release or tag. It still rejects development versions and respects environment
-approval rules. A published GitHub release also publishes to PyPI. Both paths test and build once, check metadata, install the wheel
+release or tag beforehand: once the PyPI upload and `verify-pypi` checks pass,
+the `github-release` job automatically creates the `v<version>` GitHub Release
+using the matching `CHANGELOG.md` section and attaches the verified wheel and
+sdist files. It still rejects development versions and respects environment
+approval rules. A published GitHub release also publishes to PyPI and attaches
+the built wheel and sdist assets to that release. Both paths test and build once, check metadata, install the wheel
 and sdist in isolated environments, and pass the same artifacts to a separate
 upload job. Production tags must equal `v` plus the package version; development
 versions cannot pass the production guard. Actions are pinned to commits.
@@ -60,8 +64,9 @@ repository, so tick each item in the web UI before triggering a publish.
       solo project.
 - [ ] TestPyPI Publishing page lists the publisher (or a pending publisher) for
       the row above; PyPI likewise.
-- [ ] Only the `testpypi` and `pypi` jobs request `id-token: write`; the build job
-      has `contents: read` only. No API token secret exists or is referenced.
+- [ ] Only the `testpypi` and `pypi` jobs request `id-token: write`, and only
+      the post-verification `github-release` job requests `contents: write`;
+      the `build` job has `contents: read` only. No API token secret exists or is referenced.
 
 ## Distribution checks
 
