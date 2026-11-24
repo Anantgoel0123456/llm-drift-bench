@@ -388,4 +388,139 @@ def test_gemini_transcript_adapter_and_otel_timestamp_ordering(tmp_path) -> None
     assert verdict.status == "PASS"
 
 
+def test_adapter_edge_cases_jsonl_otlp_types_and_error_guards(tmp_path) -> None:
+    import json
+
+    import pytest
+
+    from llm_drift_bench.adapters import (
+        from_gemini_transcript,
+        load_adapted_tool_events,
+    )
+
+    # JSONL Anthropic transcript + unknown tools / missing resources ignored cleanly
+    jsonl_ant = tmp_path / "ant.jsonl"
+    jsonl_ant.write_text(
+        json.dumps(
+            {
+                "role": "assistant",
+                "content": [
+                    "plain string block ignored",
+                    {"type": "tool_use", "id": "u0", "name": "bash", "input": {"cmd": "ls"}},
+                    {"type": "tool_use", "id": "u1", "name": "Read", "input": "{malformed"},
+                    {"type": "tool_use", "id": "u2", "name": "Read", "input": {"path": "a@1"}},
+                ],
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "u2", "range": {"start": 0, "end": 5}}
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    ant_events = load_adapted_tool_events(jsonl_ant, adapter="anthropic")
+    assert len(ant_events) == 1 and ant_events[0].end == 5
+
+    # OTLP legacy instrumentationLibrarySpans + boolValue/doubleValue/invalid intValue
+    otlp_legacy = tmp_path / "otlp_legacy.json"
+    otlp_legacy.write_text(
+        json.dumps(
+            {
+                "resourceSpans": [
+                    {
+                        "instrumentationLibrarySpans": [
+                            {
+                                "spans": [
+                                    {
+                                        "attributes": [
+                                            {
+                                                "key": "gen_ai.tool.name",
+                                                "value": {"stringValue": "read_file"},
+                                            },
+                                            {
+                                                "key": "gen_ai.tool.call.arguments",
+                                                "value": {"stringValue": '{"path": "x@1"}'},
+                                            },
+                                            {"key": "flag", "value": {"boolValue": True}},
+                                            {"key": "lat", "value": {"doubleValue": 1.5}},
+                                            {
+                                                "key": "llm_drift_bench.read.start",
+                                                "value": {"intValue": "bad"},
+                                            },
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    leg_events = load_adapted_tool_events(otlp_legacy, adapter="otel")
+    assert len(leg_events) == 1 and leg_events[0].start is None
+
+    # OpenAI malformed / non-mapping items skipped cleanly
+    openai_noisy = tmp_path / "openai_noisy.json"
+    openai_noisy.write_text(
+        json.dumps(
+            {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "tool_calls": [
+                            "not-a-dict",
+                            {"function": "not-a-dict"},
+                            {"id": "1", "function": {"name": "search", "arguments": "{}"}},
+                            {"id": "2", "function": {"name": "read_file", "arguments": "[]"}},
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert load_adapted_tool_events(openai_noisy, adapter="openai") == []
+
+    # Gemini ignores non-mapping parts, non-list parts, and unknown tools
+    assert (
+        from_gemini_transcript(
+            [
+                {"parts": "not-a-list"},
+                {"parts": ["str", {"functionCall": {"name": "other", "args": {"path": "x"}}}]},
+            ]
+        )
+        == []
+    )
+
+    # Error branches: empty file, non-list payload, non-object item, unsupported adapter
+    empty = tmp_path / "empty.json"
+    empty.write_text("   ", encoding="utf-8")
+    with pytest.raises(ValueError, match="empty"):
+        load_adapted_tool_events(empty, adapter="openai")
+
+    not_list = tmp_path / "not_list.json"
+    not_list.write_text('"hello"', encoding="utf-8")
+    with pytest.raises(ValueError, match="JSON array"):
+        load_adapted_tool_events(not_list, adapter="openai")
+
+    bad_item = tmp_path / "bad_item.json"
+    bad_item.write_text("[1, 2]", encoding="utf-8")
+    with pytest.raises(ValueError, match="JSON object"):
+        load_adapted_tool_events(bad_item, adapter="openai")
+
+    ok_empty = tmp_path / "ok_empty.json"
+    ok_empty.write_text("[]", encoding="utf-8")
+    with pytest.raises(ValueError, match="Unsupported adapter"):
+        load_adapted_tool_events(ok_empty, adapter="unknown")  # type: ignore[arg-type]
+
+
+
 
