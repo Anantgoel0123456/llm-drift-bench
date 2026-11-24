@@ -55,3 +55,28 @@ def test_redact_samples_cleans_outputs_and_nested_metadata() -> None:
     assert "[REDACTED:AWS_ACCESS_KEY]" in cleaned[0].output
     assert cleaned[0].metadata["headers"] == ["[REDACTED:BEARER_TOKEN]"]
     assert cleaned[1].output == '{"total": 100}'
+
+
+def test_redact_jwt_database_url_and_custom_safe_patterns() -> None:
+    import pytest
+
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signaturevalue12345"
+    db = "postgres://app:mysecret@db.internal:5432/orders"
+    text = json.dumps({"jwt": jwt, "dsn": db, "acct": "CUST-12345678"})
+    cleaned, counts = redact_text(
+        text,
+        include_pii=False,
+        custom_patterns={"customer_id": r"CUST-[0-9]{8}"},
+    )
+    parsed = json.loads(cleaned)
+    assert parsed["jwt"] == "[REDACTED:JWT]"
+    assert parsed["dsn"] == "[REDACTED:DATABASE_URL]"
+    assert parsed["acct"] == "[REDACTED:CUSTOMER_ID]"
+    assert counts == {"CUSTOMER_ID": 1, "DATABASE_URL": 1, "JWT": 1}
+
+    # ReDoS-unsafe custom pattern is rejected by the safe regex policy.
+    with pytest.raises(ValueError, match="Unsafe custom redaction pattern"):
+        redact_text("abc", custom_patterns={"bad": r"(a+)+$"})
+    with pytest.raises(ValueError, match="alphanumeric"):
+        redact_text("abc", custom_patterns={"bad label!": r"abc"})
+
