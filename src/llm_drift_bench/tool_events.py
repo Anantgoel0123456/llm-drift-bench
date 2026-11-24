@@ -17,6 +17,14 @@ _SECRET_PATTERNS = (
     ("google_api_key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
     ("slack_token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b")),
     ("bearer_token", re.compile(r"\bBearer\s+[A-Za-z0-9._-]{24,}\b")),
+    (
+        "jwt_token",
+        re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"),
+    ),
+    (
+        "database_url",
+        re.compile(r"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis)://[^/\s:@]*:[^/\s@]+@"),
+    ),
     ("private_key_pem", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
 )
 
@@ -198,6 +206,78 @@ def check_no_secret_in_tool_args(
     return ToolCheckResult(
         "PASS",
         "No common credential patterns detected in supplied tool arguments.",
+        0,
+        0,
+        None,
+    )
+
+
+def check_max_tool_calls(
+    events: Sequence[ToolEvent],
+    *,
+    max_calls: int,
+    trace_complete: bool = False,
+) -> ToolCheckResult:
+    """Verify total tool invocations stay within an explicit step budget."""
+    if type(max_calls) is not int or max_calls < 0:
+        raise ValueError("max_calls must be a non-negative integer.")
+    if type(trace_complete) is not bool:
+        raise ValueError("trace_complete must be boolean.")
+    total = len(events)
+    if total > max_calls:
+        return ToolCheckResult(
+            "FAIL",
+            f"Recorded {total} tool call(s), exceeding call budget {max_calls}.",
+            0,
+            0,
+            None,
+        )
+    if not trace_complete:
+        return ToolCheckResult("UNKNOWN", "Trace completeness is not confirmed.", 0, 0, None)
+    return ToolCheckResult(
+        "PASS",
+        f"Recorded {total} tool call(s) within call budget {max_calls}.",
+        0,
+        0,
+        None,
+    )
+
+
+def check_allowed_resources(
+    events: Sequence[ToolEvent],
+    *,
+    allowed_prefixes: Sequence[str],
+    trace_complete: bool = False,
+) -> ToolCheckResult:
+    """Verify every recorded tool event targeted a resource within allowed prefixes."""
+    cleaned_prefixes = tuple(p for p in allowed_prefixes if isinstance(p, str) and p.strip())
+    if not cleaned_prefixes or len(cleaned_prefixes) != len(allowed_prefixes):
+        raise ValueError("allowed_prefixes must contain one or more non-empty strings.")
+    if type(trace_complete) is not bool:
+        raise ValueError("trace_complete must be boolean.")
+
+    disallowed: list[str] = []
+    for event in events:
+        if (
+            not any(event.resource.startswith(prefix) for prefix in cleaned_prefixes)
+            and event.resource not in disallowed
+        ):
+            disallowed.append(event.resource)
+    if disallowed:
+        preview = ", ".join(disallowed[:3])
+        extra = f" (+{len(disallowed) - 3} more)" if len(disallowed) > 3 else ""
+        return ToolCheckResult(
+            "FAIL",
+            f"Tool touched disallowed resource(s) outside allowed prefixes: {preview}{extra}.",
+            0,
+            0,
+            None,
+        )
+    if not trace_complete:
+        return ToolCheckResult("UNKNOWN", "Trace completeness is not confirmed.", 0, 0, None)
+    return ToolCheckResult(
+        "PASS",
+        f"All {len(events)} tool event(s) stayed within allowed resource prefixes.",
         0,
         0,
         None,
