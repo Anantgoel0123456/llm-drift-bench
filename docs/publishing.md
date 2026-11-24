@@ -3,15 +3,19 @@
 The workflow is prepared locally; changing it does not publish a package.
 
 Manual `workflow_dispatch` has a Yes/No choice, defaulting to No. No runs tests,
-builds and checks artifacts without uploading. With Yes, choose the registry:
-TestPyPI (default) or PyPI. Open Actions, Publish distributions, Run workflow to
-select these options. Manual PyPI publishing does not require creating a GitHub
-release or tag beforehand: once the PyPI upload and `verify-pypi` checks pass,
-the `github-release` job automatically creates the `v<version>` GitHub Release
-using the matching `CHANGELOG.md` section and attaches the verified wheel and
-sdist files. It still rejects development versions and respects environment
-approval rules. A published GitHub release also publishes to PyPI and attaches
-the built wheel and sdist assets to that release. Both paths test and build once, check metadata, install the wheel
+builds and checks artifacts without uploading. With Yes, choose the target:
+`TestPyPI` (default), `PyPI`, or `GitHub Release only`. Open Actions, Publish
+distributions, Run workflow to select these options. Selecting `GitHub Release only`
+runs the full build and distribution checks and creates/updates the `v<version>`
+GitHub Release with changelog notes and wheel/sdist assets without uploading to
+PyPI (useful when a version is already published on PyPI). Manual `PyPI` publishing
+does not require creating a GitHub release or tag beforehand: once the PyPI upload
+and `verify-pypi` checks pass, the `github-release` job automatically creates the
+`v<version>` GitHub Release using the matching `CHANGELOG.md` section and attaches
+the verified wheel and sdist files. It still rejects development versions and
+respects environment approval rules. A published GitHub release also publishes to
+PyPI and attaches the built wheel and sdist assets to that release. Both paths test
+and build once, check metadata, install the wheel
 and sdist in isolated environments, and pass the same artifacts to a separate
 upload job. Production tags must equal `v` plus the package version; development
 versions cannot pass the production guard. Actions are pinned to commits.

@@ -14,13 +14,14 @@ on:
           - 'No'
           - 'Yes'
       registry:
-        description: 'Registry to publish to when Yes is selected'
+        description: 'Target to publish to when Yes is selected'
         required: true
         type: choice
         default: 'TestPyPI'
         options:
           - 'TestPyPI'
           - 'PyPI'
+          - 'GitHub Release only'
 
 permissions:
   contents: read
@@ -62,7 +63,7 @@ jobs:
           PY
 
       - name: Verify production release version
-        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish == 'Yes' && inputs.registry == 'PyPI')
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish == 'Yes' && (inputs.registry == 'PyPI' || inputs.registry == 'GitHub Release only'))
         env:
           EVENT_NAME: ${{ github.event_name }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -161,7 +162,18 @@ jobs:
   github-release:
     name: Publish GitHub release and assets
     needs: [build, pypi, verify-pypi]
-    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish == 'Yes' && inputs.registry == 'PyPI')
+    if: >-
+      always() &&
+      !cancelled() &&
+      needs.build.result == 'success' &&
+      (
+        (
+          (github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish == 'Yes' && inputs.registry == 'PyPI')) &&
+          needs.pypi.result == 'success' &&
+          needs.verify-pypi.result == 'success'
+        ) ||
+        (github.event_name == 'workflow_dispatch' && inputs.publish == 'Yes' && inputs.registry == 'GitHub Release only')
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: write
