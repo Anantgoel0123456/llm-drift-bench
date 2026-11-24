@@ -243,6 +243,25 @@ else:
             cwd=root, env=env, check=True, capture_output=True, text=True,
         )
         assert json.loads(ver_out.stdout)["valid"] is True
+        badge_out = subprocess.run(
+            [str(cli), "badge", "-i", str(examples / "expected-pass.json")],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert badge_out.stdout.startswith("<svg ") and "PASS 0.00" in badge_out.stdout
+        csv_in = root / "in.csv"
+        csv_in.write_text('prompt_id,output\np1,"{""ok"": true}"\n', encoding="utf-8")
+        imp_out = root / "imported.jsonl"
+        subprocess.run(
+            [str(cli), "import-captures", "--from", "csv", "-i", str(csv_in), "-o", str(imp_out)],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert '"prompt_id": "p1"' in imp_out.read_text(encoding="utf-8")
+        diff_md = subprocess.run(
+            [str(cli), "diff", "-b", str(examples / "baseline.jsonl"),
+             "-c", str(examples / "candidate-drift.jsonl"), "--format", "markdown"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "## Semantic Response Diff" in diff_md.stdout
     print(f"Installed artifact checks passed: {artifact.name}")
 
 
