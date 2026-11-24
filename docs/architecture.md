@@ -150,6 +150,10 @@ Commands are:
 
 - `run` (with `--config`, `--category`, `--long-text-mode`, `--include-diffs`, `--format pr-comment|csv|sarif`, `--junit-output`, `--sarif-output`, `--github-summary`)
 - `diff` (policy-aware JSON field-level and unified text diff inspector in `text`, `json`, or GFM `markdown`)
+- `distribution` (cross-prompt JSON field distribution drift using categorical TVD/JSD and numeric quantiles + exact 1D Wasserstein in `text`, `json`, `markdown`, or offline `html`)
+- `logprobs` (optional `top_logprobs` token entropy and position-aligned top-k JSD analyzer)
+- `check-quality` (deterministic repetition-loop, refusal-flip, length-truncation, and length-blowup regression checks)
+- `wizard` (guided plain-English interactive setup wizard and use-case preset generator for `drift.toml`)
 - `score` (pluggable scorer CLI supporting `--list-scorers` and repeatable `--scorer`)
 - `validate` (supports `--category` and `--strict`)
 - `report` (supports `markdown`, `console`/`table`, `json`, `csv`, `sarif`, `html`, `junit`, `pr-comment`)
@@ -198,6 +202,10 @@ Additional library modules:
 - `snapshot.py`: offline SHA-256 baseline fixture integrity manifests and tamper verification with path-traversal protection.
 - `batch_import.py`: offline importers converting OpenAI Batch API JSONL, Anthropic Message Batches JSONL, and CSV exports into validated `ModelSample` records.
 - `badge.py`: offline script-free shields-style static SVG drift status badge generator.
+- `distribution.py`: cross-prompt JSON field distribution drift analyzer (categorical TVD/JSD, numeric quantiles & exact normalized 1D Wasserstein, plus text/Markdown/offline HTML exporters).
+- `wizard.py`: guided 5-question plain-English `drift.toml` wizard and use-case preset builder (`extraction`, `classification`, `coding`, `rag`, `strict`).
+- `logprobs.py`: optional `top_logprobs` Shannon entropy and position-aligned top-k base-2 JSD drift analyzer with honest missing-data reporting (`complete=False`).
+- `quality_checks.py`: deterministic regression checks for consecutive line/n-gram repetition loops, refusal flips, length truncation, and verbosity blowups.
 - `_comparison_md.py` and `_cli_extras.py`: GitHub-Flavored Markdown multi-candidate comparison exporter and lazily imported extra CLI subcommand handlers.
 
 All CLI run formats render one DriftBenchmarkReport. Rich, Markdown, and HTML

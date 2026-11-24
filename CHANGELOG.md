@@ -4,6 +4,10 @@
 
 ### Added
 
+- Cross-prompt JSON field distribution drift analyzer (`distribution.py`, `CategoricalFieldDrift`, `NumericFieldDrift`, `DistributionReport`, `analyze_field_distributions`, `format_distribution_text`, `format_distribution_markdown`, `export_distribution_html`, and `llm-drift-bench distribution`) catching soft slides across valid JSON outputs using categorical TVD / base-2 JSD and numeric quantiles (p10/p50/p90) + exact normalized 1D Wasserstein distance with optional `--max-tvd`, `--max-jsd`, and `--max-wasserstein` gates.
+- Guided plain-English setup wizard and use-case presets (`wizard.py`, `WizardAnswers`, `PRESET_ANSWERS`, `build_policy_from_answers`, `render_wizard_config`, `run_guided_wizard`, `format_wizard_next_steps`, and `llm-drift-bench wizard [--preset extraction|classification|coding|rag|strict] [--non-interactive] [-o drift.toml]`) generating round-trippable `drift.toml` policies without eval jargon.
+- Optional OpenAI-compatible `top_logprobs` capture (`CaptureConfig.top_logprobs`, `capture --top-logprobs K`) and token uncertainty / top-k distribution drift analyzer (`logprobs.py`, `PromptLogprobDrift`, `LogprobDriftSummary`, `analyze_logprobs_drift`, `format_logprobs_text`, and `llm-drift-bench logprobs`) computing Shannon entropy in bits and position-aligned top-k base-2 JSD even before greedy decoding flips tokens while reporting incomplete coverage honestly (`complete=False`).
+- Deterministic quantization & model-upgrade quality regression checks (`quality_checks.py`, `QualityFinding`, `QualityReport`, `detect_repetition_loop`, `is_likely_refusal`, `run_quality_checks`, `format_quality_report_text`, and `llm-drift-bench check-quality`) detecting consecutive line/n-gram repetition loops, refusal flips, length truncation, and verbosity blowups.
 - Offline batch and table capture importers (`batch_import.py`: `import_openai_batch_jsonl`, `import_anthropic_batch_jsonl`, `import_csv_captures`, and `llm-drift-bench import-captures --from openai-batch|anthropic-batch|csv`) converting OpenAI Chat/Responses batch JSONL, Anthropic Message Batches JSONL, and CSV files into canonical `ModelSample` JSONL while rejecting failed items and duplicate IDs.
 - Offline shields-style static SVG drift status badge generator (`badge.py`, `export_drift_badge_svg`, and `llm-drift-bench badge -i REPORT [-o badge.svg] [--label ...]`).
 - Policy composition and round-trippable serialization (`merge_policies`, `render_policy_toml` in `policy.py`).
@@ -35,6 +39,8 @@
 
 ### Fixed
 
+- Enforced `FieldRule` dictionary-key / `rule.path` parity in `DriftPolicy.__post_init__` and hardened the Python 3.10 fallback TOML parser in `policy.py` to reject empty keys and embedded single quotes in single-quoted strings.
+- Added multipart OpenAI `message.content` block-list support in both `capture.py` and `batch_import.py`, rejected duplicate `prompt_id` entries in `capture_suite` (`prompts` and `existing_samples`), and included CSV row numbers on `ModelSample` validation errors in `import_csv_captures`.
 - Made Python AST traversal in `scorers.py` iterative (preventing `RecursionError` on deeply nested expressions), caught `ValueError`/`RecursionError` cleanly, hardened Markdown fence parsing for nested backtick and tilde fences, and rejected duplicate `prompt_id` entries in `score_captures(..., prompt_cases=...)`.
 - Enforced strict boolean validation in `mcnemar_exact_test`, rejected boolean seeds in `stats.py` and `sampling.py`, validated `record_report` input types and finite `sparkline` inputs in `history.py`, and stably sorted OpenTelemetry GenAI spans by `startTimeUnixNano` when timestamps are present.
 - Replaced recursive `flatten_json_paths` with an iterative stack to prevent `RecursionError` on deeply nested JSON (1,500+ levels), widened `compute_percentile` to accept `Sequence[float]`, and hardened numeric type checks in `compute_composite_drift_score`.

@@ -57,9 +57,10 @@ flowchart LR
 | :--- | :---: | :--- |
 | **JSON & Schema Conformity** | Available | Strict extraction (direct, fenced, prose), duplicate-key & `NaN`/`Inf` rejection, safe bounded regex subset |
 | **Composite Drift & Policies** | Available | Token Jaccard, n-gram Dice, exact Levenshtein, JSON structure/field/numeric drift, `drift.toml` weights & per-field/wildcard `[*]` rules (`ignore`, `unordered_array`, `tolerance_abs`/`tolerance_rel`) |
-| **Semantic Field Diffs** | Available | `diff` CLI inspects exact JSON field additions/removals/type shifts/numeric deltas or unified text diffs while respecting `drift.toml` rules |
-| **Zero-Setup Onboarding** | Available | `infer-schema` generates strict JSON Schemas; `calibrate` auto-tunes `drift.toml`, collapses volatile arrays to `[*]`, & suggests `--numeric-tolerances`; `lint-suite` & `doctor` audit suites, hygiene, and leaked credentials |
-| **Endpoint Capture Collector** | Available | Zero-dependency OpenAI-compatible, Anthropic (`--provider anthropic`), & Gemini (`--provider gemini`) collector with `--concurrency`, `--runs`, `--json-mode`, `--resume`, `--header`, `Retry-After` backoff, & connection-drop retries |
+| **Semantic Field Diffs & Distributions** | Available | `diff` CLI inspects per-prompt JSON field/text diffs; `distribution` catches cross-prompt soft slides (categorical TVD/JSD & numeric quantiles + 1D Wasserstein) even when every JSON passes schema |
+| **Zero-Setup Onboarding** | Available | `wizard` asks 5 plain-English questions (or `--preset`) to build `drift.toml`; `infer-schema` generates strict JSON Schemas; `calibrate` auto-tunes `drift.toml`, collapses volatile arrays to `[*]`, & suggests `--numeric-tolerances`; `lint-suite` & `doctor` audit suites, hygiene, and leaked credentials |
+| **Endpoint Capture Collector** | Available | Zero-dependency OpenAI-compatible, Anthropic (`--provider anthropic`), & Gemini (`--provider gemini`) collector with `--concurrency`, `--runs`, `--json-mode`, `--top-logprobs`, `--resume`, `--header`, `Retry-After` backoff, & connection-drop retries |
+| **Token Logprobs & Quality Checks** | Available | `logprobs` measures Shannon entropy & position-aligned top-k JSD before greedy decoding flips tokens; `check-quality` catches repetition loops, refusal flips, truncation, & verbosity blowups |
 | **Multi-Candidate Ranking** | Available | `compare-many`, `compare-reports` (`--markdown-output`, SVG Pareto HTML, Rich tables), & `matrix` Prompt x Candidate heatmaps (text, JSON, offline HTML) |
 | **Privacy, Sampling & Release Gates** | Available | `redact` (secrets + optional PII), `subsample` (stratified suite & lockstep capture slicing), `snapshot` (SHA-256 fixture integrity), `cost` (explicit tokens only), & `gate` composite GO/NO-GO verdicts |
 | **Statistical Rigor** | Available | `stats` with deterministic bootstrap CIs, Wilson score intervals, Holm-Bonferroni correction, flaky-prompt detection, paired permutation tests (Cohen's `d`), and exact McNemar conformity tests |
@@ -285,6 +286,10 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | :--- | :--- |
 | `run` | Compare baseline and candidate captures (`--config`, `--category`, `--long-text-mode`, `--include-diffs`, `--format`, `--junit-output`, `--sarif-output`, `--github-summary`) |
 | `diff` | Show policy-aware JSON field-level or unified text diffs between two captures (`--only-changed`, `--prompt-id`, `--format text\|json\|markdown`) |
+| `distribution` | Measure cross-prompt JSON field distribution drift (categorical TVD/JSD, numeric p10/p50/p90 & normalized 1D Wasserstein; `--max-tvd`, `--max-jsd`, `--max-wasserstein`, `--format text\|json\|markdown\|html`) |
+| `logprobs` | Compare optional `top_logprobs` token entropy (bits) and position-aligned top-k JSD (`--max-entropy-delta`, `--max-jsd`) |
+| `check-quality` | Detect quantization/upgrade failure modes: repetition loops, refusal flips, length truncation, and verbosity blowups |
+| `wizard` | Guided 5-question plain-English setup wizard or `--preset` generator (`extraction\|classification\|coding\|rag\|strict`) for `drift.toml` |
 | `score` | Run pluggable scorers (`char_ngram_cosine`, `json_key_jaccard`, `markdown_structure`, `numeric_prose`, `python_ast`, `tfidf_cosine`, or entry-point plugins; `--list-scorers`) |
 | `validate` | Validate captures for JSON syntax and JSON Schema conformity (`--category`, `--strict`) |
 | `report` | Render a saved report as `markdown`, `console`/`table`, `json`, `csv`, `sarif`, `html`, `junit`, or `pr-comment` (`--previous`, `--tool-check`) |
@@ -300,7 +305,7 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | `check-tools` | Offline read-before-edit, `--max-failed-calls`, `--max-tool-calls`, & `--allow-resource` checks on normalized/OpenAI/Anthropic/Gemini/OTel traces |
 | `stats` | Multi-run bootstrap CIs, flaky-prompt detection, paired permutation (with Cohen's `d`), and exact two-sided McNemar tests |
 | `history` | Record reports (`record`), inspect sparklines/SVG trends (`show`), gate on regressions (`check`), view summaries (`summary`), and compact ledgers (`prune`) |
-| `capture` | Capture reproducible JSONL outputs from OpenAI-compatible, Anthropic (`--provider anthropic`), or Gemini (`--provider gemini`) endpoints |
+| `capture` | Capture reproducible JSONL outputs from OpenAI-compatible, Anthropic (`--provider anthropic`), or Gemini (`--provider gemini`) endpoints (`--top-logprobs`, `--resume`, `--runs`) |
 | `redact` | Deterministically scrub API keys, private keys, and optional PII from captures before sharing or archiving (`--secrets-only`) |
 | `subsample` | Deterministically draw stratified prompt subsamples and slice matching captures in lockstep (`--size`, `--seed`, `--slice-capture`) |
 | `infer-schema` | Auto-infer a supported-subset JSON Schema prompt suite from baseline captures |
