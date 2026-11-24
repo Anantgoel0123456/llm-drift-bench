@@ -45,6 +45,17 @@ def test_all_exports_resolve_cleanly() -> None:
     assert "filter_prompt_suite" in exported
     assert "create_snapshot_manifest" in exported
     assert "verify_snapshot_manifest" in exported
+    assert "check_max_tool_calls" in exported
+    assert "check_allowed_resources" in exported
+    assert "merge_policies" in exported
+    assert "render_policy_toml" in exported
+    assert "format_diffs_markdown" in exported
+    assert "check_cost_budget" in exported
+    assert "rank_candidate_costs" in exported
+    assert "import_openai_batch_jsonl" in exported
+    assert "import_anthropic_batch_jsonl" in exported
+    assert "import_csv_captures" in exported
+    assert "export_drift_badge_svg" in exported
 
     for name in llm_drift_bench.__all__:
         value = getattr(llm_drift_bench, name)
