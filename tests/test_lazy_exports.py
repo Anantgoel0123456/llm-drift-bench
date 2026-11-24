@@ -56,6 +56,14 @@ def test_all_exports_resolve_cleanly() -> None:
     assert "import_anthropic_batch_jsonl" in exported
     assert "import_csv_captures" in exported
     assert "export_drift_badge_svg" in exported
+    assert "analyze_field_distributions" in exported
+    assert "export_distribution_html" in exported
+    assert "run_guided_wizard" in exported
+    assert "PRESET_ANSWERS" in exported
+    assert "analyze_logprobs_drift" in exported
+    assert "run_quality_checks" in exported
+    assert "detect_repetition_loop" in exported
+    assert "is_likely_refusal" in exported
 
     for name in llm_drift_bench.__all__:
         value = getattr(llm_drift_bench, name)
