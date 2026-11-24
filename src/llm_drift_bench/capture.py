@@ -44,6 +44,7 @@ class CaptureConfig:
     concurrency: int = 1
     extra_headers: tuple[tuple[str, str], ...] = ()
     provider: CaptureProvider = "openai"
+    top_logprobs: int | None = None
 
     def __post_init__(self) -> None:
         parsed = urllib.parse.urlparse(self.endpoint)
@@ -77,6 +78,13 @@ class CaptureConfig:
             raise ValueError("concurrency must be an integer between 1 and 32.")
         if self.provider not in _VALID_PROVIDERS:
             raise ValueError(f"provider must be one of {_VALID_PROVIDERS}, got {self.provider!r}.")
+        if self.top_logprobs is not None:
+            if isinstance(self.top_logprobs, bool) or not 1 <= self.top_logprobs <= 20:
+                raise ValueError("top_logprobs must be an integer between 1 and 20, or None.")
+            if self.provider != "openai":
+                raise ValueError(
+                    "top_logprobs is currently supported only for OpenAI-compatible endpoints."
+                )
         for name, val in self.extra_headers:
             if not isinstance(name, str) or not name.strip() or not isinstance(val, str):
                 raise ValueError("extra_headers entries must be (non-empty name, string value).")
@@ -188,14 +196,55 @@ def _build_request_body(prompt: PromptCase, config: CaptureConfig) -> dict[str, 
         body["max_tokens"] = config.max_tokens
     if config.json_mode:
         body["response_format"] = {"type": "json_object"}
+    if config.top_logprobs is not None:
+        body["logprobs"] = True
+        body["top_logprobs"] = config.top_logprobs
     return body
+
+
+def _as_finite_float(value: Any) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+        return float(value)
+    return None
+
+
+def _extract_openai_logprobs(choice: dict[str, Any]) -> list[dict[str, Any]] | None:
+    raw_logprobs = choice.get("logprobs")
+    if not isinstance(raw_logprobs, dict):
+        return None
+    content = raw_logprobs.get("content")
+    if not isinstance(content, list) or not content:
+        return None
+    entries: list[dict[str, Any]] = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        token = item.get("token")
+        logprob = _as_finite_float(item.get("logprob"))
+        if not isinstance(token, str) or logprob is None:
+            continue
+        entry: dict[str, Any] = {"token": token, "logprob": logprob}
+        raw_top = item.get("top_logprobs")
+        if isinstance(raw_top, list):
+            top_entries: list[dict[str, Any]] = []
+            for cand in raw_top:
+                if not isinstance(cand, dict):
+                    continue
+                cand_tok = cand.get("token")
+                cand_lp = _as_finite_float(cand.get("logprob"))
+                if isinstance(cand_tok, str) and cand_lp is not None:
+                    top_entries.append({"token": cand_tok, "logprob": cand_lp})
+            if top_entries:
+                entry["top_logprobs"] = top_entries
+        entries.append(entry)
+    return entries or None
 
 
 def _extract_completion(
     response: dict[str, Any],
     *,
     provider: CaptureProvider = "openai",
-) -> tuple[str, int | None, str | None, str | None]:
+) -> tuple[str, int | None, str | None, str | None, list[dict[str, Any]] | None]:
     if provider == "anthropic":
         blocks = response.get("content")
         if not isinstance(blocks, list) or not blocks:
@@ -218,7 +267,7 @@ def _extract_completion(
             out_toks = usage.get("output_tokens")
             if isinstance(out_toks, int) and not isinstance(out_toks, bool) and out_toks >= 0:
                 tokens = out_toks
-        return "".join(parts), tokens, finish_reason, None
+        return "".join(parts), tokens, finish_reason, None, None
 
     if provider == "gemini":
         candidates = response.get("candidates")
@@ -247,7 +296,7 @@ def _extract_completion(
             cand_toks = usage_meta.get("candidatesTokenCount")
             if isinstance(cand_toks, int) and not isinstance(cand_toks, bool) and cand_toks >= 0:
                 tokens = cand_toks
-        return "".join(text_parts), tokens, finish_reason, None
+        return "".join(text_parts), tokens, finish_reason, None, None
 
     choices = response.get("choices")
     if not isinstance(choices, list) or not choices:
@@ -256,9 +305,24 @@ def _extract_completion(
     if not isinstance(first, dict):
         raise ValueError("Endpoint choice entry must be a JSON object.")
     message = first.get("message")
-    if not isinstance(message, dict) or not isinstance(message.get("content"), str):
+    if not isinstance(message, dict):
         raise ValueError("Endpoint choice is missing string 'message.content'.")
-    content = message["content"]
+    raw_content = message.get("content")
+    if isinstance(raw_content, str):
+        content = raw_content
+    elif isinstance(raw_content, list):
+        content_parts = [
+            block["text"]
+            for block in raw_content
+            if isinstance(block, dict)
+            and block.get("type") in (None, "text", "output_text")
+            and isinstance(block.get("text"), str)
+        ]
+        if not content_parts:
+            raise ValueError("Endpoint choice content list contains no text blocks.")
+        content = "".join(content_parts)
+    else:
+        raise ValueError("Endpoint choice is missing string 'message.content'.")
     finish_reason = (
         str(first["finish_reason"]) if first.get("finish_reason") is not None else None
     )
@@ -273,7 +337,8 @@ def _extract_completion(
         if response.get("system_fingerprint") is not None
         else None
     )
-    return content, tokens, finish_reason, fingerprint
+    logprobs_data = _extract_openai_logprobs(first)
+    return content, tokens, finish_reason, fingerprint, logprobs_data
 
 
 def _retry_after_delay(exc: urllib.error.HTTPError, default_delay: float) -> float:
@@ -320,6 +385,11 @@ def capture_suite(
     """Capture responses for every PromptCase from an OpenAI-compatible chat endpoint."""
     if not prompts:
         raise ValueError("Prompt suite cannot be empty.")
+    seen_prompt_ids: set[str] = set()
+    for prompt in prompts:
+        if prompt.prompt_id in seen_prompt_ids:
+            raise ValueError(f"Duplicate prompt_id in suite: {prompt.prompt_id!r}.")
+        seen_prompt_ids.add(prompt.prompt_id)
 
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if config.provider == "anthropic":
@@ -349,6 +419,10 @@ def capture_suite(
             raise ValueError(
                 f"Existing sample {sample.prompt_id!r} belongs to model "
                 f"{sample.model_name!r}, expected {config.model!r}."
+            )
+        if sample.prompt_id in completed:
+            raise ValueError(
+                f"Duplicate prompt_id in existing_samples: {sample.prompt_id!r}."
             )
         completed[sample.prompt_id] = sample
 
@@ -397,7 +471,7 @@ def capture_suite(
                 f"Capture failed for prompt {prompt.prompt_id!r}: {last_exc}"
             )
 
-        content, comp_tokens, finish_reason, fingerprint = _extract_completion(
+        content, comp_tokens, finish_reason, fingerprint, logprobs_data = _extract_completion(
             response, provider=config.provider
         )
         metadata: dict[str, Any] = {
@@ -407,6 +481,7 @@ def capture_suite(
             "seed": config.seed,
             "finish_reason": finish_reason,
             "system_fingerprint": fingerprint,
+            "logprobs": logprobs_data,
         }
         sample = ModelSample(
             prompt_id=prompt.prompt_id,

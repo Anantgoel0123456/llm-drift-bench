@@ -393,4 +393,95 @@ def test_capture_gemini_provider_url_headers_json_mode_and_usage(
         )
 
 
+def test_capture_rejects_duplicates_handles_multipart_content_and_top_logprobs() -> None:
+    with pytest.raises(ValueError, match="top_logprobs"):
+        CaptureConfig(endpoint="http://localhost:11434/v1", model="m", top_logprobs=0)
+    with pytest.raises(ValueError, match="top_logprobs"):
+        CaptureConfig(endpoint="http://localhost:11434/v1", model="m", top_logprobs=21)
+    with pytest.raises(ValueError, match="top_logprobs"):
+        CaptureConfig(endpoint="http://localhost:11434/v1", model="m", top_logprobs=True)
+    with pytest.raises(ValueError, match="OpenAI-compatible"):
+        CaptureConfig(
+            endpoint="https://api.anthropic.com/v1",
+            model="claude-3-5-sonnet",
+            provider="anthropic",
+            top_logprobs=5,
+        )
+
+    cfg = CaptureConfig(
+        endpoint="http://localhost:11434/v1",
+        model="llama3:8b",
+        top_logprobs=3,
+    )
+    with pytest.raises(ValueError, match="Duplicate prompt_id in suite"):
+        capture_suite(
+            [PromptCase(prompt_id="p1", prompt="a"), PromptCase(prompt_id="p1", prompt="b")],
+            cfg,
+        )
+
+    from llm_drift_bench.models import ModelSample
+
+    with pytest.raises(ValueError, match="Duplicate prompt_id in existing_samples"):
+        capture_suite(
+            [PromptCase(prompt_id="p1", prompt="a")],
+            cfg,
+            existing_samples=[
+                ModelSample(prompt_id="p1", output="ok", model_name="llama3:8b"),
+                ModelSample(prompt_id="p1", output="ok2", model_name="llama3:8b"),
+            ],
+        )
+
+    seen_payloads: list[dict[str, Any]] = []
+
+    def multipart_logprobs_transport(
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        timeout: float,
+    ) -> dict[str, Any]:
+        del url, headers, timeout
+        seen_payloads.append(payload)
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": [
+                            {"type": "text", "text": '{"label": '},
+                            {"type": "output_text", "text": '"high"}'},
+                        ]
+                    },
+                    "finish_reason": "stop",
+                    "logprobs": {
+                        "content": [
+                            {
+                                "token": "high",
+                                "logprob": -0.1,
+                                "top_logprobs": [
+                                    {"token": "high", "logprob": -0.1},
+                                    {"token": "low", "logprob": -2.3},
+                                    {"token": "bad", "logprob": float("nan")},
+                                ],
+                            }
+                        ]
+                    },
+                }
+            ],
+            "usage": {"completion_tokens": 5},
+        }
+
+    samples = capture_suite(
+        [PromptCase(prompt_id="p1", prompt="classify")],
+        cfg,
+        transport=multipart_logprobs_transport,
+    )
+    assert seen_payloads[0]["logprobs"] is True
+    assert seen_payloads[0]["top_logprobs"] == 3
+    assert samples[0].output == '{"label": "high"}'
+    lp = samples[0].metadata["logprobs"]
+    assert len(lp) == 1
+    assert lp[0]["token"] == "high"
+    assert len(lp[0]["top_logprobs"]) == 2
+
+
+
 
