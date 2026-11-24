@@ -262,6 +262,29 @@ else:
             cwd=root, env=env, check=True, capture_output=True, text=True,
         )
         assert "## Semantic Response Diff" in diff_md.stdout
+        dist_out = subprocess.run(
+            [str(cli), "distribution", "-b", str(examples / "baseline.jsonl"),
+             "-c", str(examples / "candidate-drift.jsonl"), "--format", "json"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(dist_out.stdout)["comparable_json_prompts"] == 2
+        wiz_out = subprocess.run(
+            [str(cli), "wizard", "--preset", "extraction", "--non-interactive"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "[thresholds]" in wiz_out.stdout and "preset: extraction" in wiz_out.stdout
+        lp_out = subprocess.run(
+            [str(cli), "logprobs", "-b", str(examples / "baseline.jsonl"),
+             "-c", str(examples / "candidate-pass.jsonl"), "--format", "json"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(lp_out.stdout)["complete"] is False
+        qual_out = subprocess.run(
+            [str(cli), "check-quality", "-b", str(examples / "baseline.jsonl"),
+             "-c", str(examples / "candidate-pass.jsonl"), "--format", "json"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(qual_out.stdout)["passed"] is True
     print(f"Installed artifact checks passed: {artifact.name}")
 
 
