@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -116,3 +116,86 @@ def estimate_cost_drift(
         cost_delta_usd=cost_delta,
         cost_delta_pct=cost_pct,
     )
+
+
+def check_cost_budget(
+    comparison: CostComparison,
+    *,
+    max_token_increase_pct: float | None = None,
+    max_cost_increase_pct: float | None = None,
+) -> tuple[bool, str]:
+    """Check whether a CostComparison stays within explicit token/cost increase budgets."""
+    if not isinstance(comparison, CostComparison):
+        raise TypeError("check_cost_budget requires a CostComparison instance.")
+    for name, limit in (
+        ("max_token_increase_pct", max_token_increase_pct),
+        ("max_cost_increase_pct", max_cost_increase_pct),
+    ):
+        if limit is not None:
+            if isinstance(limit, bool) or not isinstance(limit, (int, float)):
+                raise ValueError(f"{name} must be a finite non-negative number.")
+            if finite_number(limit) < 0:
+                raise ValueError(f"{name} must be a finite non-negative number.")
+
+    if max_token_increase_pct is None and max_cost_increase_pct is None:
+        return True, "No token or cost budget thresholds configured."
+    if not comparison.complete:
+        return False, "Cannot verify budget: explicit tokens_generated measurements are incomplete."
+
+    failures: list[str] = []
+    if max_token_increase_pct is not None:
+        if comparison.token_delta_pct is None:
+            failures.append("Token percentage delta unavailable (baseline tokens = 0).")
+        elif comparison.token_delta_pct > max_token_increase_pct:
+            failures.append(
+                f"Output tokens increased by {comparison.token_delta_pct:+.2f}% "
+                f"(limit +{max_token_increase_pct:.2f}%)."
+            )
+    if max_cost_increase_pct is not None:
+        if comparison.cost_delta_pct is None:
+            failures.append(
+                "Cost percentage delta unavailable (supply non-zero baseline and candidate prices)."
+            )
+        elif comparison.cost_delta_pct > max_cost_increase_pct:
+            failures.append(
+                f"Output cost increased by {comparison.cost_delta_pct:+.2f}% "
+                f"(limit +{max_cost_increase_pct:.2f}%)."
+            )
+    if failures:
+        return False, "; ".join(failures)
+    return True, "Token and cost changes stayed within configured budgets."
+
+
+def rank_candidate_costs(
+    baseline_samples: Sequence[ModelSample],
+    candidates: Mapping[str, Sequence[ModelSample]],
+    *,
+    baseline_pricing: ModelPricing | None = None,
+    candidate_pricing: Mapping[str, ModelPricing] | None = None,
+) -> list[dict[str, Any]]:
+    """Compare and rank multiple candidates by explicit output cost (or token delta)."""
+    if not candidates:
+        raise ValueError("Provide at least one candidate capture to rank.")
+    pricing_map = candidate_pricing or {}
+    rows: list[dict[str, Any]] = []
+    for label, samples in candidates.items():
+        if not isinstance(label, str) or not label.strip():
+            raise ValueError("Candidate labels must be non-empty strings.")
+        comp = estimate_cost_drift(
+            baseline_samples,
+            samples,
+            baseline_pricing=baseline_pricing,
+            candidate_pricing=pricing_map.get(label),
+        )
+        rows.append({"candidate": label, **comp.to_dict()})
+
+    def _sort_key(row: dict[str, Any]) -> tuple[int, float, int, str]:
+        if not row["complete"]:
+            return (2, float("inf"), 0, str(row["candidate"]))
+        if row["candidate_output_cost_usd"] is not None:
+            return (0, float(row["candidate_output_cost_usd"]), int(row["candidate_tokens"]),
+                    str(row["candidate"]))
+        return (1, float(row["candidate_tokens"]), 0, str(row["candidate"]))
+
+    rows.sort(key=_sort_key)
+    return rows
