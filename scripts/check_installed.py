@@ -312,6 +312,32 @@ else:
             cwd=root, env=env, check=True, capture_output=True, text=True,
         )
         assert json.loads(fmt_out.stdout)["passed"] is True
+        seg_out = subprocess.run(
+            [
+                str(cli), "distribution",
+                "-s", str(examples / "extraction-suite.json"),
+                "-b", str(examples / "baseline.jsonl"),
+                "-c", str(examples / "candidate-pass.jsonl"),
+                "--group-by", "category",
+                "--format", "json",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "extraction" in json.loads(seg_out.stdout)["segments"]
+        cons_b = root / "cons_b.jsonl"
+        cons_c = root / "cons_c.jsonl"
+        cons_b.write_text('{"prompt_id": "p1", "accepted": true}\n', encoding="utf-8")
+        cons_c.write_text('{"prompt_id": "p1", "accepted": true}\n', encoding="utf-8")
+        cons_out = subprocess.run(
+            [
+                str(cli), "check-consumer",
+                "--baseline-decisions", str(cons_b),
+                "--candidate-decisions", str(cons_c),
+                "--format", "json",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(cons_out.stdout)["passed"] is True
     print(f"Installed artifact checks passed: {artifact.name}")
 
 
