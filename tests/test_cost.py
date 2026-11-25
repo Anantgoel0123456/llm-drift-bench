@@ -90,3 +90,59 @@ def test_check_cost_budget_and_rank_candidate_costs() -> None:
     )
     assert [r["candidate"] for r in ranked] == ["cheap", "verbose", "missing"]
 
+
+def test_cost_validation_zero_baseline_and_unpriced_ranking() -> None:
+    with pytest.raises(ValueError, match="finite non-negative"):
+        ModelPricing(output_per_million_usd=True)  # type: ignore[arg-type]
+
+    sample = [ModelSample(prompt_id="p1", output="a", tokens_generated=10)]
+    with pytest.raises(ValueError, match="non-empty"):
+        estimate_cost_drift([], sample)
+    with pytest.raises(ValueError, match="duplicate prompt_id"):
+        estimate_cost_drift(sample * 2, sample)
+
+    # Zero baseline tokens yields unavailable percentage delta on token budget check
+    zero_base = [ModelSample(prompt_id="p1", output="", tokens_generated=0)]
+    zero_comp = estimate_cost_drift(zero_base, sample)
+    ok_none, msg_none = check_cost_budget(zero_comp)
+    assert ok_none is True and "No token or cost" in msg_none
+
+    ok_z, msg_z = check_cost_budget(zero_comp, max_token_increase_pct=10.0)
+    assert ok_z is False and "baseline tokens = 0" in msg_z
+
+    # Missing pricing yields unavailable cost percentage delta on cost budget check
+    unpriced = estimate_cost_drift(
+        sample, [ModelSample(prompt_id="p1", output="a", tokens_generated=20)]
+    )
+    ok_u, msg_u = check_cost_budget(unpriced, max_cost_increase_pct=5.0)
+    assert ok_u is False and "Cost percentage delta unavailable" in msg_u
+
+    # Exceeding explicit USD cost budget
+    priced_over = estimate_cost_drift(
+        sample,
+        [ModelSample(prompt_id="p1", output="a", tokens_generated=20)],
+        baseline_pricing=ModelPricing(output_per_million_usd=10.0),
+        candidate_pricing=ModelPricing(output_per_million_usd=10.0),
+    )
+    ok_over, msg_over = check_cost_budget(priced_over, max_cost_increase_pct=25.0)
+    assert ok_over is False and "Output cost increased" in msg_over
+
+    # Input validation on check_cost_budget and rank_candidate_costs
+    with pytest.raises(TypeError, match="CostComparison"):
+        check_cost_budget("bad")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="finite non-negative"):
+        check_cost_budget(unpriced, max_token_increase_pct=True)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="finite non-negative"):
+        check_cost_budget(unpriced, max_cost_increase_pct=-1.0)
+    with pytest.raises(ValueError, match="at least one candidate"):
+        rank_candidate_costs(sample, {})
+    with pytest.raises(ValueError, match="non-empty strings"):
+        rank_candidate_costs(sample, {"  ": sample})
+
+    # Ranking without pricing orders complete candidates by token count
+    small = [ModelSample(prompt_id="p1", output="a", tokens_generated=5)]
+    large = [ModelSample(prompt_id="p1", output="a", tokens_generated=50)]
+    ranked_unpriced = rank_candidate_costs(sample, {"large": large, "small": small})
+    assert [r["candidate"] for r in ranked_unpriced] == ["small", "large"]
+
+
