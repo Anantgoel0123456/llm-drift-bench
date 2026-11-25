@@ -36,6 +36,8 @@ class HistoryEntry:
     candidate_p95_latency_ms: float | None = None
     tag: str | None = None
     git_sha: str | None = None
+    max_distribution_tvd: float | None = None
+    max_distribution_wasserstein: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -48,8 +50,20 @@ class HistoryEntry:
         tag: str | None = None,
         git_sha: str | None = None,
         recorded_at: str | None = None,
+        max_distribution_tvd: float | None = None,
+        max_distribution_wasserstein: float | None = None,
     ) -> HistoryEntry:
         stamp = recorded_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for key, val in (
+            ("max_distribution_tvd", max_distribution_tvd),
+            ("max_distribution_wasserstein", max_distribution_wasserstein),
+        ):
+            if val is not None:
+                if isinstance(val, bool) or not isinstance(val, (int, float)):
+                    raise ValueError(f"{key} must be a number in [0, 1].")
+                num = finite_number(val)
+                if not 0.0 <= num <= 1.0:
+                    raise ValueError(f"{key} must lie between 0 and 1.")
         return cls(
             recorded_at=stamp,
             baseline_model=report.baseline_model,
@@ -67,6 +81,16 @@ class HistoryEntry:
             ),
             tag=tag,
             git_sha=git_sha,
+            max_distribution_tvd=(
+                round(float(max_distribution_tvd), 4)
+                if max_distribution_tvd is not None
+                else None
+            ),
+            max_distribution_wasserstein=(
+                round(float(max_distribution_wasserstein), 4)
+                if max_distribution_wasserstein is not None
+                else None
+            ),
         )
 
     @classmethod
@@ -118,6 +142,19 @@ class HistoryEntry:
             if data.get(opt) is not None and not isinstance(data[opt], str):
                 raise ValueError(f"History entry {opt!r} must be a string or null.")
 
+        dist_vals: dict[str, float | None] = {}
+        for key in ("max_distribution_tvd", "max_distribution_wasserstein"):
+            raw_dist = data.get(key)
+            if raw_dist is None:
+                dist_vals[key] = None
+            else:
+                if isinstance(raw_dist, bool) or not isinstance(raw_dist, (int, float)):
+                    raise ValueError(f"History entry {key!r} must be a number in [0, 1].")
+                num = finite_number(raw_dist)
+                if not 0.0 <= num <= 1.0:
+                    raise ValueError(f"History entry {key!r} must lie between 0 and 1.")
+                dist_vals[key] = num
+
         return cls(
             recorded_at=data["recorded_at"],
             baseline_model=data["baseline_model"],
@@ -131,6 +168,8 @@ class HistoryEntry:
             candidate_p95_latency_ms=p95,
             tag=data.get("tag"),
             git_sha=data.get("git_sha"),
+            max_distribution_tvd=dist_vals["max_distribution_tvd"],
+            max_distribution_wasserstein=dist_vals["max_distribution_wasserstein"],
         )
 
 
@@ -141,11 +180,20 @@ def record_report(
     tag: str | None = None,
     git_sha: str | None = None,
     recorded_at: str | None = None,
+    max_distribution_tvd: float | None = None,
+    max_distribution_wasserstein: float | None = None,
 ) -> HistoryEntry:
     """Append one HistoryEntry for a validated DriftBenchmarkReport to a JSONL ledger."""
     if not isinstance(report, DriftBenchmarkReport):
         raise TypeError("record_report requires a canonical DriftBenchmarkReport instance.")
-    entry = HistoryEntry.from_report(report, tag=tag, git_sha=git_sha, recorded_at=recorded_at)
+    entry = HistoryEntry.from_report(
+        report,
+        tag=tag,
+        git_sha=git_sha,
+        recorded_at=recorded_at,
+        max_distribution_tvd=max_distribution_tvd,
+        max_distribution_wasserstein=max_distribution_wasserstein,
+    )
     target = Path(ledger_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     with target.open("a", encoding="utf-8") as stream:
@@ -282,7 +330,7 @@ def _trend_svg(
 
 @dataclass(frozen=True)
 class HistoryTrendCheck:
-    """Result of comparing the latest recorded run against a moving window of prior runs."""
+    """Result of comparing recent run(s) against a rolling baseline window of prior runs."""
 
     regressed: bool
     latest_drift: float
@@ -293,6 +341,8 @@ class HistoryTrendCheck:
     conformity_delta: float
     window_size: int
     reason: str
+    persist_windows: int = 1
+    persistent_runs: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -304,47 +354,152 @@ def detect_history_regression(
     window: int = 3,
     max_drift_increase: float = 0.05,
     max_conformity_drop: float = 0.02,
+    persist_windows: int = 1,
+    max_tvd_increase: float | None = None,
+    max_wasserstein_increase: float | None = None,
 ) -> HistoryTrendCheck:
-    """Detect gradual drift or conformity degradation vs the preceding moving window."""
-    if len(entries) < 2:
-        raise ValueError("Trend regression check requires at least 2 recorded history entries.")
+    """Detect gradual drift, conformity, or distribution shifts vs a rolling baseline window.
+
+    Setting persist_windows > 1 requires a shift to hold across that many consecutive latest
+    runs relative to the preceding rolling window before marking regressed=True, preventing
+    single-batch noise from paging on transient spikes.
+    """
+    if (
+        isinstance(persist_windows, bool)
+        or not isinstance(persist_windows, int)
+        or persist_windows < 1
+    ):
+        raise ValueError("persist_windows must be a positive integer.")
+    min_entries = persist_windows + 1
+    if len(entries) < min_entries:
+        raise ValueError(
+            f"Trend regression check requires at least {min_entries} recorded history entries "
+            f"(got {len(entries)} for persist_windows={persist_windows})."
+        )
     if isinstance(window, bool) or not isinstance(window, int) or window < 1:
         raise ValueError("window must be a positive integer.")
     for name, val in (
         ("max_drift_increase", max_drift_increase),
         ("max_conformity_drop", max_conformity_drop),
+        ("max_tvd_increase", max_tvd_increase),
+        ("max_wasserstein_increase", max_wasserstein_increase),
     ):
+        if val is None:
+            continue
         if isinstance(val, bool) or not isinstance(val, (int, float)):
             raise ValueError(f"{name} must be a finite non-negative number.")
         num = finite_number(val)
         if num < 0:
             raise ValueError(f"{name} must be a finite non-negative number.")
 
-    prior = entries[max(0, len(entries) - 1 - window) : -1]
+    prior = entries[max(0, len(entries) - persist_windows - window) : -persist_windows]
+    recent = entries[-persist_windows:]
     latest = entries[-1]
     win_drift = sum(e.mean_composite_drift for e in prior) / len(prior)
     win_conf = sum(e.candidate_json_conformity_rate for e in prior) / len(prior)
     drift_delta = latest.mean_composite_drift - win_drift
     conf_delta = latest.candidate_json_conformity_rate - win_conf
 
+    prior_tvds = [e.max_distribution_tvd for e in prior if e.max_distribution_tvd is not None]
+    recent_tvds = [e.max_distribution_tvd for e in recent if e.max_distribution_tvd is not None]
+    win_tvd = (sum(prior_tvds) / len(prior_tvds)) if prior_tvds else None
+
+    prior_w1s = [
+        e.max_distribution_wasserstein
+        for e in prior
+        if e.max_distribution_wasserstein is not None
+    ]
+    recent_w1s = [
+        e.max_distribution_wasserstein
+        for e in recent
+        if e.max_distribution_wasserstein is not None
+    ]
+    win_w1 = (sum(prior_w1s) / len(prior_w1s)) if prior_w1s else None
+
+    def _entry_breached(entry: HistoryEntry) -> bool:
+        if entry.mean_composite_drift - win_drift > max_drift_increase:
+            return True
+        if win_conf - entry.candidate_json_conformity_rate > max_conformity_drop:
+            return True
+        if (
+            max_tvd_increase is not None
+            and win_tvd is not None
+            and entry.max_distribution_tvd is not None
+            and entry.max_distribution_tvd - win_tvd > max_tvd_increase
+        ):
+            return True
+        return (
+            max_wasserstein_increase is not None
+            and win_w1 is not None
+            and entry.max_distribution_wasserstein is not None
+            and entry.max_distribution_wasserstein - win_w1 > max_wasserstein_increase
+        )
+
+    tail_streak = 0
+    for entry in reversed(recent):
+        if _entry_breached(entry):
+            tail_streak += 1
+        else:
+            break
+
     reasons: list[str] = []
-    if drift_delta > max_drift_increase:
+    if all(e.mean_composite_drift - win_drift > max_drift_increase for e in recent):
+        persist_note = (
+            f" across {persist_windows} consecutive runs" if persist_windows > 1 else ""
+        )
         reasons.append(
-            f"Mean drift increased by +{drift_delta:.4f} vs prior {len(prior)}-run mean "
-            f"({win_drift:.4f} -> {latest.mean_composite_drift:.4f}, "
+            f"Mean drift increased by +{drift_delta:.4f}{persist_note} vs prior "
+            f"{len(prior)}-run mean ({win_drift:.4f} -> {latest.mean_composite_drift:.4f}, "
             f"limit +{max_drift_increase:.4f})."
         )
-    if -conf_delta > max_conformity_drop:
+    if all(win_conf - e.candidate_json_conformity_rate > max_conformity_drop for e in recent):
+        persist_note = (
+            f" across {persist_windows} consecutive runs" if persist_windows > 1 else ""
+        )
         reasons.append(
-            f"JSON conformity dropped by {conf_delta:.1%} vs prior {len(prior)}-run mean "
+            f"JSON conformity dropped by {conf_delta:.1%}{persist_note} vs prior "
+            f"{len(prior)}-run mean "
             f"({win_conf:.1%} -> {latest.candidate_json_conformity_rate:.1%}, "
             f"limit -{max_conformity_drop:.1%})."
         )
+    if (
+        max_tvd_increase is not None
+        and win_tvd is not None
+        and len(recent_tvds) == persist_windows
+        and all(v - win_tvd > max_tvd_increase for v in recent_tvds)
+    ):
+        tvd_delta = recent_tvds[-1] - win_tvd
+        reasons.append(
+            f"Distribution max TVD increased by +{tvd_delta:.4f} across {persist_windows} "
+            f"run(s) vs prior mean ({win_tvd:.4f} -> {recent_tvds[-1]:.4f}, "
+            f"limit +{max_tvd_increase:.4f})."
+        )
+    if (
+        max_wasserstein_increase is not None
+        and win_w1 is not None
+        and len(recent_w1s) == persist_windows
+        and all(v - win_w1 > max_wasserstein_increase for v in recent_w1s)
+    ):
+        w1_delta = recent_w1s[-1] - win_w1
+        reasons.append(
+            f"Distribution max norm W1 increased by +{w1_delta:.4f} across {persist_windows} "
+            f"run(s) vs prior mean ({win_w1:.4f} -> {recent_w1s[-1]:.4f}, "
+            f"limit +{max_wasserstein_increase:.4f})."
+        )
+
     regressed = bool(reasons)
-    reason = " ".join(reasons) if reasons else (
-        f"Stable relative to prior {len(prior)} run(s) "
-        f"(drift delta {drift_delta:+.4f}, conformity delta {conf_delta:+.1%})."
-    )
+    if reasons:
+        reason = " ".join(reasons)
+    elif persist_windows > 1 and tail_streak > 0:
+        reason = (
+            f"Transient shift ({tail_streak}/{persist_windows} consecutive runs); "
+            f"waiting for persistence across {persist_windows} windows."
+        )
+    else:
+        reason = (
+            f"Stable relative to prior {len(prior)} run(s) "
+            f"(drift delta {drift_delta:+.4f}, conformity delta {conf_delta:+.1%})."
+        )
     return HistoryTrendCheck(
         regressed=regressed,
         latest_drift=round(latest.mean_composite_drift, 4),
@@ -355,6 +510,8 @@ def detect_history_regression(
         conformity_delta=round(conf_delta, 4),
         window_size=len(prior),
         reason=reason,
+        persist_windows=persist_windows,
+        persistent_runs=tail_streak,
     )
 
 

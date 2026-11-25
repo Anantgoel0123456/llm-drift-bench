@@ -247,3 +247,85 @@ def test_history_summary_prune_and_input_guards(tmp_path: Path) -> None:
         sparkline([0.1, float("nan")])
 
 
+def test_history_persistence_windows_and_distribution_tracking(tmp_path: Path) -> None:
+    from llm_drift_bench.report_io import load_engine_report
+
+    def _entry(
+        drift: float,
+        *,
+        tvd: float | None = None,
+        w1: float | None = None,
+    ) -> HistoryEntry:
+        return HistoryEntry(
+            recorded_at="2026-11-25T00:00:00Z",
+            baseline_model="base",
+            candidate_model="cand",
+            passed=True,
+            total_samples=20,
+            drifted_samples=0,
+            mean_composite_drift=drift,
+            max_composite_drift=drift,
+            candidate_json_conformity_rate=1.0,
+            max_distribution_tvd=tvd,
+            max_distribution_wasserstein=w1,
+        )
+
+    # One weird batch is weather: 1 spike with persist_windows=3 does NOT alert!
+    weather_runs = [
+        _entry(0.04, tvd=0.02, w1=0.02),
+        _entry(0.05, tvd=0.03, w1=0.02),
+        _entry(0.04, tvd=0.02, w1=0.03),
+        _entry(0.05, tvd=0.03, w1=0.02),
+        _entry(0.04, tvd=0.02, w1=0.02),
+        _entry(0.20, tvd=0.35, w1=0.30),
+    ]
+    transient = detect_history_regression(
+        weather_runs,
+        window=3,
+        max_drift_increase=0.05,
+        persist_windows=3,
+        max_tvd_increase=0.10,
+        max_wasserstein_increase=0.10,
+    )
+    assert transient.regressed is False
+    assert transient.persistent_runs == 1
+    assert "Transient shift (1/3 consecutive runs)" in transient.reason
+
+    # Sustained shift across 3 consecutive windows IS climate: alerts cleanly!
+    climate_runs = [
+        _entry(0.04, tvd=0.02, w1=0.02),
+        _entry(0.05, tvd=0.03, w1=0.02),
+        _entry(0.04, tvd=0.02, w1=0.03),
+        _entry(0.18, tvd=0.25, w1=0.22),
+        _entry(0.19, tvd=0.28, w1=0.25),
+        _entry(0.20, tvd=0.30, w1=0.28),
+    ]
+    sustained = detect_history_regression(
+        climate_runs,
+        window=3,
+        max_drift_increase=0.05,
+        persist_windows=3,
+        max_tvd_increase=0.10,
+        max_wasserstein_increase=0.10,
+    )
+    assert sustained.regressed is True
+    assert sustained.persistent_runs == 3
+    assert "3 consecutive runs" in sustained.reason
+    assert "Distribution max TVD increased" in sustained.reason
+    assert "Distribution max norm W1 increased" in sustained.reason
+
+    # Round-trip distribution fields through JSONL ledger
+    ledger = tmp_path / "dist_ledger.jsonl"
+    rep = load_engine_report(EXAMPLES / "expected-pass.json")
+    record_report(ledger, rep, max_distribution_tvd=0.12, max_distribution_wasserstein=0.08)
+    loaded = load_history(ledger)
+    assert loaded[0].max_distribution_tvd == pytest.approx(0.12)
+    assert loaded[0].max_distribution_wasserstein == pytest.approx(0.08)
+
+    with pytest.raises(ValueError, match="persist_windows"):
+        detect_history_regression(climate_runs, persist_windows=0)
+    with pytest.raises(ValueError, match="at least 4"):
+        detect_history_regression(climate_runs[:3], persist_windows=3)
+
+
+
