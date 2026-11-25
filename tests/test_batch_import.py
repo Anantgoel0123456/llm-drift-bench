@@ -160,3 +160,131 @@ def test_import_csv_captures_preserves_missing_metrics_and_rejects_dups(tmp_path
     neg_csv.write_text("prompt_id,output,latency_ms\np1,ok,-5.0\n", encoding="utf-8")
     with pytest.raises(ValueError, match=r"row 2"):
         import_csv_captures(neg_csv)
+
+
+def test_batch_import_error_branches_and_edge_cases(tmp_path: Path) -> None:
+    def _write(name: str, text: str) -> Path:
+        p = tmp_path / name
+        p.write_text(text, encoding="utf-8")
+        return p
+
+    # Empty and non-object JSONL
+    with pytest.raises(ValueError, match="empty"):
+        import_openai_batch_jsonl(_write("empty.jsonl", "\n   \n"))
+    with pytest.raises(ValueError, match="JSON object"):
+        import_openai_batch_jsonl(_write("arr.jsonl", "[1, 2]\n"))
+
+    # OpenAI error paths
+    openai_bad_cases = [
+        ({"custom_id": "", "response": {"status_code": 200, "body": {}}}, "custom_id"),
+        ({"custom_id": "p1", "error": {"message": "boom"}}, "API error"),
+        ({"custom_id": "p1", "response": "bad"}, "missing 'response'"),
+        ({"custom_id": "p1", "response": {"status_code": 200, "body": "bad"}}, "response.body"),
+        (
+            {"custom_id": "p1", "response": {"status_code": 200, "body": {"choices": ["x"]}}},
+            "choice entry",
+        ),
+        (
+            {"custom_id": "p1", "response": {"status_code": 200, "body": {"choices": [{}]}}},
+            "message object",
+        ),
+        (
+            {
+                "custom_id": "p1",
+                "response": {
+                    "status_code": 200,
+                    "body": {"choices": [{"message": {"content": []}}]},
+                },
+            },
+            "no text blocks",
+        ),
+        (
+            {
+                "custom_id": "p1",
+                "response": {
+                    "status_code": 200,
+                    "body": {"choices": [{"message": {"content": 5}}]},
+                },
+            },
+            "missing string",
+        ),
+        (
+            {"custom_id": "p1", "response": {"status_code": 200, "body": {"output": ["bad"]}}},
+            "neither chat",
+        ),
+    ]
+    for idx, (row, match) in enumerate(openai_bad_cases):
+        with pytest.raises(ValueError, match=match):
+            import_openai_batch_jsonl(_write(f"oa_{idx}.jsonl", json.dumps(row) + "\n"))
+
+    dup_oa = _write(
+        "dup_oa.jsonl",
+        "\n".join(
+            json.dumps(
+                {
+                    "custom_id": "p1",
+                    "response": {
+                        "status_code": 200,
+                        "body": {"choices": [{"message": {"content": "ok"}}]},
+                    },
+                }
+            )
+            for _ in range(2)
+        )
+        + "\n",
+    )
+    with pytest.raises(ValueError, match="duplicate custom_id"):
+        import_openai_batch_jsonl(dup_oa)
+
+    # Anthropic error paths
+    ant_bad_cases = [
+        ({"custom_id": ""}, "custom_id"),
+        ({"custom_id": "p1", "result": "bad"}, "missing 'result'"),
+        ({"custom_id": "p1", "result": {"type": "succeeded", "message": "bad"}}, "result.message"),
+        (
+            {"custom_id": "p1", "result": {"type": "succeeded", "message": {"content": []}}},
+            "empty message.content",
+        ),
+        (
+            {
+                "custom_id": "p1",
+                "result": {"type": "succeeded", "message": {"content": [{"type": "tool_use"}]}},
+            },
+            "no text content",
+        ),
+    ]
+    for idx, (row, match) in enumerate(ant_bad_cases):
+        with pytest.raises(ValueError, match=match):
+            import_anthropic_batch_jsonl(_write(f"ant_{idx}.jsonl", json.dumps(row) + "\n"))
+
+    dup_ant = _write(
+        "dup_ant.jsonl",
+        "\n".join(
+            json.dumps(
+                {
+                    "custom_id": "p1",
+                    "result": {
+                        "type": "succeeded",
+                        "message": {"content": [{"type": "text", "text": "ok"}]},
+                    },
+                }
+            )
+            for _ in range(2)
+        )
+        + "\n",
+    )
+    with pytest.raises(ValueError, match="duplicate custom_id"):
+        import_anthropic_batch_jsonl(dup_ant)
+
+    # CSV error paths
+    with pytest.raises(ValueError, match="empty 'prompt_id'"):
+        import_csv_captures(_write("csv_empty_id.csv", "prompt_id,output\n ,hello\n"))
+    with pytest.raises(ValueError, match="missing 'output'"):
+        import_csv_captures(_write("csv_short.csv", "prompt_id,output\np1\n"))
+    with pytest.raises(ValueError, match="invalid 'latency_ms'"):
+        import_csv_captures(_write("csv_lat.csv", "prompt_id,output,latency_ms\np1,ok,fast\n"))
+    with pytest.raises(ValueError, match="invalid 'tokens_generated'"):
+        import_csv_captures(_write("csv_tok.csv", "prompt_id,output,tokens_generated\np1,ok,ten\n"))
+    with pytest.raises(ValueError, match="zero data rows"):
+        import_csv_captures(_write("csv_nodata.csv", "prompt_id,output\n"))
+
