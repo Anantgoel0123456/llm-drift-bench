@@ -1475,6 +1475,18 @@ def _add_history_subparser(
     rec.add_argument("-i", "--input", required=True, help="Saved engine report JSON file.")
     rec.add_argument("--tag", default=None, help="Optional release or quantization tag.")
     rec.add_argument("--git-sha", default=None, help="Optional git commit SHA.")
+    rec.add_argument(
+        "--distribution-tvd",
+        type=float,
+        default=None,
+        help="Optional cross-prompt max categorical TVD in [0, 1] to track in ledger.",
+    )
+    rec.add_argument(
+        "--distribution-wasserstein",
+        type=float,
+        default=None,
+        help="Optional cross-prompt max normalized 1D Wasserstein in [0, 1] to track in ledger.",
+    )
 
     show = hist_sub.add_parser("show", help="Display sparklines or export trend HTML from ledger.")
     show.add_argument("--ledger", required=True, metavar="FILE", help="Path to JSONL ledger file.")
@@ -1513,6 +1525,24 @@ def _add_history_subparser(
         type=float,
         default=0.02,
         help="Maximum allowed JSON conformity drop below the moving window (default: 0.02).",
+    )
+    chk.add_argument(
+        "--persist-windows",
+        type=int,
+        default=1,
+        help="Consecutive shifted runs required before alerting (default: 1).",
+    )
+    chk.add_argument(
+        "--max-tvd-increase",
+        type=float,
+        default=None,
+        help="Optional max allowed distribution TVD increase vs rolling window.",
+    )
+    chk.add_argument(
+        "--max-wasserstein-increase",
+        type=float,
+        default=None,
+        help="Optional max allowed distribution normalized Wasserstein increase vs window.",
     )
     chk.add_argument(
         "--format",
@@ -1565,7 +1595,14 @@ def _handle_history(args: argparse.Namespace) -> int:
         from llm_drift_bench.report_io import load_engine_report
 
         report = load_engine_report(args.input)
-        entry = record_report(args.ledger, report, tag=args.tag, git_sha=args.git_sha)
+        entry = record_report(
+            args.ledger,
+            report,
+            tag=args.tag,
+            git_sha=args.git_sha,
+            max_distribution_tvd=args.distribution_tvd,
+            max_distribution_wasserstein=args.distribution_wasserstein,
+        )
         print(
             f"Recorded {entry.candidate_model} ({'PASS' if entry.passed else 'FAIL'}, "
             f"mean drift {entry.mean_composite_drift:.4f}) to {args.ledger}"
@@ -1607,6 +1644,9 @@ def _handle_history(args: argparse.Namespace) -> int:
             window=args.window,
             max_drift_increase=args.max_drift_increase,
             max_conformity_drop=args.max_conformity_drop,
+            persist_windows=args.persist_windows,
+            max_tvd_increase=args.max_tvd_increase,
+            max_wasserstein_increase=args.max_wasserstein_increase,
         )
         if args.format == "json":
             print(json.dumps(check.to_dict(), indent=2))

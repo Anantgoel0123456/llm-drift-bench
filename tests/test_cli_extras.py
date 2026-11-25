@@ -1226,6 +1226,219 @@ def test_cli_extras_text_outputs_stdout_modes_and_error_guards(
     assert "LLM Drift Bench Unified Audit [PASSED]" in capsys.readouterr().out
 
 
+def test_cli_segmented_distribution_persist_windows_and_check_consumer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import sys
+
+    # 1. Segmented distribution (--group-by category with -s suite)
+    assert (
+        main(
+            [
+                "distribution",
+                "-s",
+                str(EXAMPLES / "extraction-suite.json"),
+                "-b",
+                str(EXAMPLES / "baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "candidate-drift.jsonl"),
+                "--group-by",
+                "category",
+                "--max-wasserstein",
+                "0.1",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    seg_json = json.loads(capsys.readouterr().out)
+    assert seg_json["group_by"] == "category"
+    assert seg_json["passed"] is False
+    assert "extraction" in seg_json["segments"]
+
+    seg_html = tmp_path / "seg.html"
+    assert (
+        main(
+            [
+                "distribution",
+                "-s",
+                str(EXAMPLES / "extraction-suite.json"),
+                "-b",
+                str(EXAMPLES / "baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "candidate-pass.jsonl"),
+                "--group-by",
+                "category",
+                "--format",
+                "html",
+                "-o",
+                str(seg_html),
+            ]
+        )
+        == 0
+    )
+    _ = capsys.readouterr()
+    assert "Segmented JSON Field Distribution" in seg_html.read_text(encoding="utf-8")
+
+    # 2. History persistence windows & distribution TVD tracking
+    ledger = tmp_path / "persist.jsonl"
+    for tvd in (0.02, 0.03, 0.02, 0.03):
+        assert (
+            main(
+                [
+                    "history",
+                    "record",
+                    "--ledger",
+                    str(ledger),
+                    "-i",
+                    str(EXAMPLES / "expected-pass.json"),
+                    "--distribution-tvd",
+                    str(tvd),
+                ]
+            )
+            == 0
+        )
+    # One noisy spike -> stable when persist_windows=2
+    assert (
+        main(
+            [
+                "history",
+                "record",
+                "--ledger",
+                str(ledger),
+                "-i",
+                str(EXAMPLES / "expected-drift.json"),
+                "--distribution-tvd",
+                "0.40",
+            ]
+        )
+        == 0
+    )
+    _ = capsys.readouterr()
+    assert (
+        main(
+            [
+                "history",
+                "check",
+                "--ledger",
+                str(ledger),
+                "--window",
+                "3",
+                "--persist-windows",
+                "2",
+                "--max-tvd-increase",
+                "0.10",
+            ]
+        )
+        == 0
+    )
+    assert "Transient shift (1/2 consecutive runs)" in capsys.readouterr().out
+
+    # Second consecutive shifted run -> regressed!
+    assert (
+        main(
+            [
+                "history",
+                "record",
+                "--ledger",
+                str(ledger),
+                "-i",
+                str(EXAMPLES / "expected-drift.json"),
+                "--distribution-tvd",
+                "0.45",
+            ]
+        )
+        == 0
+    )
+    _ = capsys.readouterr()
+    assert (
+        main(
+            [
+                "history",
+                "check",
+                "--ledger",
+                str(ledger),
+                "--window",
+                "3",
+                "--persist-windows",
+                "2",
+                "--max-tvd-increase",
+                "0.10",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    assert json.loads(capsys.readouterr().out)["persistent_runs"] == 2
+
+    # 3. check-consumer via pre-recorded decision files AND via --validator-module
+    b_dec = tmp_path / "b_dec.jsonl"
+    c_dec = tmp_path / "c_dec.jsonl"
+    b_dec.write_text(
+        '{"prompt_id": "p1", "accepted": true}\n{"prompt_id": "p2", "accepted": true}\n',
+        encoding="utf-8",
+    )
+    c_dec.write_text(
+        '{"prompt_id": "p1", "accepted": true}\n'
+        '{"prompt_id": "p2", "accepted": false, "reason": "invalid total"}\n',
+        encoding="utf-8",
+    )
+    assert (
+        main(
+            [
+                "check-consumer",
+                "--baseline-decisions",
+                str(b_dec),
+                "--candidate-decisions",
+                str(c_dec),
+                "--max-rejection-increase",
+                "0.1",
+                "--format",
+                "markdown",
+            ]
+        )
+        == 1
+    )
+    assert "# Downstream Consumer Rejection Check: FAILED" in capsys.readouterr().out
+
+    # Via --validator-module
+    val_mod = tmp_path / "cli_consumer_val.py"
+    val_mod.write_text(
+        "def accept_all(_sample):\n    return True\n",
+        encoding="utf-8",
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    try:
+        assert (
+            main(
+                [
+                    "check-consumer",
+                    "-b",
+                    str(EXAMPLES / "baseline.jsonl"),
+                    "-c",
+                    str(EXAMPLES / "candidate-pass.jsonl"),
+                    "--validator-module",
+                    "cli_consumer_val:accept_all",
+                    "--max-rejection-rate",
+                    "0.0",
+                    "--format",
+                    "json",
+                ]
+            )
+            == 0
+        )
+        assert json.loads(capsys.readouterr().out)["passed"] is True
+    finally:
+        sys.modules.pop("cli_consumer_val", None)
+
+    # Misconfigured flags return exit 2
+    assert main(["check-consumer"]) == 2
+    _ = capsys.readouterr()
+
+
+
 
 
 

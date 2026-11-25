@@ -149,6 +149,12 @@ def register_extra_subcommands(
     gate_p.add_argument("--candidate", default=None, help="Optional ledger candidate filter.")
     gate_p.add_argument("--window", type=int, default=3, help="History window size (default: 3).")
     gate_p.add_argument(
+        "--persist-windows",
+        type=int,
+        default=1,
+        help="Consecutive shifted runs required before history regression blocks (default: 1).",
+    )
+    gate_p.add_argument(
         "--max-drift-increase",
         type=float,
         default=0.05,
@@ -325,6 +331,21 @@ def register_extra_subcommands(
     )
     dist_p.add_argument(
         "--config", default=None, help="Optional drift.toml/drift.json policy for ignored fields."
+    )
+    dist_p.add_argument(
+        "-s",
+        "--suite",
+        "-p",
+        "--prompts",
+        dest="suite",
+        default=None,
+        help="Optional prompt suite JSON/JSONL (used with --group-by category/metadata:<key>).",
+    )
+    dist_p.add_argument(
+        "--group-by",
+        default=None,
+        metavar="SPEC",
+        help="Segment distribution before aggregating: 'category' or 'metadata:<key>'.",
     )
     dist_p.add_argument(
         "--no-collapse-arrays",
@@ -525,6 +546,51 @@ def register_extra_subcommands(
         "-o", "--output", default=None, help="Optional output path to save the rendered audit."
     )
 
+    cons_p = subparsers.add_parser(
+        "check-consumer",
+        help="Compare downstream consumer rejection rates across baseline and candidate.",
+    )
+    cons_p.add_argument(
+        "--baseline-decisions",
+        default=None,
+        metavar="FILE",
+        help="Baseline downstream accept/reject decision log (.json/.jsonl).",
+    )
+    cons_p.add_argument(
+        "--candidate-decisions",
+        default=None,
+        metavar="FILE",
+        help="Candidate downstream accept/reject decision log (.json/.jsonl).",
+    )
+    cons_p.add_argument("-b", "--baseline", default=None, help="Baseline capture (.json/.jsonl).")
+    cons_p.add_argument(
+        "-c", "--candidate", default=None, help="Candidate capture (.json/.jsonl)."
+    )
+    cons_p.add_argument(
+        "--validator-module",
+        default=None,
+        metavar="MOD:FUNC",
+        help="Python validator callable ('pkg.mod:fn') returning bool or (bool, reason).",
+    )
+    cons_p.add_argument(
+        "--max-rejection-rate",
+        type=float,
+        default=None,
+        help="Optional max allowed candidate rejection rate in [0, 1] (exits 1 if exceeded).",
+    )
+    cons_p.add_argument(
+        "--max-rejection-increase",
+        type=float,
+        default=None,
+        help="Optional max allowed rejection rate increase vs baseline in [0, 1].",
+    )
+    cons_p.add_argument(
+        "--format",
+        choices=("text", "json", "markdown"),
+        default="text",
+        help="Output format: text (default), json, or markdown.",
+    )
+
 
 def _serialize_prompt_case(case: PromptCase) -> dict[str, Any]:
     record: dict[str, Any] = {
@@ -682,6 +748,7 @@ def _handle_gate(args: argparse.Namespace) -> int:
             window=args.window,
             max_drift_increase=args.max_drift_increase,
             max_conformity_drop=args.max_conformity_drop,
+            persist_windows=args.persist_windows,
         )
 
     sig = None
@@ -910,58 +977,106 @@ def _handle_distribution(
     _validate_unit_threshold("--max-tvd", args.max_tvd)
     _validate_unit_threshold("--max-jsd", args.max_jsd)
     _validate_unit_threshold("--max-wasserstein", args.max_wasserstein)
-    protect_inputs(args.output, args.baseline, args.candidate, args.config)
+    protect_inputs(args.output, args.baseline, args.candidate, args.config, args.suite)
 
     from llm_drift_bench.distribution import (
         analyze_field_distributions,
+        analyze_segmented_distributions,
         export_distribution_html,
+        export_segmented_distribution_html,
         format_distribution_markdown,
         format_distribution_text,
+        format_segmented_distribution_markdown,
+        format_segmented_distribution_text,
     )
-    from llm_drift_bench.engine import load_model_samples
+    from llm_drift_bench.engine import load_model_samples, load_prompt_cases
     from llm_drift_bench.policy import load_policy
 
     base = load_model_samples(args.baseline)
     cand = load_model_samples(args.candidate)
     policy = load_policy(args.config) if args.config else None
-    report = analyze_field_distributions(
-        base,
-        cand,
-        policy=policy,
-        collapse_array_indices=not args.no_collapse_arrays,
-    )
+    prompts = load_prompt_cases(args.suite) if args.suite else None
 
     failures: list[str] = []
-    if args.max_tvd is not None and report.max_tvd > args.max_tvd:
-        failures.append(f"max_tvd {report.max_tvd:.4f} exceeded limit {args.max_tvd:.4f}")
-    if args.max_jsd is not None and report.max_jsd > args.max_jsd:
-        failures.append(f"max_jsd {report.max_jsd:.4f} exceeded limit {args.max_jsd:.4f}")
-    if (
-        args.max_wasserstein is not None
-        and report.max_normalized_wasserstein > args.max_wasserstein
-    ):
-        failures.append(
-            f"max_normalized_wasserstein {report.max_normalized_wasserstein:.4f} "
-            f"exceeded limit {args.max_wasserstein:.4f}"
+    has_limits = any(
+        val is not None for val in (args.max_tvd, args.max_jsd, args.max_wasserstein)
+    )
+    if args.group_by:
+        seg_report = analyze_segmented_distributions(
+            base,
+            cand,
+            group_by=args.group_by,
+            prompt_cases=prompts,
+            policy=policy,
+            collapse_array_indices=not args.no_collapse_arrays,
         )
-    passed = len(failures) == 0
-
-    if args.format == "json":
-        payload = report.to_dict()
-        if any(
-            val is not None for val in (args.max_tvd, args.max_jsd, args.max_wasserstein)
-        ):
-            payload["passed"] = passed
-            payload["threshold_failures"] = failures
-        rendered = json.dumps(payload, indent=2) + "\n"
-    elif args.format == "markdown":
-        rendered = format_distribution_markdown(report)
-    elif args.format == "html":
-        rendered = export_distribution_html(report)
+        for seg_name, seg in seg_report.segments.items():
+            if args.max_tvd is not None and seg.max_tvd > args.max_tvd:
+                failures.append(
+                    f"[{seg_name}] max_tvd {seg.max_tvd:.4f} exceeded limit {args.max_tvd:.4f}"
+                )
+            if args.max_jsd is not None and seg.max_jsd > args.max_jsd:
+                failures.append(
+                    f"[{seg_name}] max_jsd {seg.max_jsd:.4f} exceeded limit {args.max_jsd:.4f}"
+                )
+            if (
+                args.max_wasserstein is not None
+                and seg.max_normalized_wasserstein > args.max_wasserstein
+            ):
+                failures.append(
+                    f"[{seg_name}] max_normalized_wasserstein "
+                    f"{seg.max_normalized_wasserstein:.4f} exceeded limit "
+                    f"{args.max_wasserstein:.4f}"
+                )
+        passed = len(failures) == 0
+        if args.format == "json":
+            payload = seg_report.to_dict()
+            if has_limits:
+                payload["passed"] = passed
+                payload["threshold_failures"] = failures
+            rendered = json.dumps(payload, indent=2) + "\n"
+        elif args.format == "markdown":
+            rendered = format_segmented_distribution_markdown(seg_report)
+        elif args.format == "html":
+            rendered = export_segmented_distribution_html(seg_report)
+        else:
+            rendered = format_segmented_distribution_text(seg_report)
+            if failures:
+                rendered += "Threshold failures:\n" + "".join(f"  - {msg}\n" for msg in failures)
     else:
-        rendered = format_distribution_text(report)
-        if failures:
-            rendered += "Threshold failures:\n" + "".join(f"  - {msg}\n" for msg in failures)
+        report = analyze_field_distributions(
+            base,
+            cand,
+            policy=policy,
+            collapse_array_indices=not args.no_collapse_arrays,
+        )
+        if args.max_tvd is not None and report.max_tvd > args.max_tvd:
+            failures.append(f"max_tvd {report.max_tvd:.4f} exceeded limit {args.max_tvd:.4f}")
+        if args.max_jsd is not None and report.max_jsd > args.max_jsd:
+            failures.append(f"max_jsd {report.max_jsd:.4f} exceeded limit {args.max_jsd:.4f}")
+        if (
+            args.max_wasserstein is not None
+            and report.max_normalized_wasserstein > args.max_wasserstein
+        ):
+            failures.append(
+                f"max_normalized_wasserstein {report.max_normalized_wasserstein:.4f} "
+                f"exceeded limit {args.max_wasserstein:.4f}"
+            )
+        passed = len(failures) == 0
+        if args.format == "json":
+            payload = report.to_dict()
+            if has_limits:
+                payload["passed"] = passed
+                payload["threshold_failures"] = failures
+            rendered = json.dumps(payload, indent=2) + "\n"
+        elif args.format == "markdown":
+            rendered = format_distribution_markdown(report)
+        elif args.format == "html":
+            rendered = export_distribution_html(report)
+        else:
+            rendered = format_distribution_text(report)
+            if failures:
+                rendered += "Threshold failures:\n" + "".join(f"  - {msg}\n" for msg in failures)
 
     if args.output:
         atomic_write_text(Path(args.output), rendered)
@@ -1182,4 +1297,70 @@ def dispatch_extra_command(
         return _handle_check_formats(args)
     if args.command == "audit":
         return _handle_audit(args, protect_inputs, atomic_write_text)
+    if args.command == "check-consumer":
+        return _handle_check_consumer(args)
     return None
+
+
+def _handle_check_consumer(args: argparse.Namespace) -> int:
+    from llm_drift_bench.consumer import (
+        compare_consumer_decisions,
+        evaluate_consumer_rejection,
+        format_consumer_markdown,
+        format_consumer_text,
+        load_consumer_decisions,
+        load_validator_callable,
+    )
+
+    using_decisions = (
+        args.baseline_decisions is not None or args.candidate_decisions is not None
+    )
+    using_validator = (
+        args.baseline is not None
+        or args.candidate is not None
+        or args.validator_module is not None
+    )
+    if using_decisions and using_validator:
+        raise ValueError(
+            "Provide either --baseline-decisions/--candidate-decisions OR "
+            "-b/-c with --validator-module, not both."
+        )
+    if using_decisions:
+        if not (args.baseline_decisions and args.candidate_decisions):
+            raise ValueError(
+                "Both --baseline-decisions and --candidate-decisions are required."
+            )
+        comp = compare_consumer_decisions(
+            load_consumer_decisions(args.baseline_decisions),
+            load_consumer_decisions(args.candidate_decisions),
+            max_rejection_rate=args.max_rejection_rate,
+            max_rejection_increase=args.max_rejection_increase,
+        )
+    elif using_validator:
+        if not (args.baseline and args.candidate and args.validator_module):
+            raise ValueError(
+                "Provide -b/--baseline, -c/--candidate, and --validator-module MOD:FUNC."
+            )
+        from llm_drift_bench.engine import load_model_samples
+
+        fn = load_validator_callable(args.validator_module)
+        comp = evaluate_consumer_rejection(
+            load_model_samples(args.baseline),
+            load_model_samples(args.candidate),
+            fn,
+            max_rejection_rate=args.max_rejection_rate,
+            max_rejection_increase=args.max_rejection_increase,
+        )
+    else:
+        raise ValueError(
+            "Specify --baseline-decisions/--candidate-decisions or "
+            "-b/-c with --validator-module."
+        )
+
+    if args.format == "json":
+        print(json.dumps(comp.to_dict(), indent=2))
+    elif args.format == "markdown":
+        print(format_consumer_markdown(comp), end="")
+    else:
+        print(format_consumer_text(comp), end="")
+    return 0 if comp.passed else 1
