@@ -9,11 +9,15 @@ import pytest
 
 from llm_drift_bench.distribution import (
     analyze_field_distributions,
+    analyze_segmented_distributions,
     export_distribution_html,
+    export_segmented_distribution_html,
     format_distribution_markdown,
     format_distribution_text,
+    format_segmented_distribution_markdown,
+    format_segmented_distribution_text,
 )
-from llm_drift_bench.models import ModelSample
+from llm_drift_bench.models import ModelSample, PromptCase
 from llm_drift_bench.policy import DriftPolicy, FieldRule
 
 
@@ -156,3 +160,97 @@ def test_distribution_validation_errors_and_non_json_outputs() -> None:
             s1,
             [ModelSample(prompt_id="p2", output="x", model_name="c")],
         )
+
+
+def test_segmented_distribution_isolates_single_route_shift_before_totals(tmp_path: Path) -> None:
+    # route_a shifts 100% ("high" -> "low"), while route_b and route_c stay completely unchanged.
+    # Global TVD is diluted to 1/3 (0.333), whereas segmenting by metadata:route isolates TVD=1.0!
+    base = [
+        ModelSample(
+            prompt_id="a1", output='{"label": "high", "score": 0.9}',
+            model_name="b", metadata={"route": "route_a"},
+        ),
+        ModelSample(
+            prompt_id="a2", output='{"label": "high", "score": 0.9}',
+            model_name="b", metadata={"route": "route_a"},
+        ),
+        ModelSample(
+            prompt_id="b1", output='{"label": "high", "score": 0.9}',
+            model_name="b", metadata={"route": "route_b"},
+        ),
+        ModelSample(
+            prompt_id="b2", output='{"label": "high", "score": 0.9}',
+            model_name="b", metadata={"route": "route_b"},
+        ),
+        ModelSample(
+            prompt_id="c1", output='{"label": "high", "score": 0.9}',
+            model_name="b", metadata={"route": "route_c"},
+        ),
+        ModelSample(
+            prompt_id="c2", output='{"label": "high", "score": 0.9}',
+            model_name="b", metadata={"route": "route_c"},
+        ),
+    ]
+    cand = [
+        ModelSample(
+            prompt_id="a1", output='{"label": "low", "score": 0.2}',
+            model_name="c", metadata={"route": "route_a"},
+        ),
+        ModelSample(
+            prompt_id="a2", output='{"label": "low", "score": 0.2}',
+            model_name="c", metadata={"route": "route_a"},
+        ),
+        ModelSample(
+            prompt_id="b1", output='{"label": "high", "score": 0.9}',
+            model_name="c", metadata={"route": "route_b"},
+        ),
+        ModelSample(
+            prompt_id="b2", output='{"label": "high", "score": 0.9}',
+            model_name="c", metadata={"route": "route_b"},
+        ),
+        ModelSample(
+            prompt_id="c1", output='{"label": "high", "score": 0.9}',
+            model_name="c", metadata={"route": "route_c"},
+        ),
+        ModelSample(
+            prompt_id="c2", output='{"label": "high", "score": 0.9}',
+            model_name="c", metadata={"route": "route_c"},
+        ),
+    ]
+
+    seg = analyze_segmented_distributions(base, cand, group_by="metadata:route")
+    assert seg.worst_segment_name == "route_a"
+    assert seg.worst_segment_tvd == pytest.approx(1.0)
+    assert seg.segments["route_a"].max_tvd == pytest.approx(1.0)
+    assert seg.segments["route_b"].max_tvd == 0.0
+    assert seg.segments["route_c"].max_tvd == 0.0
+    assert seg.overall.max_tvd == pytest.approx(1 / 3, abs=1e-4)
+    assert seg.to_dict()["worst_segment_name"] == "route_a"
+
+    txt = format_segmented_distribution_text(seg)
+    assert "[route_a]" in txt and "Overall totals:" in txt
+    md = format_segmented_distribution_markdown(seg)
+    assert "| route&#95;a |" in md and "## Overall totals" in md
+    html_file = tmp_path / "seg.html"
+    html = export_segmented_distribution_html(seg, html_file)
+    assert html_file.read_text(encoding="utf-8") == html
+    assert "default-src 'none'" in html and "<script" not in html.lower()
+
+    # Category grouping via prompt_cases
+    cases = [
+        PromptCase(
+            prompt_id=s.prompt_id,
+            prompt="p",
+            category="vip" if s.prompt_id.startswith("a") else "std",
+        )
+        for s in base
+    ]
+    by_cat = analyze_segmented_distributions(base, cand, group_by="category", prompt_cases=cases)
+    assert by_cat.worst_segment_name == "vip"
+    assert by_cat.segments["std"].max_tvd == 0.0
+
+    with pytest.raises(ValueError, match="Unsupported group_by"):
+        analyze_segmented_distributions(base, cand, group_by="unknown")
+    with pytest.raises(ValueError, match="non-empty metadata key"):
+        analyze_segmented_distributions(base, cand, group_by="metadata:")
+

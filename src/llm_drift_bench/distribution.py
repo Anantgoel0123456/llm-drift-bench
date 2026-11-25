@@ -16,7 +16,7 @@ from llm_drift_bench._matching import index_records, require_same_ids
 from llm_drift_bench._numbers import finite_number
 from llm_drift_bench._report_views import markdown_cell
 from llm_drift_bench.metrics import flatten_json_paths
-from llm_drift_bench.models import ModelSample
+from llm_drift_bench.models import ModelSample, PromptCase
 from llm_drift_bench.policy import DriftPolicy, path_is_ignored
 from llm_drift_bench.validator import extract_json_payload
 
@@ -503,3 +503,265 @@ Max Normalized 1D Wasserstein: {report.max_normalized_wasserstein:.4f}</p>
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(html, encoding="utf-8")
     return html
+
+
+@dataclass(frozen=True)
+class SegmentedDistributionReport:
+    """Distribution drift segmented by route, category, or metadata key before global totals."""
+
+    group_by: str
+    overall: DistributionReport
+    segments: dict[str, DistributionReport]
+    worst_segment_name: str | None
+    worst_segment_tvd: float
+    worst_segment_jsd: float
+    worst_segment_wasserstein: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "group_by": self.group_by,
+            "worst_segment_name": self.worst_segment_name,
+            "worst_segment_tvd": round(self.worst_segment_tvd, 6),
+            "worst_segment_jsd": round(self.worst_segment_jsd, 6),
+            "worst_segment_wasserstein": round(self.worst_segment_wasserstein, 6),
+            "segments": {name: rep.to_dict() for name, rep in self.segments.items()},
+            "overall": self.overall.to_dict(),
+        }
+
+
+def _parse_group_by(group_by: str) -> tuple[str, str | None]:
+    if not isinstance(group_by, str) or not group_by.strip():
+        raise ValueError("group_by must be 'category' or 'metadata:<key>'.")
+    cleaned = group_by.strip()
+    if cleaned == "category":
+        return "category", None
+    if cleaned.startswith("metadata:"):
+        key = cleaned[len("metadata:") :].strip()
+        if not key:
+            raise ValueError("group_by='metadata:<key>' requires a non-empty metadata key.")
+        return "metadata", key
+    raise ValueError(
+        f"Unsupported group_by {group_by!r}. Use 'category' or 'metadata:<key>'."
+    )
+
+
+def analyze_segmented_distributions(
+    baseline_samples: Sequence[ModelSample],
+    candidate_samples: Sequence[ModelSample],
+    *,
+    group_by: str = "category",
+    prompt_cases: Sequence[PromptCase] | None = None,
+    policy: DriftPolicy | None = None,
+    collapse_array_indices: bool = True,
+) -> SegmentedDistributionReport:
+    """Segment prompts by category or metadata key before computing overall distribution drift.
+
+    Isolates shifts confined to a single route, prompt category, or customer segment
+    before global aggregation can dilute them.
+    """
+    mode, meta_key = _parse_group_by(group_by)
+    if not baseline_samples or not candidate_samples:
+        raise ValueError("Both baseline and candidate sample collections must be non-empty.")
+
+    base_map = index_records(baseline_samples, "baseline samples")
+    cand_map = index_records(candidate_samples, "candidate samples")
+    require_same_ids(set(base_map), set(cand_map), "Candidate")
+
+    case_map: dict[str, PromptCase] = {}
+    if prompt_cases is not None:
+        if not prompt_cases:
+            raise ValueError("Prompt suite cannot be empty.")
+        case_map = index_records(prompt_cases, "prompt suite")
+        require_same_ids(set(base_map), set(case_map), "Prompt suite")
+
+    buckets_base: dict[str, list[ModelSample]] = defaultdict(list)
+    buckets_cand: dict[str, list[ModelSample]] = defaultdict(list)
+
+    for pid in sorted(base_map):
+        b_sample = base_map[pid]
+        c_sample = cand_map[pid]
+        raw_seg: Any = None
+        if mode == "category":
+            if pid in case_map and case_map[pid].category:
+                raw_seg = case_map[pid].category
+            else:
+                raw_seg = b_sample.metadata.get("category")
+        else:
+            assert meta_key is not None
+            raw_seg = b_sample.metadata.get(meta_key)
+            if raw_seg is None and pid in case_map:
+                raw_seg = case_map[pid].metadata.get(meta_key)
+
+        seg_label = (
+            str(raw_seg).strip()
+            if raw_seg is not None and str(raw_seg).strip()
+            else "(unassigned)"
+        )
+        buckets_base[seg_label].append(b_sample)
+        buckets_cand[seg_label].append(c_sample)
+
+    segments: dict[str, DistributionReport] = {}
+    for seg_name in sorted(buckets_base):
+        segments[seg_name] = analyze_field_distributions(
+            buckets_base[seg_name],
+            buckets_cand[seg_name],
+            policy=policy,
+            collapse_array_indices=collapse_array_indices,
+        )
+
+    overall = analyze_field_distributions(
+        baseline_samples,
+        candidate_samples,
+        policy=policy,
+        collapse_array_indices=collapse_array_indices,
+    )
+
+    worst_name: str | None = None
+    worst_score = -1.0
+    for name, rep in segments.items():
+        score = max(rep.max_tvd, rep.max_normalized_wasserstein)
+        if score > worst_score:
+            worst_score = score
+            worst_name = name
+
+    return SegmentedDistributionReport(
+        group_by=group_by.strip(),
+        overall=overall,
+        segments=segments,
+        worst_segment_name=worst_name,
+        worst_segment_tvd=max((r.max_tvd for r in segments.values()), default=0.0),
+        worst_segment_jsd=max((r.max_jsd for r in segments.values()), default=0.0),
+        worst_segment_wasserstein=max(
+            (r.max_normalized_wasserstein for r in segments.values()), default=0.0
+        ),
+    )
+
+
+def format_segmented_distribution_text(report: SegmentedDistributionReport) -> str:
+    """Format a SegmentedDistributionReport showing per-segment shifts before overall totals."""
+    lines = [
+        f"Segmented Field Distribution Drift (group_by={report.group_by}, "
+        f"{len(report.segments)} segment(s))",
+        f"Worst segment: {report.worst_segment_name or 'n/a'} | "
+        f"max TVD={report.worst_segment_tvd:.4f}, "
+        f"max JSD={report.worst_segment_jsd:.4f}, "
+        f"max norm W1={report.worst_segment_wasserstein:.4f}",
+        "",
+        "Per-segment breakdown (sorted by worst shift):",
+    ]
+    ordered = sorted(
+        report.segments.items(),
+        key=lambda item: (
+            -max(item[1].max_tvd, item[1].max_normalized_wasserstein),
+            item[0],
+        ),
+    )
+    for name, seg in ordered:
+        lines.append(
+            f"  [{name}] ({seg.comparable_json_prompts}/{seg.total_prompts} JSON): "
+            f"max TVD={seg.max_tvd:.4f}, max JSD={seg.max_jsd:.4f}, "
+            f"max norm W1={seg.max_normalized_wasserstein:.4f}"
+        )
+    lines.append("")
+    lines.append("Overall totals:")
+    lines.append(format_distribution_text(report.overall).rstrip("\n"))
+    return "\n".join(lines) + "\n"
+
+
+def format_segmented_distribution_markdown(report: SegmentedDistributionReport) -> str:
+    """Format a SegmentedDistributionReport as GitHub-flavored Markdown."""
+    lines = [
+        f"# Segmented Field Distribution Drift (`{markdown_cell(report.group_by)}`)",
+        "",
+        "| Segment | JSON Prompts | Max TVD | Max JSD | Max Norm W1 |",
+        "| --- | ---: | ---: | ---: | ---: |",
+    ]
+    ordered = sorted(
+        report.segments.items(),
+        key=lambda item: (
+            -max(item[1].max_tvd, item[1].max_normalized_wasserstein),
+            item[0],
+        ),
+    )
+    for name, seg in ordered:
+        lines.append(
+            "| "
+            + " | ".join(
+                (
+                    markdown_cell(name),
+                    f"{seg.comparable_json_prompts}/{seg.total_prompts}",
+                    f"{seg.max_tvd:.4f}",
+                    f"{seg.max_jsd:.4f}",
+                    f"{seg.max_normalized_wasserstein:.4f}",
+                )
+            )
+            + " |"
+        )
+    lines += [
+        "",
+        "## Overall totals",
+        "",
+        format_distribution_markdown(report.overall).rstrip("\n"),
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def export_segmented_distribution_html(
+    report: SegmentedDistributionReport,
+    output_path: str | Path | None = None,
+) -> str:
+    """Export a standalone script-free offline HTML segmented distribution report."""
+    ordered = sorted(
+        report.segments.items(),
+        key=lambda item: (
+            -max(item[1].max_tvd, item[1].max_normalized_wasserstein),
+            item[0],
+        ),
+    )
+    seg_rows = "".join(
+        "<tr>"
+        f"<td>{escape(name)}</td>"
+        f"<td>{seg.comparable_json_prompts}/{seg.total_prompts}</td>"
+        f"<td>{seg.max_tvd:.4f}</td>"
+        f"<td>{seg.max_jsd:.4f}</td>"
+        f"<td>{seg.max_normalized_wasserstein:.4f}</td>"
+        "</tr>"
+        for name, seg in ordered
+    )
+    html = f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<title>LLM Drift Bench - Segmented Field Distribution</title>
+<style>
+:root{{color-scheme:dark}}body{{margin:0;background:#0b1220;color:#e8eef8;
+font:16px/1.6 system-ui,sans-serif}}main{{max-width:1100px;margin:auto;padding:40px 24px}}
+h1{{font-size:2rem;line-height:1.2}}h2{{margin-top:32px}}.scroll{{overflow-x:auto}}
+table{{border-collapse:collapse;width:100%;background:#111e32}}th,td{{padding:12px;
+border-bottom:1px solid #30405a;text-align:left}}th{{color:#7dd3fc}}
+td{{white-space:pre-wrap;overflow-wrap:anywhere}}.muted{{color:#a8bad2}}
+</style></head><body><main>
+<p class="muted">llm-drift-bench / segmented distribution report</p>
+<h1>Segmented JSON Field Distribution ({escape(report.group_by)})</h1>
+<p>Segments: {len(report.segments)} &middot; Worst segment:
+ {escape(report.worst_segment_name or 'n/a')} &middot;
+ Worst TVD: {report.worst_segment_tvd:.4f} &middot;
+ Worst Norm W1: {report.worst_segment_wasserstein:.4f}</p>
+<h2>Per-Segment Breakdown</h2>
+<div class="scroll"><table><thead><tr>
+<th>Segment</th><th>JSON Prompts</th><th>Max TVD</th><th>Max JSD</th><th>Max Norm W1</th>
+</tr></thead><tbody>{seg_rows}</tbody></table></div>
+<h2>Overall Totals</h2>
+<p>Comparable JSON prompts: {report.overall.comparable_json_prompts} /
+ {report.overall.total_prompts}<br>
+Overall Max TVD: {report.overall.max_tvd:.4f} &middot;
+Overall Max JSD: {report.overall.max_jsd:.4f} &middot;
+Overall Max Norm W1: {report.overall.max_normalized_wasserstein:.4f}</p>
+</main></body></html>
+"""
+    if output_path is not None:
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(html, encoding="utf-8")
+    return html
+
