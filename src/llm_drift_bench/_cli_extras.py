@@ -354,6 +354,11 @@ def register_extra_subcommands(
         help="Per-segment TVD/W1 threshold used to classify localized vs widespread scope (0.10).",
     )
     dist_p.add_argument(
+        "--fail-on-widespread",
+        action="store_true",
+        help="Exit 1 when segmented shift_scope is 'widespread' (requires --group-by).",
+    )
+    dist_p.add_argument(
         "--no-collapse-arrays",
         action="store_true",
         help="Keep concrete array indices ([0], [1]) separate instead of collapsing into [*].",
@@ -523,6 +528,23 @@ def register_extra_subcommands(
         type=float,
         default=None,
         help="Optional max normalized 1D Wasserstein in [0, 1].",
+    )
+    audit_p.add_argument(
+        "--group-by",
+        default=None,
+        metavar="SPEC",
+        help="Optional segmented distribution key ('category' or 'metadata:<key>').",
+    )
+    audit_p.add_argument(
+        "--shift-threshold",
+        type=float,
+        default=0.10,
+        help="Per-segment TVD/W1 threshold for localized vs widespread scope (default: 0.10).",
+    )
+    audit_p.add_argument(
+        "--fail-on-widespread",
+        action="store_true",
+        help="Fail audit when segmented shift_scope is 'widespread' (requires --group-by).",
     )
     audit_p.add_argument(
         "--max-entropy-delta",
@@ -983,6 +1005,8 @@ def _handle_distribution(
     _validate_unit_threshold("--max-tvd", args.max_tvd)
     _validate_unit_threshold("--max-jsd", args.max_jsd)
     _validate_unit_threshold("--max-wasserstein", args.max_wasserstein)
+    if args.fail_on_widespread and not args.group_by:
+        raise ValueError("--fail-on-widespread requires --group-by.")
     protect_inputs(args.output, args.baseline, args.candidate, args.config, args.suite)
 
     from llm_drift_bench.distribution import (
@@ -1004,7 +1028,7 @@ def _handle_distribution(
     prompts = load_prompt_cases(args.suite) if args.suite else None
 
     failures: list[str] = []
-    has_limits = any(
+    has_limits = bool(args.fail_on_widespread) or any(
         val is not None for val in (args.max_tvd, args.max_jsd, args.max_wasserstein)
     )
     if args.group_by:
@@ -1035,6 +1059,12 @@ def _handle_distribution(
                     f"{seg.max_normalized_wasserstein:.4f} exceeded limit "
                     f"{args.max_wasserstein:.4f}"
                 )
+        if args.fail_on_widespread and seg_report.shift_scope == "widespread":
+            shifted = ", ".join(seg_report.shifted_segments)
+            failures.append(
+                f"widespread shift across {len(seg_report.shifted_segments)}/"
+                f"{len(seg_report.segments)} segment(s): {shifted}"
+            )
         passed = len(failures) == 0
         if args.format == "json":
             payload = seg_report.to_dict()
@@ -1220,6 +1250,8 @@ def _handle_audit(
     protect_inputs: ProtectFn,
     atomic_write_text: AtomicWriteFn,
 ) -> int:
+    if args.fail_on_widespread and not args.group_by:
+        raise ValueError("--fail-on-widespread requires --group-by.")
     protect_inputs(args.output, args.baseline, args.candidate, args.suite, args.config)
     from llm_drift_bench.audit import (
         export_audit_html,
@@ -1246,6 +1278,9 @@ def _handle_audit(
         max_entropy_delta=args.max_entropy_delta,
         max_top_k_jsd=args.max_top_k_jsd,
         fail_on_quality_issues=args.fail_on_quality,
+        group_by=args.group_by,
+        shift_threshold=args.shift_threshold,
+        fail_on_widespread_shift=args.fail_on_widespread,
     )
     if args.format == "json":
         rendered = json.dumps(report.to_dict(), indent=2) + "\n"

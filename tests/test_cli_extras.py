@@ -1442,6 +1442,160 @@ def test_cli_segmented_distribution_persist_windows_and_check_consumer(
     _ = capsys.readouterr()
 
 
+def test_cli_distribution_and_audit_fail_on_widespread_flags(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    suite = tmp_path / "routes.json"
+    suite.write_text(
+        json.dumps(
+            [
+                {
+                    "prompt_id": f"r{r}_p{i}",
+                    "category": "classification",
+                    "prompt": f"Classify {r}-{i}",
+                    "metadata": {"route": f"route_{r}"},
+                }
+                for r in ("a", "b")
+                for i in range(2)
+            ]
+        ),
+        encoding="utf-8",
+    )
+    base = tmp_path / "base.jsonl"
+    cand_local = tmp_path / "cand_local.jsonl"
+    cand_wide = tmp_path / "cand_wide.jsonl"
+    base.write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "prompt_id": f"r{r}_p{i}",
+                    "model_name": "b",
+                    "output": json.dumps({"tier": "high"}),
+                }
+            )
+            for r in ("a", "b")
+            for i in range(2)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    cand_local.write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "prompt_id": f"r{r}_p{i}",
+                    "model_name": "c",
+                    "output": json.dumps({"tier": "low" if r == "a" else "high"}),
+                }
+            )
+            for r in ("a", "b")
+            for i in range(2)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    cand_wide.write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "prompt_id": f"r{r}_p{i}",
+                    "model_name": "c",
+                    "output": json.dumps({"tier": "low"}),
+                }
+            )
+            for r in ("a", "b")
+            for i in range(2)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    # distribution --fail-on-widespread without --group-by -> exit 2
+    assert (
+        main(["distribution", "-b", str(base), "-c", str(cand_wide), "--fail-on-widespread"]) == 2
+    )
+    _ = capsys.readouterr()
+
+    # localized shift passes --fail-on-widespread
+    assert (
+        main(
+            [
+                "distribution",
+                "-s",
+                str(suite),
+                "-b",
+                str(base),
+                "-c",
+                str(cand_local),
+                "--group-by",
+                "metadata:route",
+                "--fail-on-widespread",
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    local_out = json.loads(capsys.readouterr().out)
+    assert local_out["shift_scope"] == "localized" and local_out["passed"] is True
+
+    # widespread shift fails --fail-on-widespread (exit 1)
+    assert (
+        main(
+            [
+                "distribution",
+                "-s",
+                str(suite),
+                "-b",
+                str(base),
+                "-c",
+                str(cand_wide),
+                "--group-by",
+                "metadata:route",
+                "--fail-on-widespread",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    wide_out = json.loads(capsys.readouterr().out)
+    assert wide_out["shift_scope"] == "widespread" and wide_out["passed"] is False
+    assert any("widespread shift" in msg for msg in wide_out["threshold_failures"])
+
+    # audit --fail-on-widespread without --group-by -> exit 2
+    assert main(["audit", "-b", str(base), "-c", str(cand_wide), "--fail-on-widespread"]) == 2
+    _ = capsys.readouterr()
+
+    # audit --group-by with --fail-on-widespread fails on widespread shift
+    assert (
+        main(
+            [
+                "audit",
+                "-s",
+                str(suite),
+                "-b",
+                str(base),
+                "-c",
+                str(cand_wide),
+                "--group-by",
+                "metadata:route",
+                "--shift-threshold",
+                "0.15",
+                "--fail-on-widespread",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    audit_wide = json.loads(capsys.readouterr().out)
+    assert audit_wide["passed"] is False
+    assert audit_wide["segmented_distribution"]["shift_scope"] == "widespread"
+    assert any("widespread" in r.lower() for r in audit_wide["failure_reasons"])
+
+
+
 
 
 
