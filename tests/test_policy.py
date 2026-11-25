@@ -318,4 +318,126 @@ def test_merge_policies_and_render_policy_toml_roundtrip(tmp_path: Path) -> None
         _parse_toml_fallback('"" = true\n')
 
 
+def test_policy_validation_fallback_toml_and_composite_edge_cases(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from llm_drift_bench.policy import (
+        _parse_toml,
+        compute_weighted_composite_drift,
+        evaluate_json_with_policy,
+        render_policy_toml,
+    )
+
+    # MetricWeights / FieldRule / DriftPolicy validation branches
+    with pytest.raises(ValueError, match="finite non-negative"):
+        MetricWeights(text_weight=-0.1)
+    with pytest.raises(ValueError, match="Text metric weights"):
+        MetricWeights(token_jaccard=0.0, ngram=0.0, levenshtein=0.0)
+    with pytest.raises(ValueError, match="JSON metric weights"):
+        MetricWeights(json_structure=0.0, json_exact_field=0.0, json_numeric=0.0)
+    with pytest.raises(ValueError, match="ignore must be a boolean"):
+        FieldRule(path="$.a", ignore="yes")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="unordered_array must be a boolean"):
+        FieldRule(path="$.a", unordered_array=1)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="tolerance_abs"):
+        FieldRule(path="$.a", tolerance_abs=-1.0)
+    with pytest.raises(ValueError, match="long_text_mode"):
+        DriftPolicy(long_text_mode="bogus")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="FieldRule instance"):
+        DriftPolicy(field_rules={"$.a": "bad"})  # type: ignore[dict-item]
+
+    # Fallback TOML parser edge cases (escaped quotes, false, int, errors)
+    parsed = _parse_toml_fallback(
+        'title = "hello \\"world\\" # ok"\nflag = false\ncount = 42\n'
+    )
+    assert parsed == {"title": 'hello "world" # ok', "flag": False, "count": 42}
+    with pytest.raises(ValueError, match="Unsupported TOML scalar"):
+        _parse_toml_fallback("x = [1, 2]\n")
+    with pytest.raises(ValueError, match="empty TOML section"):
+        _parse_toml_fallback("[]\n")
+    with pytest.raises(ValueError, match="conflicting TOML table"):
+        _parse_toml_fallback("a = 1\n[a.b]\nx = 2\n")
+    with pytest.raises(ValueError, match="expected 'key = value'"):
+        _parse_toml_fallback("not an assignment\n")
+    with pytest.raises(ValueError, match="duplicate TOML key"):
+        _parse_toml_fallback("a = 1\na = 2\n")
+
+    # Simulate Python 3.10 without tomllib
+    def _missing_tomllib(name: str) -> object:
+        raise ModuleNotFoundError(name)
+
+    monkeypatch.setattr("llm_drift_bench.policy.importlib.import_module", _missing_tomllib)
+    assert _parse_toml("a = 1\n", Path("x.toml")) == {"a": 1}
+    with pytest.raises(ValueError, match="Invalid TOML"):
+        _parse_toml("bad line\n", Path("x.toml"))
+    monkeypatch.undo()
+
+    # Load JSON/TOML structural errors
+    bad_json = tmp_path / "arr.json"
+    bad_json.write_text("[1, 2]", encoding="utf-8")
+    with pytest.raises(ValueError, match="JSON object"):
+        load_policy(bad_json)
+
+    for idx, payload in enumerate(
+        [
+            {"thresholds": "bad"},
+            {"weights": "bad"},
+            {"fields": "bad"},
+            {"fields": {"$.x": "bad"}},
+            {"long_text_mode": "invalid"},
+        ]
+    ):
+        f = tmp_path / f"bad_{idx}.json"
+        f.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(ValueError):
+            load_policy(f)
+
+    # evaluate_json_with_policy all-ignored, one-sided-ignored, and asymmetric-key paths
+    ign = {"$.ts": FieldRule(path="$.ts", ignore=True)}
+    assert evaluate_json_with_policy({"ts": 1}, {"ts": 2}, ign) == (1.0, 1.0, None)
+    assert evaluate_json_with_policy({"ts": 1, "a": 1}, {"ts": 2}, ign) == (0.0, 0.0, None)
+    struct_s, exact_s, num_d = evaluate_json_with_policy({"a": 1, "b": 2}, {"a": 1}, {})
+    assert struct_s == 0.5 and exact_s == 0.5 and num_d == 0.0
+    # Invalid TOML via stdlib tomllib raises ValueError cleanly
+    bad_toml = tmp_path / "broken.toml"
+    bad_toml.write_text("[unclosed\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Invalid TOML"):
+        load_policy(bad_toml)
+
+    # compute_weighted_composite_drift edge cases (zero active weights, plain text, schema fail)
+    w_only_lev = MetricWeights(
+        token_jaccard=0.0,
+        ngram=0.0,
+        levenshtein=1.0,
+        json_structure=0.0,
+        json_exact_field=0.0,
+        json_numeric=1.0,
+    )
+    score_plain = compute_weighted_composite_drift(
+        weights=w_only_lev,
+        token_jaccard=0.8,
+        ngram_sim=0.6,
+        levenshtein_sim=None,
+    )
+    assert score_plain == pytest.approx(0.3)
+
+    score_schema_drop = compute_weighted_composite_drift(
+        weights=w_only_lev,
+        token_jaccard=1.0,
+        ngram_sim=1.0,
+        levenshtein_sim=1.0,
+        json_structural_sim=1.0,
+        json_field_match=1.0,
+        json_num_drift=None,
+        baseline_schema_passed=True,
+        candidate_schema_passed=False,
+    )
+    assert score_schema_drop >= 0.75
+
+    # render_policy_toml includes tolerance_rel
+    p_rel = DriftPolicy(field_rules={"$.total": FieldRule(path="$.total", tolerance_rel=0.05)})
+    assert "tolerance_rel = 0.05" in render_policy_toml(p_rel)
+
+
+
 
