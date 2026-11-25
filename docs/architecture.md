@@ -151,10 +151,11 @@ Commands are:
 - `run` (with `--config`, `--category`, `--long-text-mode`, `--include-diffs`, `--format pr-comment|csv|sarif`, `--junit-output`, `--sarif-output`, `--github-summary`)
 - `audit` (unified offline audit combining per-prompt drift, field distributions, quality checks, logprobs, and token volume in `text`, `json`, `markdown`, or offline `html`)
 - `diff` (policy-aware JSON field-level and unified text diff inspector in `text`, `json`, or GFM `markdown`)
-- `distribution` (cross-prompt JSON field distribution drift using categorical TVD/JSD and numeric quantiles + exact 1D Wasserstein in `text`, `json`, `markdown`, or offline `html`)
+- `distribution` (cross-prompt JSON field distribution drift using categorical TVD/JSD and numeric quantiles + exact 1D Wasserstein, with optional `--group-by category|metadata:<key>` segmentation before global totals)
 - `logprobs` (optional `top_logprobs` token entropy and position-aligned top-k JSD analyzer)
 - `check-quality` (deterministic repetition-loop, refusal-flip, length-truncation, and length-blowup regression checks)
 - `check-formats` (standalone semantic format validator for `date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, and `iso-currency` on exact or `[*]` wildcard JSONPaths)
+- `check-consumer` (downstream consumer validation rejection-rate comparator from pre-recorded decision logs or `--validator-module pkg.mod:fn`)
 - `wizard` (guided plain-English interactive setup wizard and use-case preset generator for `drift.toml`)
 - `score` (pluggable scorer CLI supporting `--list-scorers` and repeatable `--scorer`)
 - `validate` (supports `--category` and `--strict`)
@@ -211,6 +212,7 @@ Additional library modules:
 - `formats.py`: standalone semantic JSON field format validator (`date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, `iso-currency`) on exact or `[*]` wildcard paths.
 - `packs.py`: curated starter benchmark packs (`extraction`, `classification`, `coding`, `rag`) with lint-clean prompts, baseline/passing/drifted captures, and policies.
 - `audit.py`: unified offline audit report and script-free HTML dashboard aggregating drift, distributions, quality checks, logprobs, and token volume.
+- `consumer.py`: downstream consumer validation and rejection-rate creep checker supporting both pre-recorded decision logs and Python validator callables.
 - `_comparison_md.py` and `_cli_extras.py`: GitHub-Flavored Markdown multi-candidate comparison exporter and lazily imported extra CLI subcommand handlers.
 
 All CLI run formats render one DriftBenchmarkReport. Rich, Markdown, and HTML

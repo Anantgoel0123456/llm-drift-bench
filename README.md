@@ -284,10 +284,11 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | `run` | Compare baseline and candidate captures (`--config`, `--category`, `--long-text-mode`, `--include-diffs`, `--format`, `--junit-output`, `--sarif-output`, `--github-summary`) |
 | `audit` | Run a unified offline audit combining per-prompt drift, field distributions, quality checks, logprobs, and token volume (`--format text\|json\|markdown\|html`, `-o`) |
 | `diff` | Show policy-aware JSON field-level or unified text diffs between two captures (`--only-changed`, `--prompt-id`, `--format text\|json\|markdown`) |
-| `distribution` | Measure cross-prompt JSON field distribution drift (categorical TVD/JSD, numeric p10/p50/p90 & normalized 1D Wasserstein; `--max-tvd`, `--max-jsd`, `--max-wasserstein`, `--format text\|json\|markdown\|html`) |
+| `distribution` | Measure cross-prompt JSON field distribution drift (categorical TVD/JSD, numeric p10/p50/p90 & normalized 1D Wasserstein; `--group-by category\|metadata:<key>`, `--max-tvd`, `--max-jsd`, `--max-wasserstein`, `--format text\|json\|markdown\|html`) |
 | `logprobs` | Compare optional `top_logprobs` token entropy (bits) and position-aligned top-k JSD (`--max-entropy-delta`, `--max-jsd`) |
 | `check-quality` | Detect quantization/upgrade failure modes: repetition loops, refusal flips, length truncation, and verbosity blowups |
 | `check-formats` | Validate semantic JSON field formats (`date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, `iso-currency`) on exact or `[*]` wildcard paths (`--rule JSONPATH=FORMAT`) |
+| `check-consumer` | Compare downstream consumer validation rejection rates from decision logs (`--baseline-decisions`/`--candidate-decisions`) or a Python callable (`--validator-module pkg.mod:fn`) |
 | `wizard` | Guided 5-question plain-English setup wizard or `--preset` generator (`extraction\|classification\|coding\|rag\|strict`) for `drift.toml` |
 | `score` | Run pluggable scorers (`char_ngram_cosine`, `json_key_jaccard`, `markdown_structure`, `numeric_prose`, `python_ast`, `tfidf_cosine`, or entry-point plugins; `--list-scorers`) |
 | `validate` | Validate captures for JSON syntax and JSON Schema conformity (`--category`, `--strict`) |
@@ -303,7 +304,7 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | `snapshot` | Create or verify offline SHA-256 integrity manifests (`create`, `verify`) for golden baseline fixtures and policies |
 | `check-tools` | Offline read-before-edit, `--max-failed-calls`, `--max-tool-calls`, & `--allow-resource` checks on normalized/OpenAI/Anthropic/Gemini/OTel traces |
 | `stats` | Multi-run bootstrap CIs, flaky-prompt detection, paired permutation (with Cohen's `d`), and exact two-sided McNemar tests |
-| `history` | Record reports (`record`), inspect sparklines/SVG trends (`show`), gate on regressions (`check`), view summaries (`summary`), and compact ledgers (`prune`) |
+| `history` | Record reports (`record`, with optional `--distribution-tvd`/`--distribution-wasserstein`), inspect sparklines/SVG trends (`show`), gate on persistent regressions (`check --persist-windows`), view summaries (`summary`), and compact ledgers (`prune`) |
 | `capture` | Capture reproducible JSONL outputs from OpenAI-compatible, Anthropic (`--provider anthropic`), or Gemini (`--provider gemini`) endpoints (`--top-logprobs`, `--resume`, `--runs`) |
 | `redact` | Deterministically scrub API keys, private keys, and optional PII from captures before sharing or archiving (`--secrets-only`) |
 | `subsample` | Deterministically draw stratified prompt subsamples and slice matching captures in lockstep (`--size`, `--seed`, `--slice-capture`) |

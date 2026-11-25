@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- Segmented field distribution drift analysis (`SegmentedDistributionReport`, `analyze_segmented_distributions`, `format_segmented_distribution_text`, `format_segmented_distribution_markdown`, `export_segmented_distribution_html`, and `llm-drift-bench distribution --group-by category|metadata:<key> [-s SUITE]`), evaluating per-route/per-category/per-tenant distributions before global totals and enforcing optional thresholds per segment.
+- Multi-window persistence gating and optional distribution tracking in the drift history ledger (`HistoryEntry.max_distribution_tvd`, `HistoryEntry.max_distribution_wasserstein`, `detect_history_regression(..., persist_windows=K, max_tvd_increase=..., max_wasserstein_increase=...)`, `history record --distribution-tvd|--distribution-wasserstein`, and `history check|gate --persist-windows K`) so transient single-batch spikes do not alert until shifts persist across consecutive windows.
+- Downstream consumer validation & rejection-rate creep checker (`consumer.py`, `ConsumerDecision`, `ConsumerComparison`, `load_consumer_decisions`, `compare_consumer_decisions`, `evaluate_consumer_rejection`, `load_validator_callable`, `format_consumer_text`, `format_consumer_markdown`, and `llm-drift-bench check-consumer`) supporting both pre-recorded accept/reject decision logs and Python validator callables (`--validator-module pkg.mod:fn`).
+
 ## [0.4.0] - 2026-11-25
 
 ### Added
