@@ -10,8 +10,14 @@ from pathlib import Path
 from typing import Any
 
 from llm_drift_bench._report_views import markdown_cell, measurement
+from llm_drift_bench.consumer import ConsumerComparison
 from llm_drift_bench.cost import CostComparison, ModelPricing, estimate_cost_drift
-from llm_drift_bench.distribution import DistributionReport, analyze_field_distributions
+from llm_drift_bench.distribution import (
+    DistributionReport,
+    SegmentedDistributionReport,
+    analyze_field_distributions,
+    analyze_segmented_distributions,
+)
 from llm_drift_bench.engine import DriftBenchmarkEngine
 from llm_drift_bench.logprobs import LogprobDriftSummary, analyze_logprobs_drift
 from llm_drift_bench.models import (
@@ -42,9 +48,11 @@ class AuditReport:
     cost: CostComparison
     passed: bool
     failure_reasons: tuple[str, ...]
+    segmented_distribution: SegmentedDistributionReport | None = None
+    consumer: ConsumerComparison | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "passed": self.passed,
             "failure_reasons": list(self.failure_reasons),
             "benchmark": self.benchmark.to_dict(),
@@ -53,6 +61,11 @@ class AuditReport:
             "logprobs": self.logprobs.to_dict(),
             "cost": self.cost.to_dict(),
         }
+        if self.segmented_distribution is not None:
+            payload["segmented_distribution"] = self.segmented_distribution.to_dict()
+        if self.consumer is not None:
+            payload["consumer"] = self.consumer.to_dict()
+        return payload
 
 
 def run_full_audit(
@@ -70,6 +83,10 @@ def run_full_audit(
     fail_on_quality_issues: bool = True,
     baseline_pricing: ModelPricing | None = None,
     candidate_pricing: ModelPricing | None = None,
+    group_by: str | None = None,
+    shift_threshold: float = 0.10,
+    fail_on_widespread_shift: bool = False,
+    consumer_comparison: ConsumerComparison | None = None,
 ) -> AuditReport:
     """Run canonical drift, field distribution, quality, logprobs, and cost checks in one pass."""
     _validate_optional_unit("max_tvd", max_tvd)
@@ -89,11 +106,23 @@ def run_full_audit(
         candidate_samples=candidate_samples,
         prompt_cases=prompt_cases,
     )
-    distribution = analyze_field_distributions(
-        baseline_samples,
-        candidate_samples,
-        policy=policy,
-    )
+    segmented: SegmentedDistributionReport | None = None
+    if group_by is not None:
+        segmented = analyze_segmented_distributions(
+            baseline_samples,
+            candidate_samples,
+            group_by=group_by,
+            prompt_cases=prompt_cases,
+            policy=policy,
+            shift_threshold=shift_threshold,
+        )
+        distribution = segmented.overall
+    else:
+        distribution = analyze_field_distributions(
+            baseline_samples,
+            candidate_samples,
+            policy=policy,
+        )
     quality = run_quality_checks(baseline_samples, candidate_samples)
     logprobs = analyze_logprobs_drift(baseline_samples, candidate_samples)
     cost = estimate_cost_drift(
@@ -149,6 +178,20 @@ def run_full_audit(
             f"Logprobs max_top_k_jsd ({logprobs.max_top_k_jsd:.4f}) "
             f"exceeded limit ({max_top_k_jsd:.4f})."
         )
+    if (
+        fail_on_widespread_shift
+        and segmented is not None
+        and segmented.shift_scope == "widespread"
+    ):
+        failures.append(
+            f"Widespread distribution shift across {len(segmented.shifted_segments)}/"
+            f"{len(segmented.segments)} segments ({', '.join(segmented.shifted_segments)})."
+        )
+    if consumer_comparison is not None and not consumer_comparison.passed:
+        failures.extend(
+            consumer_comparison.failure_reasons
+            or ("Downstream consumer validation check failed.",)
+        )
 
     return AuditReport(
         benchmark=benchmark,
@@ -158,6 +201,8 @@ def run_full_audit(
         cost=cost,
         passed=len(failures) == 0,
         failure_reasons=tuple(failures),
+        segmented_distribution=segmented,
+        consumer=consumer_comparison,
     )
 
 
@@ -194,6 +239,20 @@ def format_audit_text(report: AuditReport) -> str:
         f"Logprobs     : {lp_line}",
         f"Token volume : {tok_line}",
     ]
+    if report.segmented_distribution is not None:
+        seg = report.segmented_distribution
+        lines.append(
+            f"Blast radius : {seg.shift_scope} "
+            f"({len(seg.shifted_segments)}/{len(seg.segments)} segments "
+            f">= {seg.shift_threshold:.2f}, group_by={seg.group_by})"
+        )
+    if report.consumer is not None:
+        cons = report.consumer
+        lines.append(
+            f"Consumer     : {'PASS' if cons.passed else 'FAIL'} | "
+            f"rejected {cons.baseline_rejection_rate:.1%} -> {cons.candidate_rejection_rate:.1%} "
+            f"({cons.rejection_rate_delta:+.1%})"
+        )
     if report.failure_reasons:
         lines.append("")
         lines.append("Failure reasons:")
@@ -239,6 +298,20 @@ def format_audit_markdown(report: AuditReport) -> str:
         f"| Token logprobs | {'COMPLETE' if lp.complete else 'N/A'} | {lp_val} |",
         f"| Token volume | {'COMPLETE' if c.complete else 'N/A'} | {tok_val} |",
     ]
+    if report.segmented_distribution is not None:
+        seg = report.segmented_distribution
+        lines.append(
+            f"| Blast radius (`{markdown_cell(seg.group_by)}`) | {markdown_cell(seg.shift_scope)} "
+            f"| {len(seg.shifted_segments)}/{len(seg.segments)} segments &gt;= "
+            f"{seg.shift_threshold:.2f} |"
+        )
+    if report.consumer is not None:
+        cons = report.consumer
+        lines.append(
+            f"| Downstream consumer | {'PASS' if cons.passed else 'FAIL'} "
+            f"| rejected {cons.baseline_rejection_rate:.1%} -&gt; "
+            f"{cons.candidate_rejection_rate:.1%} ({cons.rejection_rate_delta:+.1%}) |"
+        )
     if report.failure_reasons:
         lines += ["", "## Failure reasons", ""]
         lines.extend(f"- {markdown_cell(r)}" for r in report.failure_reasons)

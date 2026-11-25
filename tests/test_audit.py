@@ -128,3 +128,46 @@ def test_full_audit_quality_and_logprobs_gates() -> None:
         run_full_audit(lp_base, lp_cand, max_tvd=1.5)
     with pytest.raises(ValueError, match="max_entropy_delta"):
         run_full_audit(lp_base, lp_cand, max_entropy_delta=-0.1)
+
+
+def test_full_audit_segmented_widespread_and_consumer_integration() -> None:
+    from llm_drift_bench.consumer import ConsumerDecision, compare_consumer_decisions
+
+    base = [
+        ModelSample(
+            prompt_id="a1", output='{"label": "high"}', model_name="b", metadata={"route": "r1"}
+        ),
+        ModelSample(
+            prompt_id="b1", output='{"label": "high"}', model_name="b", metadata={"route": "r2"}
+        ),
+    ]
+    cand = [
+        ModelSample(
+            prompt_id="a1", output='{"label": "low"}', model_name="c", metadata={"route": "r1"}
+        ),
+        ModelSample(
+            prompt_id="b1", output='{"label": "low"}', model_name="c", metadata={"route": "r2"}
+        ),
+    ]
+    cons = compare_consumer_decisions(
+        [ConsumerDecision("a1", True), ConsumerDecision("b1", True)],
+        [ConsumerDecision("a1", False, "bad"), ConsumerDecision("b1", True)],
+        max_rejection_increase=0.1,
+    )
+    rep = run_full_audit(
+        base,
+        cand,
+        group_by="metadata:route",
+        fail_on_widespread_shift=True,
+        consumer_comparison=cons,
+    )
+    assert rep.passed is False
+    assert rep.segmented_distribution is not None
+    assert rep.segmented_distribution.shift_scope == "widespread"
+    assert any("Widespread distribution shift" in r for r in rep.failure_reasons)
+    assert any("Rejection rate increased" in r for r in rep.failure_reasons)
+    assert "Blast radius : widespread" in format_audit_text(rep)
+    assert "Downstream consumer" in format_audit_markdown(rep)
+    as_dict = rep.to_dict()
+    assert "segmented_distribution" in as_dict and "consumer" in as_dict
+
