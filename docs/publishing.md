@@ -1,6 +1,6 @@
-# Publishing the next release
+# Publishing releases
 
-The workflow is prepared locally; changing it does not publish a package.
+Editing the workflow file alone does not publish a package.
 
 Manual `workflow_dispatch` has a Yes/No choice, defaulting to No. No runs tests,
 builds and checks artifacts without uploading. With Yes, choose the target:

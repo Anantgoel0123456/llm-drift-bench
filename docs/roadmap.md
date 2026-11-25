@@ -19,24 +19,7 @@ This is a prioritized plan, not a list of shipped capabilities or release dates.
 - [x] Allow manual checks or an explicit publish to the selected registry. Published releases target PyPI.
 - [x] Verify built wheels outside the checkout on Windows/Linux and Python 3.10-3.13.
 
-## Remaining verification and integrations
-
-- Hosted CI passed, as confirmed by the maintainer's run screenshot on
-  2026-11-15: eight source-test jobs, eight installed-package jobs, two SDK
-  integration jobs, lint/type checking, and package build checks. Keep these
-  checks green on subsequent changes; this does not verify registry publishing.
-- Trusted Publishing: verify registry and GitHub environment settings using
-  `docs/publishing.md`, then perform the authorized TestPyPI release checks.
-- Vendor transcript adapters: the checker accepts normalized tool events, but
-  does not import Claude Code or OpenAI transcripts. Implementation needs a
-  sanitized sample and tool-result semantics. Line ranges alone cannot establish
-  exact character coverage without the corresponding file revision/content;
-  retain UNKNOWN when the evidence is insufficient. This is a future integration,
-  not a blocker for the existing offline output-comparison API.
-
-The CI version constraint and integral-float schema-limit issues are fixed locally.
-
-## 0.3.0 (ready for release)
+## 0.3.0
 
 - [x] JUnit XML (`--junit-output`), OASIS SARIF 2.1.0 (`--sarif-output`, `--format sarif`), and RFC-4180 CSV (`--format csv`) exports.
 - [x] GitHub step summaries (`run --github-summary`) and compact PR comments (`--format pr-comment --previous`).

@@ -144,10 +144,11 @@ release within the supported range. Re-test against your chosen version before d
 versions outside the
 tested range are not supported.
 
-## Vendor transcript adapters are pending
+## Vendor transcript adapters
 
-There is no Claude Code or OpenAI transcript importer yet. A real adapter needs
-a sanitized sample log and a documented mapping from tool requests/results to
-the normalized events above. Line ranges alone do not establish exact character
-coverage without the corresponding file content and revision. An adapter must
-keep unknown coverage unknown instead of estimating it as a successful read.
+`adapters.py` and `check-tools --adapter normalized|openai|anthropic|gemini|otel`
+normalize offline transcripts from OpenAI Chat/Responses, Anthropic `tool_use`/`tool_result`,
+Google Gemini `functionCall`/`functionResponse`, and OpenTelemetry GenAI `resourceSpans`
+logs into `ToolEvent` records. Line ranges alone do not establish exact character
+coverage without the corresponding file content and revision; adapters keep unknown
+coverage as `UNKNOWN` rather than estimating it as a successful read.
