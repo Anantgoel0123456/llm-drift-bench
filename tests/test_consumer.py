@@ -131,3 +131,56 @@ def test_consumer_validation_errors(tmp_path: Path) -> None:
     empty.write_text("", encoding="utf-8")
     with pytest.raises(ValueError, match="empty"):
         load_consumer_decisions(empty)
+
+
+def test_consumer_json_array_to_dict_and_full_error_matrix(tmp_path: Path) -> None:
+    # ConsumerDecision.to_dict with and without reason + validation errors
+    d_plain = ConsumerDecision(prompt_id="p1", accepted=True)
+    assert d_plain.to_dict() == {"prompt_id": "p1", "accepted": True}
+    d_reason = ConsumerDecision(prompt_id="p2", accepted=False, reason="bad_code")
+    assert d_reason.to_dict() == {"prompt_id": "p2", "accepted": False, "reason": "bad_code"}
+
+    with pytest.raises(ValueError, match="non-empty string"):
+        ConsumerDecision(prompt_id="   ", accepted=True)
+    with pytest.raises(ValueError, match="string or None"):
+        ConsumerDecision(prompt_id="p1", accepted=False, reason=99)  # type: ignore[arg-type]
+
+    # Top-level JSON array decision log
+    arr_file = tmp_path / "arr.json"
+    arr_file.write_text(
+        json.dumps([{"prompt_id": "p1", "accepted": True}]),
+        encoding="utf-8",
+    )
+    loaded = load_consumer_decisions(arr_file)
+    assert len(loaded) == 1 and loaded[0].prompt_id == "p1"
+
+    # Malformed decision files & rows
+    for name, body, match in (
+        ("bad_top.json", '{"wrong": 1}', "JSON array"),
+        ("empty_arr.json", "[]", "no records"),
+        ("non_dict.json", "[123]", "JSON object"),
+        ("blank_id.jsonl", '{"prompt_id": " ", "accepted": true}\n', "prompt_id"),
+        ("bad_acc.jsonl", '{"prompt_id": "p1", "accepted": "yes"}\n', "boolean"),
+        ("bad_reason.jsonl", '{"prompt_id": "p1", "accepted": false, "reason": 7}\n', "reason"),
+    ):
+        bad = tmp_path / name
+        bad.write_text(body, encoding="utf-8")
+        with pytest.raises(ValueError, match=match):
+            load_consumer_decisions(bad)
+
+    # Empty collections, out-of-range limits, non-callable validator, and blank validator spec
+    with pytest.raises(ValueError, match="non-empty"):
+        compare_consumer_decisions([], [d_plain])
+    with pytest.raises(ValueError, match="between 0.0 and 1.0"):
+        compare_consumer_decisions([d_plain], [d_plain], max_rejection_rate=1.5)
+    with pytest.raises(TypeError, match="callable"):
+        evaluate_consumer_rejection(
+            [ModelSample(prompt_id="p1", output="a")],
+            [ModelSample(prompt_id="p1", output="a")],
+            "not_fn",  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="non-empty"):
+        evaluate_consumer_rejection([], [ModelSample(prompt_id="p1", output="a")], lambda _s: True)
+    with pytest.raises(ValueError, match="non-empty module"):
+        load_validator_callable(":fn")
+
