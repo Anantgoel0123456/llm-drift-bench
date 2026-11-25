@@ -328,4 +328,106 @@ def test_history_persistence_windows_and_distribution_tracking(tmp_path: Path) -
         detect_history_regression(climate_runs[:3], persist_windows=3)
 
 
+def test_history_validation_malformed_ledger_and_branch_edge_cases(tmp_path: Path) -> None:
+    from llm_drift_bench.report_io import load_engine_report
+
+    rep = load_engine_report(EXAMPLES / "expected-pass.json")
+    with pytest.raises(ValueError, match="number in"):
+        HistoryEntry.from_report(rep, max_distribution_tvd=True)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        HistoryEntry.from_report(rep, max_distribution_wasserstein=1.2)
+
+    valid: dict[str, object] = {
+        "recorded_at": "2026-11-25T00:00:00Z",
+        "baseline_model": "base",
+        "candidate_model": "cand",
+        "passed": True,
+        "total_samples": 10,
+        "drifted_samples": 0,
+        "mean_composite_drift": 0.05,
+        "max_composite_drift": 0.05,
+        "candidate_json_conformity_rate": 1.0,
+    }
+    assert HistoryEntry.from_dict({**valid, "candidate_p95_latency_ms": 42.5}).passed is True
+    for bad_data, match in (
+        ({"recorded_at": "2026-11-25T00:00:00Z"}, "missing required"),
+        ({**valid, "baseline_model": "  "}, "non-empty string"),
+        ({**valid, "total_samples": -1}, "non-negative integer"),
+        ({**valid, "mean_composite_drift": True}, "number in"),
+        ({**valid, "candidate_p95_latency_ms": "fast"}, "numeric"),
+        ({**valid, "candidate_p95_latency_ms": -1.0}, "non-negative"),
+        ({**valid, "tag": 123}, "string or null"),
+        ({**valid, "max_distribution_tvd": "bad"}, "number in"),
+        ({**valid, "max_distribution_wasserstein": 2.0}, "between 0 and 1"),
+    ):
+        with pytest.raises(ValueError, match=match):
+            HistoryEntry.from_dict(dict(bad_data))
+
+    bad_ledger = tmp_path / "non_obj.jsonl"
+    bad_ledger.write_text("[1, 2, 3]\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="JSON object"):
+        load_history(bad_ledger)
+
+    def _row(
+        drift: float,
+        conf: float,
+        *,
+        tvd: float | None = None,
+        w1: float | None = None,
+    ) -> HistoryEntry:
+        return HistoryEntry(
+            recorded_at="2026-11-25T00:00:00Z",
+            baseline_model="b",
+            candidate_model="c",
+            passed=True,
+            total_samples=10,
+            drifted_samples=0,
+            mean_composite_drift=drift,
+            max_composite_drift=drift,
+            candidate_json_conformity_rate=conf,
+            max_distribution_tvd=tvd,
+            max_distribution_wasserstein=w1,
+        )
+
+    # window / negative / bool threshold errors
+    pair = [_row(0.05, 1.0), _row(0.05, 1.0)]
+    with pytest.raises(ValueError, match="window must be a positive integer"):
+        detect_history_regression(pair, window=0)
+    with pytest.raises(ValueError, match="finite non-negative"):
+        detect_history_regression(pair, max_drift_increase=True)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="finite non-negative"):
+        detect_history_regression(pair, max_conformity_drop=-0.1)
+
+    # Conformity-only breach and TVD-only breach (no drift breach) hit isolated branches
+    conf_drop = detect_history_regression(
+        [_row(0.05, 1.0), _row(0.05, 1.0), _row(0.05, 0.8)],
+        window=2,
+        max_drift_increase=0.5,
+        max_conformity_drop=0.05,
+    )
+    assert conf_drop.regressed is True and conf_drop.persistent_runs == 1
+
+    tvd_only = detect_history_regression(
+        [_row(0.05, 1.0, tvd=0.05), _row(0.05, 1.0, tvd=0.05), _row(0.05, 1.0, tvd=0.40)],
+        window=2,
+        max_drift_increase=0.5,
+        max_tvd_increase=0.10,
+    )
+    assert tvd_only.regressed is True and tvd_only.persistent_runs == 1
+
+    w1_only = detect_history_regression(
+        [_row(0.05, 1.0, w1=0.02), _row(0.05, 1.0, w1=0.02), _row(0.05, 1.0, w1=0.35)],
+        window=2,
+        max_drift_increase=0.5,
+        max_wasserstein_increase=0.10,
+    )
+    assert w1_only.regressed is True and w1_only.persistent_runs == 1
+
+    # Direct output_path write in export_history_html
+    html_out = tmp_path / "nested" / "history.html"
+    rendered = export_history_html(pair, output_path=html_out)
+    assert html_out.is_file() and html_out.read_text(encoding="utf-8") == rendered
+
+
+
 
