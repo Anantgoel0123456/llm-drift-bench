@@ -192,7 +192,7 @@ else:
             cwd=root, env=env, check=True, capture_output=True, text=True,
         )
         assert "invoice-01" in csv_out.stdout
-        # Exercise post-0.3.0 commands in the isolated installed environment.
+        # Exercise 0.4.0 commands in the isolated installed environment.
         assert "numeric_prose" in json.loads(scorers_out.stdout)["scorers"]
         mat_out = subprocess.run(
             [str(cli), "matrix", str(examples / "expected-drift.json"),

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-25
+
 ### Added
 
 - Reusable composite GitHub Action ([`action.yml`](action.yml)) running `llm-drift-bench` with pinned `actions/setup-python`, shell-injection-safe env input handling, optional JUnit/SARIF/PR-comment outputs, and `passed` / `mean-drift` / `report-path` step outputs.
@@ -215,7 +217,8 @@
 
 Initial published release. See the linked PyPI release for its artifacts.
 
-[Unreleased]: https://github.com/Anantgoel0123456/llm-drift-bench/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Anantgoel0123456/llm-drift-bench/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Anantgoel0123456/llm-drift-bench/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Anantgoel0123456/llm-drift-bench/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Anantgoel0123456/llm-drift-bench/releases/tag/v0.2.0
 [0.1.0]: https://pypi.org/project/llm-drift-bench/0.1.0/

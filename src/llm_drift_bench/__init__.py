@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING, Any
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 if TYPE_CHECKING:
     from llm_drift_bench._comparison_md import export_comparison_markdown

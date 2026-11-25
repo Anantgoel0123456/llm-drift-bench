@@ -8,9 +8,11 @@ from pathlib import Path
 
 import pytest
 
+from llm_drift_bench import __version__
+
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_installed.py"
 CHECK = runpy.run_path(str(SCRIPT))["check_archive_contents"]
-ROOT = "llm_drift_bench-0.3.0"
+ROOT = f"llm_drift_bench-{__version__}"
 DIST_INFO = ROOT + ".dist-info"
 
 

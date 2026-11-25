@@ -20,7 +20,7 @@ inputs:
     required: false
     default: ""
   version:
-    description: "Optional llm-drift-bench version specifier (e.g. '==0.3.0'). Empty installs latest."
+    description: "Optional llm-drift-bench version specifier (e.g. '==0.4.0'). Empty installs latest."
     required: false
     default: ""
   python-version:

@@ -34,6 +34,14 @@ This is a prioritized plan, not a list of shipped capabilities or release dates.
 - [x] Pluggable scorer registry & `score` CLI (`char_ngram_cosine`, `json_key_jaccard`, `markdown_structure`, `python_ast`, `tfidf_cosine`, and `llm_drift_bench.scorers` entry-point discovery).
 - [x] Lightweight PEP 562 lazy exports and lazy CLI/Rich/Pydantic loading (~8 ms package import).
 
+## 0.4.0
+
+- [x] Cross-prompt JSON field distribution drift (`distribution`: categorical TVD/JSD, numeric p10/p50/p90 & normalized 1D Wasserstein, offline HTML/Markdown).
+- [x] Guided plain-English setup wizard & presets (`wizard`), curated starter benchmark packs (`init-sample --pack`), and unified offline audit dashboard (`audit`).
+- [x] Optional `top_logprobs` capture & token entropy / top-k JSD drift (`capture --top-logprobs`, `logprobs`), deterministic quantization quality regression checks (`check-quality`), and standalone semantic field format checks (`check-formats`).
+- [x] Composite GO/NO-GO release gates (`gate`), multi-candidate Prompt x Candidate drift heatmap matrix (`matrix`), explicit token/cost drift & budgets (`cost`), offline SHA-256 baseline snapshot manifests (`snapshot`), deterministic credential/PII redaction (`redact`), stratified subsampling (`subsample`), suite linting (`lint-suite`), offline batch/CSV importers (`import-captures`), and static SVG status badges (`badge`).
+- [x] Native Anthropic Messages & Google Gemini capture + Gemini tool-trace adapter, reusable composite GitHub Action (`action.yml`), and automated GitHub Release publishing in `publish.yml`.
+
 ## Future exploration
 
 | Feature | Value | Relative effort |

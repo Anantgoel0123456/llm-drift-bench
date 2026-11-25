@@ -1,6 +1,6 @@
 # Architecture of llm-drift-bench
 
-This document describes the `0.3.0` implementation.
+This document describes the `0.4.0` implementation.
 
 The package compares captured LLM responses using lexical similarity,
 JSON structure and field agreement, numeric drift, and recorded latency.
