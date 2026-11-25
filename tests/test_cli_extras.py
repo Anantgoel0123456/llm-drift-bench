@@ -1595,6 +1595,113 @@ def test_cli_distribution_and_audit_fail_on_widespread_flags(
     assert any("widespread" in r.lower() for r in audit_wide["failure_reasons"])
 
 
+def test_cli_gate_with_consumer_decisions(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    b_dec = tmp_path / "b_dec.jsonl"
+    c_ok = tmp_path / "c_ok.jsonl"
+    c_bad = tmp_path / "c_bad.jsonl"
+    b_dec.write_text(
+        '{"prompt_id": "p1", "accepted": true}\n{"prompt_id": "p2", "accepted": true}\n',
+        encoding="utf-8",
+    )
+    c_ok.write_text(
+        '{"prompt_id": "p1", "accepted": true}\n{"prompt_id": "p2", "accepted": true}\n',
+        encoding="utf-8",
+    )
+    c_bad.write_text(
+        '{"prompt_id": "p1", "accepted": true}\n'
+        '{"prompt_id": "p2", "accepted": false, "reason": "bad_sku"}\n',
+        encoding="utf-8",
+    )
+
+    # Half-configured consumer files fail cleanly with exit 2
+    assert (
+        main(
+            [
+                "gate",
+                "-i",
+                str(EXAMPLES / "expected-pass.json"),
+                "--baseline-decisions",
+                str(b_dec),
+            ]
+        )
+        == 2
+    )
+    _ = capsys.readouterr()
+
+    # Passing consumer decisions approve release
+    assert (
+        main(
+            [
+                "gate",
+                "-i",
+                str(EXAMPLES / "expected-pass.json"),
+                "--baseline-decisions",
+                str(b_dec),
+                "--candidate-decisions",
+                str(c_ok),
+                "--max-rejection-increase",
+                "0.1",
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    ok_gate = json.loads(capsys.readouterr().out)
+    assert ok_gate["approved"] is True
+    assert any(c["name"] == "consumer_rejection" and c["passed"] for c in ok_gate["checks"])
+
+    # Regressed consumer decisions block release by default
+    assert (
+        main(
+            [
+                "gate",
+                "-i",
+                str(EXAMPLES / "expected-pass.json"),
+                "--baseline-decisions",
+                str(b_dec),
+                "--candidate-decisions",
+                str(c_bad),
+                "--max-rejection-increase",
+                "0.1",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    bad_gate = json.loads(capsys.readouterr().out)
+    assert bad_gate["approved"] is False
+    assert any(
+        c["name"] == "consumer_rejection" and not c["passed"] and c["blocking"]
+        for c in bad_gate["checks"]
+    )
+
+    # --no-fail-on-consumer downgrades consumer check to advisory WARN
+    assert (
+        main(
+            [
+                "gate",
+                "-i",
+                str(EXAMPLES / "expected-pass.json"),
+                "--baseline-decisions",
+                str(b_dec),
+                "--candidate-decisions",
+                str(c_bad),
+                "--max-rejection-increase",
+                "0.1",
+                "--no-fail-on-consumer",
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "GO (APPROVED)" in out and "WARN" in out
+
+
+
 
 
 

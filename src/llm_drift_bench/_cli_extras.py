@@ -203,6 +203,36 @@ def register_extra_subcommands(
         help="Require every attached --tool-check result to be PASS (blocks on FAIL/UNKNOWN).",
     )
     gate_p.add_argument(
+        "--baseline-decisions",
+        default=None,
+        metavar="FILE",
+        help="Optional baseline downstream consumer decisions file (.json/.jsonl).",
+    )
+    gate_p.add_argument(
+        "--candidate-decisions",
+        default=None,
+        metavar="FILE",
+        help="Optional candidate downstream consumer decisions file (.json/.jsonl).",
+    )
+    gate_p.add_argument(
+        "--max-rejection-rate",
+        type=float,
+        default=None,
+        help="Optional max allowed candidate consumer rejection rate in [0, 1].",
+    )
+    gate_p.add_argument(
+        "--max-rejection-increase",
+        type=float,
+        default=None,
+        help="Optional max allowed consumer rejection rate increase vs baseline in [0, 1].",
+    )
+    gate_p.add_argument(
+        "--fail-on-consumer",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Block release when attached consumer rejection check fails (default: enabled).",
+    )
+    gate_p.add_argument(
         "--format",
         choices=("text", "json"),
         default="text",
@@ -808,15 +838,35 @@ def _handle_gate(args: argparse.Namespace) -> int:
 
         tool_checks = [load_tool_check(path) for path in args.tool_check]
 
+    consumer_comp = None
+    if args.baseline_decisions is not None or args.candidate_decisions is not None:
+        if not (args.baseline_decisions and args.candidate_decisions):
+            raise ValueError(
+                "Both --baseline-decisions and --candidate-decisions are required."
+            )
+        from llm_drift_bench.consumer import (
+            compare_consumer_decisions,
+            load_consumer_decisions,
+        )
+
+        consumer_comp = compare_consumer_decisions(
+            load_consumer_decisions(args.baseline_decisions),
+            load_consumer_decisions(args.candidate_decisions),
+            max_rejection_rate=args.max_rejection_rate,
+            max_rejection_increase=args.max_rejection_increase,
+        )
+
     verdict = evaluate_release_gates(
         report,
         history_check=history_check,
         significance=sig,
         mcnemar=mcnemar,
         tool_checks=tool_checks,
+        consumer_comparison=consumer_comp,
         fail_on_history_regression=args.fail_on_history,
         fail_on_significant_degradation=args.fail_on_significant,
         require_tool_checks_pass=args.require_tool_pass,
+        fail_on_consumer_rejection=args.fail_on_consumer,
     )
     if args.format == "json":
         print(json.dumps(verdict.to_dict(), indent=2))
