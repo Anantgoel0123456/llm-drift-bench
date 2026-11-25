@@ -149,10 +149,12 @@ other thresholds does not certify latency performance.
 Commands are:
 
 - `run` (with `--config`, `--category`, `--long-text-mode`, `--include-diffs`, `--format pr-comment|csv|sarif`, `--junit-output`, `--sarif-output`, `--github-summary`)
+- `audit` (unified offline audit combining per-prompt drift, field distributions, quality checks, logprobs, and token volume in `text`, `json`, `markdown`, or offline `html`)
 - `diff` (policy-aware JSON field-level and unified text diff inspector in `text`, `json`, or GFM `markdown`)
 - `distribution` (cross-prompt JSON field distribution drift using categorical TVD/JSD and numeric quantiles + exact 1D Wasserstein in `text`, `json`, `markdown`, or offline `html`)
 - `logprobs` (optional `top_logprobs` token entropy and position-aligned top-k JSD analyzer)
 - `check-quality` (deterministic repetition-loop, refusal-flip, length-truncation, and length-blowup regression checks)
+- `check-formats` (standalone semantic format validator for `date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, and `iso-currency` on exact or `[*]` wildcard JSONPaths)
 - `wizard` (guided plain-English interactive setup wizard and use-case preset generator for `drift.toml`)
 - `score` (pluggable scorer CLI supporting `--list-scorers` and repeatable `--scorer`)
 - `validate` (supports `--category` and `--strict`)
@@ -175,7 +177,7 @@ Commands are:
 - `infer-schema` (automatic supported-subset JSON Schema suite inference from captured baseline JSON outputs)
 - `lint-suite` (prompt suite quality and JSON Schema hygiene auditor)
 - `calibrate` (automatic `drift.toml` threshold calibration, volatile JSON field detection with `[*]` wildcard collapse, and `--numeric-tolerances`)
-- `init-sample` (optional `--with-policy` to scaffold `drift.toml`)
+- `init-sample` (optional `--with-policy` to scaffold `drift.toml`, or `--pack extraction|classification|coding|rag` for curated starter suites)
 - `doctor` (pre-flight validation of environment, policies, suite schemas/regex safety, and capture alignment)
 - `ai-devices`
 
@@ -206,6 +208,9 @@ Additional library modules:
 - `wizard.py`: guided 5-question plain-English `drift.toml` wizard and use-case preset builder (`extraction`, `classification`, `coding`, `rag`, `strict`).
 - `logprobs.py`: optional `top_logprobs` Shannon entropy and position-aligned top-k base-2 JSD drift analyzer with honest missing-data reporting (`complete=False`).
 - `quality_checks.py`: deterministic regression checks for consecutive line/n-gram repetition loops, refusal flips, length truncation, and verbosity blowups.
+- `formats.py`: standalone semantic JSON field format validator (`date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, `iso-currency`) on exact or `[*]` wildcard paths.
+- `packs.py`: curated starter benchmark packs (`extraction`, `classification`, `coding`, `rag`) with lint-clean prompts, baseline/passing/drifted captures, and policies.
+- `audit.py`: unified offline audit report and script-free HTML dashboard aggregating drift, distributions, quality checks, logprobs, and token volume.
 - `_comparison_md.py` and `_cli_extras.py`: GitHub-Flavored Markdown multi-candidate comparison exporter and lazily imported extra CLI subcommand handlers.
 
 All CLI run formats render one DriftBenchmarkReport. Rich, Markdown, and HTML

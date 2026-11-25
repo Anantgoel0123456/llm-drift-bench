@@ -282,10 +282,12 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | Command | Purpose |
 | :--- | :--- |
 | `run` | Compare baseline and candidate captures (`--config`, `--category`, `--long-text-mode`, `--include-diffs`, `--format`, `--junit-output`, `--sarif-output`, `--github-summary`) |
+| `audit` | Run a unified offline audit combining per-prompt drift, field distributions, quality checks, logprobs, and token volume (`--format text\|json\|markdown\|html`, `-o`) |
 | `diff` | Show policy-aware JSON field-level or unified text diffs between two captures (`--only-changed`, `--prompt-id`, `--format text\|json\|markdown`) |
 | `distribution` | Measure cross-prompt JSON field distribution drift (categorical TVD/JSD, numeric p10/p50/p90 & normalized 1D Wasserstein; `--max-tvd`, `--max-jsd`, `--max-wasserstein`, `--format text\|json\|markdown\|html`) |
 | `logprobs` | Compare optional `top_logprobs` token entropy (bits) and position-aligned top-k JSD (`--max-entropy-delta`, `--max-jsd`) |
 | `check-quality` | Detect quantization/upgrade failure modes: repetition loops, refusal flips, length truncation, and verbosity blowups |
+| `check-formats` | Validate semantic JSON field formats (`date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, `iso-currency`) on exact or `[*]` wildcard paths (`--rule JSONPATH=FORMAT`) |
 | `wizard` | Guided 5-question plain-English setup wizard or `--preset` generator (`extraction\|classification\|coding\|rag\|strict`) for `drift.toml` |
 | `score` | Run pluggable scorers (`char_ngram_cosine`, `json_key_jaccard`, `markdown_structure`, `numeric_prose`, `python_ast`, `tfidf_cosine`, or entry-point plugins; `--list-scorers`) |
 | `validate` | Validate captures for JSON syntax and JSON Schema conformity (`--category`, `--strict`) |
@@ -308,7 +310,7 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | `infer-schema` | Auto-infer a supported-subset JSON Schema prompt suite from baseline captures |
 | `lint-suite` | Audit prompt suites for duplicate IDs/prompts, unsatisfiable schemas, permissive objects, and unsupported keywords (`--strict`) |
 | `calibrate` | Auto-calibrate `drift.toml` thresholds, detect/collapse volatile JSON fields, and suggest `--numeric-tolerances` |
-| `init-sample` | Scaffold starter prompt, baseline, and candidate datasets (`--with-policy` adds `drift.toml`) |
+| `init-sample` | Scaffold starter datasets (`--with-policy` adds `drift.toml`, or `--pack extraction\|classification\|coding\|rag` scaffolds a full curated pack) |
 | `doctor` | Pre-flight check for environment, `drift.toml` policies, suite schemas/regex safety, and capture ID alignment |
 | `ai-devices` | List devices visible to the optional local OpenVINO runtime |
 
@@ -372,7 +374,22 @@ print(res.similarity, res.available)
 
 ## CI/CD Integration
 
-Drop `llm-drift-bench` directly into GitHub Actions with JUnit test reporting, native Job Summaries, and PR comment output:
+Use the bundled composite GitHub Action ([`action.yml`](action.yml)) or invoke the CLI directly with JUnit, SARIF, GitHub Job Summaries, and PR comment output:
+
+```yaml
+- name: Run LLM drift regression gate
+  uses: Anantgoel0123456/llm-drift-bench@main
+  with:
+    baseline: benchmarks/baseline.jsonl
+    candidate: benchmarks/candidate.jsonl
+    suite: benchmarks/prompts.json
+    config: drift.toml
+    junit-output: junit.xml
+    sarif-output: drift.sarif
+    pr-comment-output: pr-comment.md
+```
+
+Or run the CLI commands directly:
 
 ```yaml
 - name: Run LLM drift regression gate
