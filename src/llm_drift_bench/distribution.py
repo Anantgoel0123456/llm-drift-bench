@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from llm_drift_bench._matching import index_records, require_same_ids
 from llm_drift_bench._numbers import finite_number
@@ -505,6 +505,41 @@ Max Normalized 1D Wasserstein: {report.max_normalized_wasserstein:.4f}</p>
     return html
 
 
+ShiftScope = Literal["none", "single_segment", "localized", "partial", "widespread"]
+
+_SCOPE_HINTS: dict[ShiftScope, str] = {
+    "none": "no segment crossed shift threshold",
+    "single_segment": "only one segment present (cannot compare across routes)",
+    "localized": "isolated to one segment (likely route/prompt/customer change)",
+    "partial": "multiple segments shifted (subset of traffic)",
+    "widespread": "most or all segments shifted together (likely model/provider shift)",
+}
+
+
+def _classify_shift_scope(
+    segments: dict[str, DistributionReport],
+    shift_threshold: float,
+) -> tuple[ShiftScope, tuple[str, ...]]:
+    shifted_pairs = [
+        (name, max(rep.max_tvd, rep.max_normalized_wasserstein))
+        for name, rep in segments.items()
+        if max(rep.max_tvd, rep.max_normalized_wasserstein) >= shift_threshold
+    ]
+    shifted_pairs.sort(key=lambda item: (-item[1], item[0]))
+    shifted_names = tuple(name for name, _ in shifted_pairs)
+    total = len(segments)
+    n_shifted = len(shifted_names)
+    if n_shifted == 0:
+        return "none", shifted_names
+    if total == 1:
+        return "single_segment", shifted_names
+    if n_shifted == 1:
+        return "localized", shifted_names
+    if (n_shifted / total) >= 0.75:
+        return "widespread", shifted_names
+    return "partial", shifted_names
+
+
 @dataclass(frozen=True)
 class SegmentedDistributionReport:
     """Distribution drift segmented by route, category, or metadata key before global totals."""
@@ -516,10 +551,16 @@ class SegmentedDistributionReport:
     worst_segment_tvd: float
     worst_segment_jsd: float
     worst_segment_wasserstein: float
+    shift_threshold: float = 0.10
+    shifted_segments: tuple[str, ...] = ()
+    shift_scope: ShiftScope = "none"
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "group_by": self.group_by,
+            "shift_scope": self.shift_scope,
+            "shift_threshold": round(self.shift_threshold, 6),
+            "shifted_segments": list(self.shifted_segments),
             "worst_segment_name": self.worst_segment_name,
             "worst_segment_tvd": round(self.worst_segment_tvd, 6),
             "worst_segment_jsd": round(self.worst_segment_jsd, 6),
@@ -553,13 +594,22 @@ def analyze_segmented_distributions(
     prompt_cases: Sequence[PromptCase] | None = None,
     policy: DriftPolicy | None = None,
     collapse_array_indices: bool = True,
+    shift_threshold: float = 0.10,
 ) -> SegmentedDistributionReport:
     """Segment prompts by category or metadata key before computing overall distribution drift.
 
     Isolates shifts confined to a single route, prompt category, or customer segment
-    before global aggregation can dilute them.
+    before global aggregation can dilute them, and classifies blast radius as
+    none / single_segment / localized / partial / widespread.
     """
     mode, meta_key = _parse_group_by(group_by)
+    if (
+        isinstance(shift_threshold, bool)
+        or not isinstance(shift_threshold, (int, float))
+        or not math.isfinite(shift_threshold)
+        or not 0.0 < shift_threshold <= 1.0
+    ):
+        raise ValueError("shift_threshold must be a finite number in (0.0, 1.0].")
     if not baseline_samples or not candidate_samples:
         raise ValueError("Both baseline and candidate sample collections must be non-empty.")
 
@@ -624,6 +674,8 @@ def analyze_segmented_distributions(
             worst_score = score
             worst_name = name
 
+    scope, shifted_names = _classify_shift_scope(segments, float(shift_threshold))
+
     return SegmentedDistributionReport(
         group_by=group_by.strip(),
         overall=overall,
@@ -634,14 +686,24 @@ def analyze_segmented_distributions(
         worst_segment_wasserstein=max(
             (r.max_normalized_wasserstein for r in segments.values()), default=0.0
         ),
+        shift_threshold=float(shift_threshold),
+        shifted_segments=shifted_names,
+        shift_scope=scope,
     )
 
 
 def format_segmented_distribution_text(report: SegmentedDistributionReport) -> str:
     """Format a SegmentedDistributionReport showing per-segment shifts before overall totals."""
+    scope_hint = _SCOPE_HINTS[report.shift_scope]
+    shifted_list = (
+        f" [{', '.join(report.shifted_segments)}]" if report.shifted_segments else ""
+    )
     lines = [
         f"Segmented Field Distribution Drift (group_by={report.group_by}, "
         f"{len(report.segments)} segment(s))",
+        f"Blast radius : {report.shift_scope} "
+        f"({len(report.shifted_segments)}/{len(report.segments)} segments "
+        f">= {report.shift_threshold:.2f}{shifted_list} - {scope_hint})",
         f"Worst segment: {report.worst_segment_name or 'n/a'} | "
         f"max TVD={report.worst_segment_tvd:.4f}, "
         f"max JSD={report.worst_segment_jsd:.4f}, "
@@ -670,8 +732,13 @@ def format_segmented_distribution_text(report: SegmentedDistributionReport) -> s
 
 def format_segmented_distribution_markdown(report: SegmentedDistributionReport) -> str:
     """Format a SegmentedDistributionReport as GitHub-flavored Markdown."""
+    scope_hint = _SCOPE_HINTS[report.shift_scope]
     lines = [
         f"# Segmented Field Distribution Drift (`{markdown_cell(report.group_by)}`)",
+        "",
+        f"Blast radius: **{markdown_cell(report.shift_scope)}** "
+        f"({len(report.shifted_segments)}/{len(report.segments)} segments "
+        f"&gt;= `{report.shift_threshold:.2f}`: {markdown_cell(scope_hint)})",
         "",
         "| Segment | JSON Prompts | Max TVD | Max JSD | Max Norm W1 |",
         "| --- | ---: | ---: | ---: | ---: |",
@@ -743,8 +810,11 @@ td{{white-space:pre-wrap;overflow-wrap:anywhere}}.muted{{color:#a8bad2}}
 </style></head><body><main>
 <p class="muted">llm-drift-bench / segmented distribution report</p>
 <h1>Segmented JSON Field Distribution ({escape(report.group_by)})</h1>
-<p>Segments: {len(report.segments)} &middot; Worst segment:
- {escape(report.worst_segment_name or 'n/a')} &middot;
+<p>Segments: {len(report.segments)} &middot;
+ Blast radius: <strong>{escape(report.shift_scope)}</strong>
+ ({len(report.shifted_segments)}/{len(report.segments)} &ge; {report.shift_threshold:.2f};
+ {escape(_SCOPE_HINTS[report.shift_scope])})<br>
+ Worst segment: {escape(report.worst_segment_name or 'n/a')} &middot;
  Worst TVD: {report.worst_segment_tvd:.4f} &middot;
  Worst Norm W1: {report.worst_segment_wasserstein:.4f}</p>
 <h2>Per-Segment Breakdown</h2>

@@ -225,16 +225,62 @@ def test_segmented_distribution_isolates_single_route_shift_before_totals(tmp_pa
     assert seg.segments["route_b"].max_tvd == 0.0
     assert seg.segments["route_c"].max_tvd == 0.0
     assert seg.overall.max_tvd == pytest.approx(1 / 3, abs=1e-4)
+    assert seg.shift_scope == "localized"
+    assert seg.shifted_segments == ("route_a",)
     assert seg.to_dict()["worst_segment_name"] == "route_a"
+    assert seg.to_dict()["shift_scope"] == "localized"
 
     txt = format_segmented_distribution_text(seg)
-    assert "[route_a]" in txt and "Overall totals:" in txt
+    assert "[route_a]" in txt and "Overall totals:" in txt and "Blast radius : localized" in txt
     md = format_segmented_distribution_markdown(seg)
-    assert "| route&#95;a |" in md and "## Overall totals" in md
+    assert "| route&#95;a |" in md and "## Overall totals" in md and "**localized**" in md
     html_file = tmp_path / "seg.html"
     html = export_segmented_distribution_html(seg, html_file)
     assert html_file.read_text(encoding="utf-8") == html
     assert "default-src 'none'" in html and "<script" not in html.lower()
+    assert "<strong>localized</strong>" in html
+
+    # All routes shifting together -> widespread (likely model/provider shift)
+    cand_all_shifted = [
+        ModelSample(
+            prompt_id=s.prompt_id,
+            output='{"label": "low", "score": 0.2}',
+            model_name="c",
+            metadata=dict(s.metadata),
+        )
+        for s in base
+    ]
+    wide = analyze_segmented_distributions(base, cand_all_shifted, group_by="metadata:route")
+    assert wide.shift_scope == "widespread"
+    assert set(wide.shifted_segments) == {"route_a", "route_b", "route_c"}
+
+    # No route shifting -> none
+    clean_seg = analyze_segmented_distributions(base, base, group_by="metadata:route")
+    assert clean_seg.shift_scope == "none" and clean_seg.shifted_segments == ()
+
+    # 2 of 4 routes shifting -> partial
+    base4 = base + [
+        ModelSample(
+            prompt_id="d1", output='{"label": "high", "score": 0.9}',
+            model_name="b", metadata={"route": "route_d"},
+        ),
+    ]
+    cand4 = cand + [
+        ModelSample(
+            prompt_id="d1", output='{"label": "low", "score": 0.2}',
+            model_name="c", metadata={"route": "route_d"},
+        ),
+    ]
+    partial = analyze_segmented_distributions(base4, cand4, group_by="metadata:route")
+    assert partial.shift_scope == "partial"
+    assert set(partial.shifted_segments) == {"route_a", "route_d"}
+
+    # Single segment only -> single_segment
+    one = analyze_segmented_distributions(base[:2], cand[:2], group_by="metadata:route")
+    assert one.shift_scope == "single_segment"
+
+    with pytest.raises(ValueError, match="shift_threshold"):
+        analyze_segmented_distributions(base, cand, group_by="metadata:route", shift_threshold=0.0)
 
     # Category grouping via prompt_cases
     cases = [

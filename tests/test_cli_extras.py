@@ -1244,6 +1244,8 @@ def test_cli_segmented_distribution_persist_windows_and_check_consumer(
                 str(EXAMPLES / "candidate-drift.jsonl"),
                 "--group-by",
                 "category",
+                "--shift-threshold",
+                "0.15",
                 "--max-wasserstein",
                 "0.1",
                 "--format",
@@ -1255,6 +1257,8 @@ def test_cli_segmented_distribution_persist_windows_and_check_consumer(
     seg_json = json.loads(capsys.readouterr().out)
     assert seg_json["group_by"] == "category"
     assert seg_json["passed"] is False
+    assert seg_json["shift_scope"] == "localized"
+    assert seg_json["shifted_segments"] == ["extraction"]
     assert "extraction" in seg_json["segments"]
 
     seg_html = tmp_path / "seg.html"

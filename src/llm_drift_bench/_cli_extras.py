@@ -348,6 +348,12 @@ def register_extra_subcommands(
         help="Segment distribution before aggregating: 'category' or 'metadata:<key>'.",
     )
     dist_p.add_argument(
+        "--shift-threshold",
+        type=float,
+        default=0.10,
+        help="Per-segment TVD/W1 threshold used to classify localized vs widespread scope (0.10).",
+    )
+    dist_p.add_argument(
         "--no-collapse-arrays",
         action="store_true",
         help="Keep concrete array indices ([0], [1]) separate instead of collapsing into [*].",
@@ -1009,6 +1015,7 @@ def _handle_distribution(
             prompt_cases=prompts,
             policy=policy,
             collapse_array_indices=not args.no_collapse_arrays,
+            shift_threshold=args.shift_threshold,
         )
         for seg_name, seg in seg_report.segments.items():
             if args.max_tvd is not None and seg.max_tvd > args.max_tvd:

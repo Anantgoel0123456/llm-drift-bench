@@ -151,7 +151,7 @@ Commands are:
 - `run` (with `--config`, `--category`, `--long-text-mode`, `--include-diffs`, `--format pr-comment|csv|sarif`, `--junit-output`, `--sarif-output`, `--github-summary`)
 - `audit` (unified offline audit combining per-prompt drift, field distributions, quality checks, logprobs, and token volume in `text`, `json`, `markdown`, or offline `html`)
 - `diff` (policy-aware JSON field-level and unified text diff inspector in `text`, `json`, or GFM `markdown`)
-- `distribution` (cross-prompt JSON field distribution drift using categorical TVD/JSD and numeric quantiles + exact 1D Wasserstein, with optional `--group-by category|metadata:<key>` segmentation before global totals)
+- `distribution` (cross-prompt JSON field distribution drift using categorical TVD/JSD and numeric quantiles + exact 1D Wasserstein, with optional `--group-by category|metadata:<key>` segmentation and `localized` vs `widespread` blast-radius classification)
 - `logprobs` (optional `top_logprobs` token entropy and position-aligned top-k JSD analyzer)
 - `check-quality` (deterministic repetition-loop, refusal-flip, length-truncation, and length-blowup regression checks)
 - `check-formats` (standalone semantic format validator for `date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, and `iso-currency` on exact or `[*]` wildcard JSONPaths)
