@@ -1,0 +1,132 @@
+name: "LLM Drift Bench Gate"
+description: "Run deterministic offline LLM drift detection, JSON schema checks, and CI exports."
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  baseline:
+    description: "Path to baseline captured outputs (.jsonl or .json)."
+    required: true
+  candidate:
+    description: "Path to candidate captured outputs (.jsonl or .json)."
+    required: true
+  suite:
+    description: "Optional path to prompt suite JSON/JSONL file."
+    required: false
+    default: ""
+  config:
+    description: "Optional path to drift.toml or drift.json policy file."
+    required: false
+    default: ""
+  version:
+    description: "Optional llm-drift-bench version specifier (e.g. '==0.3.0'). Empty installs latest."
+    required: false
+    default: ""
+  python-version:
+    description: "Python version to install (3.10+)."
+    required: false
+    default: "3.12"
+  report-output:
+    description: "Path to save the canonical JSON benchmark report."
+    required: false
+    default: "drift-report.json"
+  junit-output:
+    description: "Optional path to write JUnit XML output."
+    required: false
+    default: ""
+  sarif-output:
+    description: "Optional path to write SARIF 2.1.0 JSON output."
+    required: false
+    default: ""
+  pr-comment-output:
+    description: "Optional path to render a compact GitHub PR comment Markdown file."
+    required: false
+    default: ""
+  github-summary:
+    description: "Append verdict and metrics to GITHUB_STEP_SUMMARY ('true' or 'false')."
+    required: false
+    default: "true"
+  fail-on-drift:
+    description: "Fail the workflow step when drift thresholds are breached ('true' or 'false')."
+    required: false
+    default: "true"
+
+outputs:
+  passed:
+    description: "'true' if the drift gate passed, otherwise 'false'."
+    value: ${{ steps.run-drift.outputs.passed }}
+  mean-drift:
+    description: "Mean composite drift score from the canonical report."
+    value: ${{ steps.run-drift.outputs.mean_drift }}
+  report-path:
+    description: "Path to the saved JSON drift report."
+    value: ${{ steps.run-drift.outputs.report_path }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install llm-drift-bench
+      shell: bash
+      env:
+        PKG_VERSION: ${{ inputs.version }}
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install "llm-drift-bench${PKG_VERSION}"
+
+    - name: Run llm-drift-bench evaluation
+      id: run-drift
+      shell: bash
+      env:
+        INPUT_BASELINE: ${{ inputs.baseline }}
+        INPUT_CANDIDATE: ${{ inputs.candidate }}
+        INPUT_SUITE: ${{ inputs.suite }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_REPORT_OUTPUT: ${{ inputs.report-output }}
+        INPUT_JUNIT_OUTPUT: ${{ inputs.junit-output }}
+        INPUT_SARIF_OUTPUT: ${{ inputs.sarif-output }}
+        INPUT_PR_COMMENT_OUTPUT: ${{ inputs.pr-comment-output }}
+        INPUT_GITHUB_SUMMARY: ${{ inputs.github-summary }}
+        INPUT_FAIL_ON_DRIFT: ${{ inputs.fail-on-drift }}
+      run: |
+        set +e
+        args=(run -b "$INPUT_BASELINE" -c "$INPUT_CANDIDATE" -o "$INPUT_REPORT_OUTPUT")
+        if [ -n "$INPUT_SUITE" ]; then
+          args+=(-s "$INPUT_SUITE")
+        fi
+        if [ -n "$INPUT_CONFIG" ]; then
+          args+=(--config "$INPUT_CONFIG")
+        fi
+        if [ -n "$INPUT_JUNIT_OUTPUT" ]; then
+          args+=(--junit-output "$INPUT_JUNIT_OUTPUT")
+        fi
+        if [ -n "$INPUT_SARIF_OUTPUT" ]; then
+          args+=(--sarif-output "$INPUT_SARIF_OUTPUT")
+        fi
+        if [ "$INPUT_GITHUB_SUMMARY" = "true" ]; then
+          args+=(--github-summary)
+        fi
+        if [ "$INPUT_FAIL_ON_DRIFT" = "false" ]; then
+          args+=(--no-fail-on-drift)
+        fi
+        llm-drift-bench "${args[@]}"
+        rc=$?
+
+        if [ -f "$INPUT_REPORT_OUTPUT" ]; then
+          if [ -n "$INPUT_PR_COMMENT_OUTPUT" ]; then
+            llm-drift-bench report -i "$INPUT_REPORT_OUTPUT" --format pr-comment -o "$INPUT_PR_COMMENT_OUTPUT"
+          fi
+          python - "$INPUT_REPORT_OUTPUT" <<'PY' >> "$GITHUB_OUTPUT"
+        import json, sys
+        data = json.load(open(sys.argv[1], encoding="utf-8"))
+        print(f"passed={'true' if data.get('passed') else 'false'}")
+        print(f"mean_drift={data.get('mean_composite_drift', '')}")
+        print(f"report_path={sys.argv[1]}")
+        PY
+        fi
+        exit "$rc"
