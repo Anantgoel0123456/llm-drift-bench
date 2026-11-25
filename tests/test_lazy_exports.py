@@ -70,6 +70,11 @@ def test_all_exports_resolve_cleanly() -> None:
     assert "scaffold_pack" in exported
     assert "run_full_audit" in exported
     assert "export_audit_html" in exported
+    assert "analyze_segmented_distributions" in exported
+    assert "SegmentedDistributionReport" in exported
+    assert "evaluate_consumer_rejection" in exported
+    assert "compare_consumer_decisions" in exported
+    assert "load_consumer_decisions" in exported
 
     for name in llm_drift_bench.__all__:
         value = getattr(llm_drift_bench, name)
