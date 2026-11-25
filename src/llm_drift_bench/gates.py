@@ -6,6 +6,8 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from llm_drift_bench.consumer import ConsumerComparison
+from llm_drift_bench.distribution import SegmentedDistributionReport
 from llm_drift_bench.history import HistoryTrendCheck
 from llm_drift_bench.models import DriftBenchmarkReport
 from llm_drift_bench.stats import McNemarResult, PairedSignificance
@@ -50,9 +52,13 @@ def evaluate_release_gates(
     significance: PairedSignificance | None = None,
     mcnemar: McNemarResult | None = None,
     tool_checks: Sequence[ToolCheckRecord] = (),
+    segmented_distribution: SegmentedDistributionReport | None = None,
+    consumer_comparison: ConsumerComparison | None = None,
     fail_on_history_regression: bool = True,
     fail_on_significant_degradation: bool = False,
     require_tool_checks_pass: bool = False,
+    fail_on_widespread_shift: bool = False,
+    fail_on_consumer_rejection: bool = True,
 ) -> ReleaseVerdict:
     """Aggregate canonical drift, trend, statistical, and tool evidence into one verdict.
 
@@ -122,6 +128,40 @@ def evaluate_release_gates(
                     if not non_pass
                     else f"{len(non_pass)}/{len(tool_checks)} tool check(s) not PASS "
                     f"({', '.join(f'{tc.resource}:{tc.result.status}' for tc in non_pass[:3])})."
+                ),
+            )
+        )
+
+    if segmented_distribution is not None:
+        widespread = segmented_distribution.shift_scope == "widespread"
+        checks.append(
+            GateCheck(
+                name="distribution_blast_radius",
+                passed=not widespread,
+                blocking=fail_on_widespread_shift,
+                detail=(
+                    f"scope={segmented_distribution.shift_scope} "
+                    f"({len(segmented_distribution.shifted_segments)}/"
+                    f"{len(segmented_distribution.segments)} segments >= "
+                    f"{segmented_distribution.shift_threshold:.2f}, "
+                    f"worst={segmented_distribution.worst_segment_name or 'n/a'})"
+                ),
+            )
+        )
+
+    if consumer_comparison is not None:
+        checks.append(
+            GateCheck(
+                name="consumer_rejection",
+                passed=consumer_comparison.passed,
+                blocking=fail_on_consumer_rejection,
+                detail=(
+                    f"Passed (rejected {consumer_comparison.baseline_rejection_rate:.1%} -> "
+                    f"{consumer_comparison.candidate_rejection_rate:.1%}, "
+                    f"delta {consumer_comparison.rejection_rate_delta:+.1%})"
+                    if consumer_comparison.passed
+                    else "; ".join(consumer_comparison.failure_reasons)
+                    or "Downstream consumer rejection threshold exceeded."
                 ),
             )
         )

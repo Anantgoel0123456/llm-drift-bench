@@ -123,3 +123,38 @@ def test_evaluate_release_gates_ignores_significant_improvements_and_passing_too
     assert verdict.approved is True
     assert verdict.blocking_failures == ()
     assert verdict.warnings == ()
+
+
+def test_evaluate_release_gates_with_widespread_distribution_and_consumer_rejection() -> None:
+    from llm_drift_bench.consumer import ConsumerDecision, compare_consumer_decisions
+    from llm_drift_bench.distribution import analyze_segmented_distributions
+    from llm_drift_bench.models import ModelSample
+
+    pass_rep = load_engine_report(EXAMPLES / "expected-pass.json")
+    base = [
+        ModelSample(prompt_id="a1", output='{"label": "high"}', metadata={"route": "r1"}),
+        ModelSample(prompt_id="b1", output='{"label": "high"}', metadata={"route": "r2"}),
+    ]
+    cand = [
+        ModelSample(prompt_id="a1", output='{"label": "low"}', metadata={"route": "r1"}),
+        ModelSample(prompt_id="b1", output='{"label": "low"}', metadata={"route": "r2"}),
+    ]
+    seg = analyze_segmented_distributions(base, cand, group_by="metadata:route")
+    cons = compare_consumer_decisions(
+        [ConsumerDecision("a1", True), ConsumerDecision("b1", True)],
+        [ConsumerDecision("a1", False, "bad"), ConsumerDecision("b1", True)],
+        max_rejection_increase=0.1,
+    )
+
+    verdict = evaluate_release_gates(
+        pass_rep,
+        segmented_distribution=seg,
+        consumer_comparison=cons,
+        fail_on_widespread_shift=True,
+        fail_on_consumer_rejection=True,
+    )
+    assert verdict.approved is False
+    names = {c.name for c in verdict.checks}
+    assert {"distribution_blast_radius", "consumer_rejection"} <= names
+    assert len(verdict.blocking_failures) == 2
+
