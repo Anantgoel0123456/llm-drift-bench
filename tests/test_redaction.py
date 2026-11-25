@@ -80,3 +80,43 @@ def test_redact_jwt_database_url_and_custom_safe_patterns() -> None:
     with pytest.raises(ValueError, match="alphanumeric"):
         redact_text("abc", custom_patterns={"bad label!": r"abc"})
 
+
+def test_redaction_luhn_custom_errors_report_dict_and_scalar_metadata() -> None:
+    import pytest
+
+    from llm_drift_bench.redaction import _luhn_valid
+
+    # Luhn invalid length/non-digit AND valid card whose doubled digits exceed 9 (5*2=10 -> 1)
+    assert _luhn_valid("12345") is False
+    assert _luhn_valid("5555555555554444") is True
+
+    cleaned_card, card_counts = redact_text("Card: 5555-5555-5555-4444")
+    assert cleaned_card == "Card: [REDACTED:CREDIT_CARD]"
+    assert card_counts == {"CREDIT_CARD": 1}
+
+    # Custom pattern validation: empty, >256 chars, invalid regex syntax
+    with pytest.raises(ValueError, match="non-empty string"):
+        redact_text("abc", custom_patterns={"empty": ""})
+    with pytest.raises(ValueError, match="256 characters"):
+        redact_text("abc", custom_patterns={"huge": "a" * 257})
+    with pytest.raises(ValueError, match="Invalid custom redaction pattern"):
+        redact_text("abc", custom_patterns={"broken": "[unclosed"})
+
+    # Scalar metadata values pass through unchanged; RedactionReport.to_dict serializes cleanly
+    samples = [
+        ModelSample(
+            prompt_id="p1",
+            output="email: dev@example.com",
+            metadata={"retries": 2, "cached": False, "note": "dev@example.com"},
+        )
+    ]
+    cleaned, report = redact_samples(samples)
+    assert cleaned[0].metadata == {"retries": 2, "cached": False, "note": "[REDACTED:EMAIL]"}
+    assert report.to_dict() == {
+        "total_samples": 1,
+        "redacted_samples": 1,
+        "total_replacements": 2,
+        "counts_by_kind": {"EMAIL": 2},
+    }
+
+
