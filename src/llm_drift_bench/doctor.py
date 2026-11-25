@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 from llm_drift_bench import __version__
 from llm_drift_bench._matching import require_same_ids
+from llm_drift_bench.consumer import load_consumer_decisions
 from llm_drift_bench.engine import load_model_samples, load_prompt_cases
 from llm_drift_bench.policy import load_policy
 from llm_drift_bench.prompt_lint import lint_prompt_suite
@@ -58,6 +59,8 @@ def run_doctor(
     suite_path: str | Path | None = None,
     baseline_path: str | Path | None = None,
     candidate_path: str | Path | None = None,
+    baseline_decisions_path: str | Path | None = None,
+    candidate_decisions_path: str | Path | None = None,
 ) -> DoctorReport:
     """Run non-destructive pre-flight checks on environment, config, suite, and captures."""
     extras = {
@@ -156,22 +159,46 @@ def run_doctor(
             if len(models) > 1:
                 raise ValueError(f"{label} mixes multiple model names: {models!r}.")
             missing_lat = sum(1 for s in samples if s.latency_ms is None)
+            blank_outputs = sum(1 for s in samples if not s.output.strip())
             id_sets[label] = {s.prompt_id for s in samples}
             captures_scanned += 1
             _, red_summary = redact_samples(samples, include_pii=False)
             secret_counts.update(red_summary.counts_by_kind)
-            status: Literal["OK", "WARN"] = "WARN" if 0 < missing_lat < len(samples) else "OK"
+            status: Literal["OK", "WARN"] = (
+                "WARN" if (0 < missing_lat < len(samples) or blank_outputs > 0) else "OK"
+            )
             if missing_lat == 0:
                 lat_note = "complete timings"
             elif missing_lat == len(samples):
                 lat_note = "no timings"
             else:
                 lat_note = f"{missing_lat} missing latency"
+            blank_note = f", {blank_outputs} blank output(s)" if blank_outputs else ""
             checks.append(
                 DoctorCheck(
                     key,
                     status,
-                    f"{len(samples)} sample(s) for model {models[0]!r} ({lat_note})",
+                    f"{len(samples)} sample(s) for model {models[0]!r} ({lat_note}{blank_note})",
+                )
+            )
+        except (OSError, ValueError) as exc:
+            checks.append(DoctorCheck(key, "FAIL", str(exc)))
+
+    for label, key, target in (
+        ("Baseline decisions", "baseline_decisions", baseline_decisions_path),
+        ("Candidate decisions", "candidate_decisions", candidate_decisions_path),
+    ):
+        if target is None:
+            continue
+        try:
+            decisions = load_consumer_decisions(target)
+            rejected = sum(1 for d in decisions if not d.accepted)
+            id_sets[label] = {d.prompt_id for d in decisions}
+            checks.append(
+                DoctorCheck(
+                    key,
+                    "OK",
+                    f"{len(decisions)} decision(s) loaded ({rejected} rejected)",
                 )
             )
         except (OSError, ValueError) as exc:
