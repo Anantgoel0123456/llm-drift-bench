@@ -64,6 +64,12 @@ def test_all_exports_resolve_cleanly() -> None:
     assert "run_quality_checks" in exported
     assert "detect_repetition_loop" in exported
     assert "is_likely_refusal" in exported
+    assert "check_field_formats" in exported
+    assert "SUPPORTED_FORMATS" in exported
+    assert "get_pack" in exported
+    assert "scaffold_pack" in exported
+    assert "run_full_audit" in exported
+    assert "export_audit_html" in exported
 
     for name in llm_drift_bench.__all__:
         value = getattr(llm_drift_bench, name)
