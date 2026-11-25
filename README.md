@@ -282,9 +282,9 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | Command | Purpose |
 | :--- | :--- |
 | `run` | Compare baseline and candidate captures (`--config`, `--category`, `--long-text-mode`, `--include-diffs`, `--format`, `--junit-output`, `--sarif-output`, `--github-summary`) |
-| `audit` | Run a unified offline audit combining per-prompt drift, field distributions, quality checks, logprobs, and token volume (`--format text\|json\|markdown\|html`, `-o`) |
+| `audit` | Run a unified offline audit combining per-prompt drift, field distributions (with optional `--group-by`, `--shift-threshold`, `--fail-on-widespread`), quality checks, logprobs, and token volume (`--format text\|json\|markdown\|html`, `-o`) |
 | `diff` | Show policy-aware JSON field-level or unified text diffs between two captures (`--only-changed`, `--prompt-id`, `--format text\|json\|markdown`) |
-| `distribution` | Measure cross-prompt JSON field distribution drift (categorical TVD/JSD, numeric p10/p50/p90 & normalized 1D Wasserstein; `--group-by category\|metadata:<key>`, `--max-tvd`, `--max-jsd`, `--max-wasserstein`, `--format text\|json\|markdown\|html`) |
+| `distribution` | Measure cross-prompt JSON field distribution drift (categorical TVD/JSD, numeric p10/p50/p90 & normalized 1D Wasserstein; `--group-by category\|metadata:<key>`, `--shift-threshold`, `--fail-on-widespread`, `--max-tvd`, `--max-jsd`, `--max-wasserstein`, `--format text\|json\|markdown\|html`) |
 | `logprobs` | Compare optional `top_logprobs` token entropy (bits) and position-aligned top-k JSD (`--max-entropy-delta`, `--max-jsd`) |
 | `check-quality` | Detect quantization/upgrade failure modes: repetition loops, refusal flips, length truncation, and verbosity blowups |
 | `check-formats` | Validate semantic JSON field formats (`date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, `iso-currency`) on exact or `[*]` wildcard paths (`--rule JSONPATH=FORMAT`) |
@@ -297,7 +297,7 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | `compare-many` | Evaluate 2+ labeled candidate captures against one baseline (`--sort-by`, `--against`, `--hotspots`, `--format rich`, `--html-output`, `--markdown-output`) |
 | `compare-reports` | Rank saved candidate reports and export SVG Pareto HTML or GFM `--markdown-output` leaderboards |
 | `matrix` | Render a Prompt x Candidate drift heatmap matrix across 2+ saved reports (`--sort-prompts`, `--format text\|json\|html`) |
-| `gate` | Evaluate a composite GO/NO-GO release gate combining drift report, history trends, significance tests, and tool checks |
+| `gate` | Evaluate a composite GO/NO-GO release gate combining drift report, history trends (`--persist-windows`), significance tests, tool checks, and downstream consumer rejection logs (`--baseline-decisions`/`--candidate-decisions`) |
 | `cost` | Compare explicit generated token counts & optional USD output cost drift (`--max-token-increase-pct`, `--max-cost-increase-pct`) |
 | `badge` | Generate an offline shields-style static SVG drift status badge from a saved engine report (`--label`) |
 | `import-captures` | Convert OpenAI Batch API JSONL, Anthropic Message Batches JSONL, or CSV exports into canonical `ModelSample` JSONL (`--from`) |
@@ -312,7 +312,7 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | `lint-suite` | Audit prompt suites for duplicate IDs/prompts, unsatisfiable schemas, permissive objects, and unsupported keywords (`--strict`) |
 | `calibrate` | Auto-calibrate `drift.toml` thresholds, detect/collapse volatile JSON fields, and suggest `--numeric-tolerances` |
 | `init-sample` | Scaffold starter datasets (`--with-policy` adds `drift.toml`, or `--pack extraction\|classification\|coding\|rag` scaffolds a full curated pack) |
-| `doctor` | Pre-flight check for environment, `drift.toml` policies, suite schemas/regex safety, and capture ID alignment |
+| `doctor` | Pre-flight check for environment, `drift.toml` policies, suite schemas/regex safety, blank capture outputs, consumer decision logs, and ID alignment |
 | `ai-devices` | List devices visible to the optional local OpenVINO runtime |
 
 **Standard exit codes:** `0` passed / succeeded · `1` drift or threshold failure (suppressible via `--no-fail-on-drift`, report still records failure) · `2` usage or input error · `3` (`check-tools` only) `UNKNOWN`.
