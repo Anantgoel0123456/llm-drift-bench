@@ -59,10 +59,10 @@ dev = [
 llm-drift-bench = "llm_drift_bench.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/anant-goel/llm-drift-bench"
-Repository = "https://github.com/anant-goel/llm-drift-bench"
-Issues = "https://github.com/anant-goel/llm-drift-bench/issues"
-Changelog = "https://github.com/anant-goel/llm-drift-bench/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/Anantgoel0123456/llm-drift-bench"
+Repository = "https://github.com/Anantgoel0123456/llm-drift-bench"
+Issues = "https://github.com/Anantgoel0123456/llm-drift-bench/issues"
+Changelog = "https://github.com/Anantgoel0123456/llm-drift-bench/blob/main/CHANGELOG.md"
 
 [tool.hatch.version]
 path = "src/llm_drift_bench/__init__.py"

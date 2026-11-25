@@ -121,7 +121,7 @@ def frame(t: float) -> Image.Image:
             "Compare captures  >  inspect failures  >  gate CI",
             "",
             "Try the examples in the repository.",
-            "github.com/anant-goel/llm-drift-bench",
+            "github.com/Anantgoel0123456/llm-drift-bench",
         ]
     d.text((94, 230), label, font=BODY, fill=color)
     elapsed = t - (0 if t < 4 else 4 if t < 9 else 9 if t < 15 else 15)

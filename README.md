@@ -7,7 +7,7 @@
 Lightweight, deterministic CLI and Python library for offline LLM drift detection, JSON Schema conformity, multi-candidate ranking, statistical significance testing, and agent tool-trace auditing.
 
 [![PyPI](https://img.shields.io/pypi/v/llm-drift-bench?color=blue)](https://pypi.org/project/llm-drift-bench/)
-[![CI](https://github.com/anant-goel/llm-drift-bench/actions/workflows/ci.yml/badge.svg)](https://github.com/anant-goel/llm-drift-bench/actions/workflows/ci.yml)
+[![CI](https://github.com/Anantgoel0123456/llm-drift-bench/actions/workflows/ci.yml/badge.svg)](https://github.com/Anantgoel0123456/llm-drift-bench/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![Typing: Typed](https://img.shields.io/badge/typing-strict%20mypy%20%7C%20py.typed-2ea44f)](src/llm_drift_bench/py.typed)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -80,7 +80,7 @@ Requires **Python 3.10+**. Install the latest published release from PyPI or ins
 pip install llm-drift-bench
 
 # Option B: Install from source
-git clone https://github.com/anant-goel/llm-drift-bench.git
+git clone https://github.com/Anantgoel0123456/llm-drift-bench.git
 cd llm-drift-bench
 python -m venv .venv
 .venv/bin/python -m pip install -e .        # Windows PowerShell: .\.venv\Scripts\python.exe -m pip install -e .

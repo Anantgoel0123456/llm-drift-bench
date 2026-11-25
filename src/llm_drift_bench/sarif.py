@@ -165,7 +165,7 @@ def export_sarif_report(
                     "driver": {
                         "name": "llm-drift-bench",
                         "version": __version__,
-                        "informationUri": "https://github.com/anant-goel/llm-drift-bench",
+                        "informationUri": "https://github.com/Anantgoel0123456/llm-drift-bench",
                         "rules": _SARIF_RULES,
                     }
                 },

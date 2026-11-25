@@ -35,7 +35,7 @@ To verify an already uploaded version without uploading anything:
 
 Use the actual uploaded version; this command cannot verify an unpublished version.
 
-Configure Trusted Publishing separately on each registry for owner `anant-goel`,
+Configure Trusted Publishing separately on each registry for owner `Anantgoel0123456`,
 repository `llm-drift-bench`, workflow `publish.yml`:
 
 - TestPyPI: environment `testpypi`.
@@ -55,13 +55,13 @@ repository, so tick each item in the web UI before triggering a publish.
 | Setting | TestPyPI | PyPI |
 | --- | --- | --- |
 | Project name | `llm-drift-bench` | `llm-drift-bench` |
-| Owner | `anant-goel` | `anant-goel` |
+| Owner | `Anantgoel0123456` | `Anantgoel0123456` |
 | Repository | `llm-drift-bench` | `llm-drift-bench` |
 | Workflow filename | `publish.yml` | `publish.yml` |
 | Environment name | `testpypi` | `pypi` |
 | Trigger | manual: Yes + TestPyPI | manual: Yes + PyPI, or published GitHub release |
 
-- [ ] `git remote -v` shows `anant-goel/llm-drift-bench`, the owner in the table.
+- [ ] `git remote -v` shows `Anantgoel0123456/llm-drift-bench`, the owner in the table.
 - [ ] GitHub, Settings, Environments: `testpypi` and `pypi` both exist.
 - [ ] `pypi` requires a reviewer; the publisher cannot approve their own run if
       "prevent self-review" is on, so add a second reviewer or leave it off for a

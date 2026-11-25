@@ -211,7 +211,7 @@
 
 Initial published release. See the linked PyPI release for its artifacts.
 
-[Unreleased]: https://github.com/anant-goel/llm-drift-bench/compare/v0.3.0...HEAD
-[0.3.0]: https://github.com/anant-goel/llm-drift-bench/releases/tag/v0.3.0
-[0.2.0]: https://github.com/anant-goel/llm-drift-bench/releases/tag/v0.2.0
+[Unreleased]: https://github.com/Anantgoel0123456/llm-drift-bench/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Anantgoel0123456/llm-drift-bench/releases/tag/v0.3.0
+[0.2.0]: https://github.com/Anantgoel0123456/llm-drift-bench/releases/tag/v0.2.0
 [0.1.0]: https://pypi.org/project/llm-drift-bench/0.1.0/
