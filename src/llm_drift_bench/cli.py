@@ -816,12 +816,38 @@ def _add_init_sample_subparser(
         action="store_true",
         help="Also scaffold a starter drift.toml policy file.",
     )
+    init_parser.add_argument(
+        "--pack",
+        choices=("extraction", "classification", "coding", "rag"),
+        default=None,
+        help="Scaffold a curated starter pack (prompts, baseline, pass/drift, drift.toml).",
+    )
 
 
 def _handle_init_sample(args: argparse.Namespace) -> int:
     """Execute the 'init-sample' subcommand."""
     target_dir = Path(args.dir)
     target_dir.mkdir(parents=True, exist_ok=True)
+
+    pack_name = getattr(args, "pack", None)
+    if pack_name is not None:
+        from llm_drift_bench.packs import scaffold_pack
+
+        expected = (
+            target_dir / "prompts.json",
+            target_dir / "baseline.jsonl",
+            target_dir / "candidate-pass.jsonl",
+            target_dir / "candidate-drift.jsonl",
+            target_dir / "drift.toml",
+        )
+        for path in expected:
+            if path.exists() or path.is_symlink():
+                raise ValueError(f"Sample file already exists: {path}. Choose a new --dir.")
+        created = scaffold_pack(pack_name, target_dir)
+        print(f"Created {pack_name!r} starter pack in {target_dir.resolve()}:")
+        for path in created.values():
+            print(f"  - {path.name}")
+        return 0
 
     prompts_data = [
         {

@@ -447,6 +447,84 @@ def register_extra_subcommands(
         help="Output format: text (default) or json.",
     )
 
+    fmt_p = subparsers.add_parser(
+        "check-formats",
+        help="Validate semantic JSON field formats (date, date-time, email, uri, uuid, ipv4, ...).",
+    )
+    fmt_p.add_argument("-i", "--input", required=True, help="Capture file (.json/.jsonl).")
+    fmt_p.add_argument(
+        "--rule",
+        action="append",
+        required=True,
+        metavar="JSONPATH=FORMAT",
+        help="Format rule such as '$.email=email' or '$.items[*].date=date' (repeatable).",
+    )
+    fmt_p.add_argument(
+        "--allow-null",
+        action="store_true",
+        help="Skip format validation when a matched field value is JSON null.",
+    )
+    fmt_p.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format: text (default) or json.",
+    )
+
+    audit_p = subparsers.add_parser(
+        "audit",
+        help="Run a unified offline audit (drift, distributions, quality, logprobs, and cost).",
+    )
+    audit_p.add_argument("-b", "--baseline", required=True, help="Baseline capture (.json/.jsonl).")
+    audit_p.add_argument(
+        "-c", "--candidate", required=True, help="Candidate capture (.json/.jsonl)."
+    )
+    audit_p.add_argument(
+        "-s",
+        "--suite",
+        "-p",
+        "--prompts",
+        dest="suite",
+        default=None,
+        help="Optional prompt suite JSON/JSONL file.",
+    )
+    audit_p.add_argument("--config", default=None, help="Optional drift.toml/drift.json policy.")
+    audit_p.add_argument("--max-tvd", type=float, default=None, help="Optional max TVD in [0, 1].")
+    audit_p.add_argument("--max-jsd", type=float, default=None, help="Optional max JSD in [0, 1].")
+    audit_p.add_argument(
+        "--max-wasserstein",
+        type=float,
+        default=None,
+        help="Optional max normalized 1D Wasserstein in [0, 1].",
+    )
+    audit_p.add_argument(
+        "--max-entropy-delta",
+        type=float,
+        default=None,
+        help="Optional max absolute mean logprobs entropy delta in bits.",
+    )
+    audit_p.add_argument(
+        "--max-top-k-jsd",
+        type=float,
+        default=None,
+        help="Optional max prompt top-k logprobs JSD in [0, 1].",
+    )
+    audit_p.add_argument(
+        "--fail-on-quality",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Fail audit when quality regressions are detected (default: enabled).",
+    )
+    audit_p.add_argument(
+        "--format",
+        choices=("text", "json", "markdown", "html"),
+        default="text",
+        help="Output format: text (default), json, markdown, or html.",
+    )
+    audit_p.add_argument(
+        "-o", "--output", default=None, help="Optional output path to save the rendered audit."
+    )
+
 
 def _serialize_prompt_case(case: PromptCase) -> dict[str, Any]:
     record: dict[str, Any] = {
@@ -997,6 +1075,76 @@ def _handle_check_quality(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_check_formats(args: argparse.Namespace) -> int:
+    from llm_drift_bench.engine import load_model_samples
+    from llm_drift_bench.formats import (
+        check_field_formats,
+        format_check_report_text,
+        parse_format_rule_spec,
+    )
+
+    rules = dict(parse_format_rule_spec(raw) for raw in args.rule)
+    samples = load_model_samples(args.input)
+    report = check_field_formats(samples, rules, allow_null=args.allow_null)
+    if args.format == "json":
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(format_check_report_text(report), end="")
+    return 0 if report.passed else 1
+
+
+def _handle_audit(
+    args: argparse.Namespace,
+    protect_inputs: ProtectFn,
+    atomic_write_text: AtomicWriteFn,
+) -> int:
+    protect_inputs(args.output, args.baseline, args.candidate, args.suite, args.config)
+    from llm_drift_bench.audit import (
+        export_audit_html,
+        format_audit_markdown,
+        format_audit_text,
+        run_full_audit,
+    )
+    from llm_drift_bench.engine import load_model_samples, load_prompt_cases
+    from llm_drift_bench.policy import load_policy
+
+    base = load_model_samples(args.baseline)
+    cand = load_model_samples(args.candidate)
+    prompts = load_prompt_cases(args.suite) if args.suite else None
+    policy = load_policy(args.config) if args.config else None
+
+    report = run_full_audit(
+        base,
+        cand,
+        prompt_cases=prompts,
+        policy=policy,
+        max_tvd=args.max_tvd,
+        max_jsd=args.max_jsd,
+        max_wasserstein=args.max_wasserstein,
+        max_entropy_delta=args.max_entropy_delta,
+        max_top_k_jsd=args.max_top_k_jsd,
+        fail_on_quality_issues=args.fail_on_quality,
+    )
+    if args.format == "json":
+        rendered = json.dumps(report.to_dict(), indent=2) + "\n"
+    elif args.format == "markdown":
+        rendered = format_audit_markdown(report)
+    elif args.format == "html":
+        rendered = export_audit_html(report)
+    else:
+        rendered = format_audit_text(report)
+
+    if args.output:
+        atomic_write_text(Path(args.output), rendered)
+        if args.format == "html":
+            print(f"Wrote unified offline audit dashboard -> {args.output}")
+        else:
+            print(rendered, end="")
+    else:
+        print(rendered, end="")
+    return 0 if report.passed else 1
+
+
 def dispatch_extra_command(
     args: argparse.Namespace,
     *,
@@ -1030,4 +1178,8 @@ def dispatch_extra_command(
         return _handle_logprobs(args)
     if args.command == "check-quality":
         return _handle_check_quality(args)
+    if args.command == "check-formats":
+        return _handle_check_formats(args)
+    if args.command == "audit":
+        return _handle_audit(args, protect_inputs, atomic_write_text)
     return None

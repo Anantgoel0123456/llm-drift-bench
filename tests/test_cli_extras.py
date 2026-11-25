@@ -915,4 +915,110 @@ def test_cli_distribution_wizard_logprobs_check_quality_and_capture_top_logprobs
     assert captured_row["metadata"]["logprobs"][0]["token"] == "yes"
 
 
+def test_cli_init_sample_pack_audit_and_check_formats(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    pack_dir = tmp_path / "rag_pack"
+    assert main(["init-sample", "--dir", str(pack_dir), "--pack", "rag"]) == 0
+    assert "Created 'rag' starter pack" in capsys.readouterr().out
+    assert (pack_dir / "drift.toml").is_file()
+
+    # Refuses overwriting existing pack directory
+    assert main(["init-sample", "--dir", str(pack_dir), "--pack", "rag"]) == 2
+    _ = capsys.readouterr()
+
+    # audit passes on candidate-pass and fails on candidate-drift
+    audit_html = tmp_path / "audit.html"
+    assert (
+        main(
+            [
+                "audit",
+                "-s",
+                str(pack_dir / "prompts.json"),
+                "-b",
+                str(pack_dir / "baseline.jsonl"),
+                "-c",
+                str(pack_dir / "candidate-pass.jsonl"),
+                "--config",
+                str(pack_dir / "drift.toml"),
+                "--format",
+                "html",
+                "-o",
+                str(audit_html),
+            ]
+        )
+        == 0
+    )
+    _ = capsys.readouterr()
+    assert "PASSED" in audit_html.read_text(encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "audit",
+                "-s",
+                str(pack_dir / "prompts.json"),
+                "-b",
+                str(pack_dir / "baseline.jsonl"),
+                "-c",
+                str(pack_dir / "candidate-drift.jsonl"),
+                "--config",
+                str(pack_dir / "drift.toml"),
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    audit_payload = json.loads(capsys.readouterr().out)
+    assert audit_payload["passed"] is False and audit_payload["failure_reasons"]
+
+    # check-formats pass and fail
+    fmt_file = tmp_path / "fmt.jsonl"
+    fmt_file.write_text(
+        json.dumps(
+            {
+                "prompt_id": "p1",
+                "model_name": "m",
+                "output": json.dumps({"email": "dev@example.com", "due": "2026-11-25"}),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert (
+        main(
+            [
+                "check-formats",
+                "-i",
+                str(fmt_file),
+                "--rule",
+                "$.email=email",
+                "--rule",
+                "$.due=date",
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["passed"] is True
+
+    bad_fmt = tmp_path / "bad_fmt.jsonl"
+    bad_fmt.write_text(
+        json.dumps(
+            {
+                "prompt_id": "p1",
+                "model_name": "m",
+                "output": json.dumps({"email": "not-an-email"}),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert main(["check-formats", "-i", str(bad_fmt), "--rule", "$.email=email"]) == 1
+    assert "FAILED" in capsys.readouterr().out
+
+
+
 
