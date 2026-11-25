@@ -1,0 +1,377 @@
+"""Unified offline audit combining drift, distributions, quality, logprobs, and cost."""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Sequence
+from dataclasses import dataclass
+from html import escape
+from pathlib import Path
+from typing import Any
+
+from llm_drift_bench._report_views import markdown_cell, measurement
+from llm_drift_bench.cost import CostComparison, ModelPricing, estimate_cost_drift
+from llm_drift_bench.distribution import DistributionReport, analyze_field_distributions
+from llm_drift_bench.engine import DriftBenchmarkEngine
+from llm_drift_bench.logprobs import LogprobDriftSummary, analyze_logprobs_drift
+from llm_drift_bench.models import (
+    DriftBenchmarkReport,
+    DriftThresholds,
+    ModelSample,
+    PromptCase,
+)
+from llm_drift_bench.policy import DriftPolicy
+from llm_drift_bench.quality_checks import QualityReport, run_quality_checks
+
+
+def _validate_optional_unit(name: str, val: float | None) -> None:
+    if val is not None and (
+        isinstance(val, bool) or not math.isfinite(val) or not 0.0 <= val <= 1.0
+    ):
+        raise ValueError(f"{name} must be a finite number between 0.0 and 1.0.")
+
+
+@dataclass(frozen=True)
+class AuditReport:
+    """Comprehensive offline regression audit combining all five deterministic checks."""
+
+    benchmark: DriftBenchmarkReport
+    distribution: DistributionReport
+    quality: QualityReport
+    logprobs: LogprobDriftSummary
+    cost: CostComparison
+    passed: bool
+    failure_reasons: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "passed": self.passed,
+            "failure_reasons": list(self.failure_reasons),
+            "benchmark": self.benchmark.to_dict(),
+            "distribution": self.distribution.to_dict(),
+            "quality": self.quality.to_dict(),
+            "logprobs": self.logprobs.to_dict(),
+            "cost": self.cost.to_dict(),
+        }
+
+
+def run_full_audit(
+    baseline_samples: Sequence[ModelSample],
+    candidate_samples: Sequence[ModelSample],
+    *,
+    prompt_cases: Sequence[PromptCase] | None = None,
+    policy: DriftPolicy | None = None,
+    thresholds: DriftThresholds | None = None,
+    max_tvd: float | None = None,
+    max_jsd: float | None = None,
+    max_wasserstein: float | None = None,
+    max_entropy_delta: float | None = None,
+    max_top_k_jsd: float | None = None,
+    fail_on_quality_issues: bool = True,
+    baseline_pricing: ModelPricing | None = None,
+    candidate_pricing: ModelPricing | None = None,
+) -> AuditReport:
+    """Run canonical drift, field distribution, quality, logprobs, and cost checks in one pass."""
+    _validate_optional_unit("max_tvd", max_tvd)
+    _validate_optional_unit("max_jsd", max_jsd)
+    _validate_optional_unit("max_wasserstein", max_wasserstein)
+    _validate_optional_unit("max_top_k_jsd", max_top_k_jsd)
+    if max_entropy_delta is not None and (
+        isinstance(max_entropy_delta, bool)
+        or not math.isfinite(max_entropy_delta)
+        or max_entropy_delta < 0.0
+    ):
+        raise ValueError("max_entropy_delta must be a finite non-negative number.")
+
+    engine = DriftBenchmarkEngine(thresholds=thresholds, policy=policy)
+    benchmark = engine.evaluate(
+        baseline_samples=baseline_samples,
+        candidate_samples=candidate_samples,
+        prompt_cases=prompt_cases,
+    )
+    distribution = analyze_field_distributions(
+        baseline_samples,
+        candidate_samples,
+        policy=policy,
+    )
+    quality = run_quality_checks(baseline_samples, candidate_samples)
+    logprobs = analyze_logprobs_drift(baseline_samples, candidate_samples)
+    cost = estimate_cost_drift(
+        baseline_samples,
+        candidate_samples,
+        baseline_pricing=baseline_pricing,
+        candidate_pricing=candidate_pricing,
+    )
+
+    failures: list[str] = []
+    if not benchmark.passed:
+        failures.extend(benchmark.failure_reasons)
+    if max_tvd is not None and distribution.max_tvd > max_tvd:
+        failures.append(
+            f"Distribution max_tvd ({distribution.max_tvd:.4f}) exceeded limit ({max_tvd:.4f})."
+        )
+    if max_jsd is not None and distribution.max_jsd > max_jsd:
+        failures.append(
+            f"Distribution max_jsd ({distribution.max_jsd:.4f}) exceeded limit ({max_jsd:.4f})."
+        )
+    if max_wasserstein is not None and distribution.max_normalized_wasserstein > max_wasserstein:
+        failures.append(
+            f"Distribution max_normalized_wasserstein "
+            f"({distribution.max_normalized_wasserstein:.4f}) exceeded limit "
+            f"({max_wasserstein:.4f})."
+        )
+    if fail_on_quality_issues and not quality.passed:
+        summary = ", ".join(f"{k}={v}" for k, v in quality.counts_by_check.items())
+        failures.append(
+            f"Quality regressions flagged on {quality.flagged_prompts} prompt(s) ({summary})."
+        )
+    lp_limited = max_entropy_delta is not None or max_top_k_jsd is not None
+    if lp_limited and not logprobs.complete:
+        failures.append(
+            f"Logprobs coverage incomplete ({logprobs.comparable_samples}/{logprobs.total_samples})"
+            " for configured logprobs threshold."
+        )
+    if (
+        max_entropy_delta is not None
+        and logprobs.mean_entropy_delta_bits is not None
+        and abs(logprobs.mean_entropy_delta_bits) > max_entropy_delta
+    ):
+        failures.append(
+            f"Logprobs |mean_entropy_delta_bits| ({abs(logprobs.mean_entropy_delta_bits):.4f}) "
+            f"exceeded limit ({max_entropy_delta:.4f})."
+        )
+    if (
+        max_top_k_jsd is not None
+        and logprobs.max_top_k_jsd is not None
+        and logprobs.max_top_k_jsd > max_top_k_jsd
+    ):
+        failures.append(
+            f"Logprobs max_top_k_jsd ({logprobs.max_top_k_jsd:.4f}) "
+            f"exceeded limit ({max_top_k_jsd:.4f})."
+        )
+
+    return AuditReport(
+        benchmark=benchmark,
+        distribution=distribution,
+        quality=quality,
+        logprobs=logprobs,
+        cost=cost,
+        passed=len(failures) == 0,
+        failure_reasons=tuple(failures),
+    )
+
+
+def format_audit_text(report: AuditReport) -> str:
+    """Render a concise executive text summary of an AuditReport."""
+    b = report.benchmark
+    d = report.distribution
+    q = report.quality
+    lp = report.logprobs
+    c = report.cost
+    state = "PASSED" if report.passed else "FAILED"
+    tok_line = (
+        f"{c.baseline_tokens} -> {c.candidate_tokens} ({c.token_delta:+d})"
+        if c.complete and c.token_delta is not None
+        else "n/a (incomplete explicit tokens_generated)"
+    )
+    lp_line = (
+        f"entropy delta={measurement(lp.mean_entropy_delta_bits, '+.4f')} bits, "
+        f"max top-k JSD={measurement(lp.max_top_k_jsd)}"
+        if lp.comparable_samples > 0
+        else "n/a (no logprobs metadata)"
+    )
+    lines = [
+        f"LLM Drift Bench Unified Audit [{state}]",
+        f"Models       : {b.baseline_model} -> {b.candidate_model} ({b.total_samples} prompt(s))",
+        f"Per-prompt   : {'PASS' if b.passed else 'FAIL'} | "
+        f"mean drift={b.mean_composite_drift:.4f}, max={b.max_composite_drift:.4f}, "
+        f"JSON conformity={b.candidate_json_conformity_rate:.1%}",
+        f"Distribution : max TVD={d.max_tvd:.4f}, max JSD={d.max_jsd:.4f}, "
+        f"max norm W1={d.max_normalized_wasserstein:.4f} "
+        f"({d.comparable_json_prompts} JSON prompts)",
+        f"Quality      : {'PASS' if q.passed else 'ISSUES'} "
+        f"({q.flagged_prompts}/{q.total_samples} prompts flagged)",
+        f"Logprobs     : {lp_line}",
+        f"Token volume : {tok_line}",
+    ]
+    if report.failure_reasons:
+        lines.append("")
+        lines.append("Failure reasons:")
+        for reason in report.failure_reasons:
+            lines.append(f"  - {reason}")
+    return "\n".join(lines) + "\n"
+
+
+def format_audit_markdown(report: AuditReport) -> str:
+    """Render a GitHub-Flavored Markdown summary of an AuditReport."""
+    b = report.benchmark
+    d = report.distribution
+    q = report.quality
+    lp = report.logprobs
+    c = report.cost
+    state = "PASSED" if report.passed else "FAILED"
+    tok_val = (
+        f"{c.baseline_tokens} -> {c.candidate_tokens} ({c.token_delta:+d})"
+        if c.complete and c.token_delta is not None
+        else "n/a"
+    )
+    lp_val = (
+        f"dH={measurement(lp.mean_entropy_delta_bits, '+.4f')}b, "
+        f"max JSD={measurement(lp.max_top_k_jsd)}"
+        if lp.comparable_samples > 0
+        else "n/a"
+    )
+    lines = [
+        f"# Unified Drift Audit: {state}",
+        "",
+        f"Baseline: `{markdown_cell(b.baseline_model)}` | "
+        f"Candidate: `{markdown_cell(b.candidate_model)}` | Samples: {b.total_samples}",
+        "",
+        "| Check | Status | Key Metrics |",
+        "| --- | --- | --- |",
+        f"| Per-prompt drift | {'PASS' if b.passed else 'FAIL'} | "
+        f"mean={b.mean_composite_drift:.4f}, max={b.max_composite_drift:.4f}, "
+        f"conformity={b.candidate_json_conformity_rate:.1%} |",
+        f"| Field distribution | INFO | max TVD={d.max_tvd:.4f}, max JSD={d.max_jsd:.4f}, "
+        f"max norm W1={d.max_normalized_wasserstein:.4f} |",
+        f"| Quality checks | {'PASS' if q.passed else 'FAIL'} | "
+        f"{q.flagged_prompts}/{q.total_samples} prompt(s) flagged |",
+        f"| Token logprobs | {'COMPLETE' if lp.complete else 'N/A'} | {lp_val} |",
+        f"| Token volume | {'COMPLETE' if c.complete else 'N/A'} | {tok_val} |",
+    ]
+    if report.failure_reasons:
+        lines += ["", "## Failure reasons", ""]
+        lines.extend(f"- {markdown_cell(r)}" for r in report.failure_reasons)
+    if q.findings:
+        lines += [
+            "",
+            "## Quality findings",
+            "",
+            "| Prompt ID | Check | Severity | Detail |",
+            "| --- | --- | --- | --- |",
+        ]
+        for finding in q.findings:
+            lines.append(
+                "| "
+                + " | ".join(
+                    (
+                        markdown_cell(finding.prompt_id),
+                        markdown_cell(finding.check),
+                        markdown_cell(finding.severity),
+                        markdown_cell(finding.detail),
+                    )
+                )
+                + " |"
+            )
+    return "\n".join(lines) + "\n"
+
+
+def export_audit_html(
+    report: AuditReport,
+    output_path: str | Path | None = None,
+) -> str:
+    """Export a standalone, script-free offline HTML executive audit dashboard."""
+    b = report.benchmark
+    d = report.distribution
+    q = report.quality
+    lp = report.logprobs
+    c = report.cost
+    state = "PASSED" if report.passed else "FAILED"
+    accent = "#6ee7b7" if report.passed else "#fda4af"
+
+    prompt_rows = "".join(
+        "<tr>"
+        f"<td>{escape(item.prompt_id)}</td>"
+        f"<td>{escape(item.category)}</td>"
+        f"<td>{'YES' if item.candidate_validation.passed else 'NO'}</td>"
+        f"<td>{item.composite_drift_score:.4f}</td>"
+        f"<td>{'DRIFT' if item.drifted else 'OK'}</td>"
+        "</tr>"
+        for item in b.results
+    )
+    qual_rows = "".join(
+        "<tr>"
+        f"<td>{escape(f.prompt_id)}</td>"
+        f"<td>{escape(f.check)}</td>"
+        f"<td>{escape(f.severity)}</td>"
+        f"<td>{escape(f.detail)}</td>"
+        "</tr>"
+        for f in q.findings
+    )
+    qual_section = (
+        "<h2>Quality Regressions</h2><div class='scroll'><table><thead><tr>"
+        "<th>Prompt ID</th><th>Check</th><th>Severity</th><th>Detail</th>"
+        f"</tr></thead><tbody>{qual_rows}</tbody></table></div>"
+        if qual_rows
+        else (
+            "<h2>Quality Regressions</h2>"
+            "<p class='muted'>No loops, refusal flips, or length anomalies.</p>"
+        )
+    )
+    failure_html = (
+        "<h2>Failure Reasons</h2><ul>"
+        + "".join(f"<li>{escape(reason)}</li>" for reason in report.failure_reasons)
+        + "</ul>"
+        if report.failure_reasons
+        else ""
+    )
+    tok_card = (
+        f"{c.baseline_tokens} &rarr; {c.candidate_tokens} ({c.token_delta:+d})"
+        if c.complete and c.token_delta is not None
+        else "n/a"
+    )
+    lp_card = (
+        f"{measurement(lp.mean_entropy_delta_bits, '+.3f')}b / "
+        f"JSD {measurement(lp.max_top_k_jsd, '.3f')}"
+        if lp.comparable_samples > 0
+        else "n/a"
+    )
+
+    html = f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<title>LLM Drift Bench Unified Audit: {state}</title>
+<style>
+:root{{color-scheme:dark}}body{{margin:0;background:#0b1220;color:#e8eef8;
+font:16px/1.6 system-ui,sans-serif}}main{{max-width:1100px;margin:auto;padding:40px 24px}}
+h1{{font-size:2rem;line-height:1.2}}h2{{margin-top:32px}}.status{{font-weight:700;color:{accent}}}
+.cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+gap:14px;margin:24px 0}}
+.card{{background:#111e32;border:1px solid #30405a;border-radius:8px;padding:14px}}
+.card .label{{font-size:.82rem;color:#a8bad2}}.card .val{{font-size:1.25rem;font-weight:700}}
+.scroll{{overflow-x:auto}}table{{border-collapse:collapse;width:100%;background:#111e32}}
+th,td{{padding:10px 12px;border-bottom:1px solid #30405a;text-align:left}}th{{color:#7dd3fc}}
+td{{white-space:pre-wrap;overflow-wrap:anywhere}}.muted{{color:#a8bad2}}
+</style></head><body><main>
+<p class="muted">llm-drift-bench / unified offline audit</p>
+<h1>Audit Verdict: <span class="status">{state}</span></h1>
+<p>Baseline: {escape(b.baseline_model)} &rarr; Candidate: {escape(b.candidate_model)}
+ ({b.total_samples} prompt(s))</p>
+<div class="cards">
+  <div class="card"><div class="label">Mean Composite Drift</div>
+    <div class="val">{b.mean_composite_drift:.4f}</div></div>
+  <div class="card"><div class="label">JSON Conformity</div>
+    <div class="val">{b.candidate_json_conformity_rate:.1%}</div></div>
+  <div class="card"><div class="label">Max Dist TVD / W1</div>
+    <div class="val">{d.max_tvd:.3f} / {d.max_normalized_wasserstein:.3f}</div></div>
+  <div class="card"><div class="label">Quality Flagged</div>
+    <div class="val">{q.flagged_prompts} / {q.total_samples}</div></div>
+  <div class="card"><div class="label">Logprobs dH / JSD</div>
+    <div class="val">{lp_card}</div></div>
+  <div class="card"><div class="label">Output Tokens</div>
+    <div class="val">{tok_card}</div></div>
+</div>
+{failure_html}
+<h2>Per-Prompt Drift</h2>
+<div class="scroll"><table><thead><tr>
+<th>Prompt ID</th><th>Category</th><th>Schema OK</th><th>Drift</th><th>State</th>
+</tr></thead><tbody>{prompt_rows}</tbody></table></div>
+{qual_section}
+</main></body></html>
+"""
+    if output_path is not None:
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(html, encoding="utf-8")
+    return html
