@@ -222,3 +222,88 @@ def test_numeric_prose_nested_fences_null_bytes_and_dup_suite() -> None:
         score_captures(samples, samples, prompt_cases=dups)
 
 
+def test_scorers_edge_cases_entry_points_and_error_guards(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import importlib.metadata
+
+    from llm_drift_bench.scorers import (
+        _cosine_counter,
+        json_key_jaccard_similarity,
+        numeric_prose_similarity,
+    )
+
+    # Cosine helper zero/empty vector guards
+    assert _cosine_counter({}, {}) == 1.0
+    assert _cosine_counter({"a": 1.0}, {}) == 0.0
+    assert _cosine_counter({"a": 0.0}, {"a": 1.0}) == 0.0
+
+    # TF-IDF when one or both inputs contain only whitespace (empty token lists)
+    assert tfidf_cosine_similarity(" ", "\t\n") == 1.0
+    assert tfidf_cosine_similarity("hello world", "   ") == 0.0
+
+    # Short inputs (< n) fall back to single-character cosine cleanly
+    assert char_ngram_cosine_similarity("ab", "ac", n=3) == pytest.approx(0.5)
+
+    # Empty Python source, Markdown ordered lists, empty JSON objects, and numeric zeros
+    assert python_ast_similarity("   ", "x = 1") is None
+    assert markdown_structure_similarity("1. First\n2. Second\n", "1) One\n2) Two\n") == 1.0
+    assert json_key_jaccard_similarity("{}", "{}") == 1.0
+    assert numeric_prose_similarity("Balance: 0.00", "Balance: -0") == 1.0
+
+    # Duplicate capture IDs rejected; matched prompt_cases pass through cleanly
+    s1 = ModelSample(prompt_id="p1", output='{"a": 1}')
+    with pytest.raises(ValueError, match="duplicate prompt_id"):
+        score_captures([s1, s1], [s1])
+
+    out = score_captures(
+        [s1],
+        [s1],
+        scorer_names=["json_key_jaccard"],
+        prompt_cases=[PromptCase(prompt_id="p1", prompt="Extract")],
+    )
+    assert out["summary"]["json_key_jaccard"]["mean"] == 1.0
+
+    # Invalid empty scorer name rejected
+    class _BlankNameScorer:
+        name = "   "
+
+        def score(
+            self, baseline: str, candidate: str, *, prompt: PromptCase | None = None
+        ) -> ScorerResult:
+            del baseline, candidate, prompt
+            return ScorerResult("blank", 1.0)
+
+    with pytest.raises(ValueError, match="non-empty string"):
+        register_scorer(_BlankNameScorer())
+
+    # Third-party entry-point discovery in list_scorers() and get_scorer()
+    class _PluginScorer:
+        name = "ep_plugin_scorer"
+
+        def score(
+            self, baseline: str, candidate: str, *, prompt: PromptCase | None = None
+        ) -> ScorerResult:
+            del prompt
+            return ScorerResult(self.name, 1.0 if baseline == candidate else 0.0)
+
+    class _FakeEntryPoint:
+        name = "ep_plugin_scorer"
+
+        def load(self) -> type[_PluginScorer]:
+            return _PluginScorer
+
+    monkeypatch.setattr(
+        importlib.metadata,
+        "entry_points",
+        lambda *, group="": [_FakeEntryPoint()] if group == "llm_drift_bench.scorers" else [],
+    )
+    try:
+        assert "ep_plugin_scorer" in list_scorers()
+        loaded = get_scorer("ep_plugin_scorer")
+        assert loaded.score("hi", "hi").similarity == 1.0
+    finally:
+        _SCORER_REGISTRY.pop("ep_plugin_scorer", None)
+
+
+
