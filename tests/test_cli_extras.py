@@ -1020,5 +1020,212 @@ def test_cli_init_sample_pack_audit_and_check_formats(
     assert "FAILED" in capsys.readouterr().out
 
 
+def test_cli_extras_text_outputs_stdout_modes_and_error_guards(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # subsample stdout (no -o)
+    assert main(["subsample", "-s", str(EXAMPLES / "extraction-suite.json"), "--size", "1"]) == 0
+    assert len(json.loads(capsys.readouterr().out)) == 1
+
+    # cost text mode with explicit prices + budget check text output
+    b_tok = tmp_path / "b_tok.jsonl"
+    c_tok = tmp_path / "c_tok.jsonl"
+    b_tok.write_text(
+        json.dumps({"prompt_id": "p1", "model_name": "b", "output": "x", "tokens_generated": 100})
+        + "\n",
+        encoding="utf-8",
+    )
+    c_tok.write_text(
+        json.dumps({"prompt_id": "p1", "model_name": "c", "output": "x", "tokens_generated": 150})
+        + "\n",
+        encoding="utf-8",
+    )
+    assert (
+        main(
+            [
+                "cost",
+                "-b",
+                str(b_tok),
+                "-c",
+                str(c_tok),
+                "--baseline-price",
+                "2.0",
+                "--candidate-price",
+                "2.0",
+                "--max-token-increase-pct",
+                "10",
+            ]
+        )
+        == 1
+    )
+    cost_txt = capsys.readouterr().out
+    assert "Output tokens" in cost_txt and "Output cost" in cost_txt and "FAIL" in cost_txt
+
+    # snapshot missing sub-action returns input error (2)
+    assert main(["snapshot"]) == 2
+    _ = capsys.readouterr()
+
+    # badge stdout mode (no -o)
+    assert main(["badge", "-i", str(EXAMPLES / "expected-pass.json")]) == 0
+    assert capsys.readouterr().out.startswith("<svg ")
+
+    # import-captures text mode for openai-batch and anthropic-batch
+    oa_in = tmp_path / "oa.jsonl"
+    oa_in.write_text(
+        json.dumps(
+            {
+                "custom_id": "p1",
+                "response": {
+                    "status_code": 200,
+                    "body": {"choices": [{"message": {"content": "ok"}}]},
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    oa_out = tmp_path / "oa_out.jsonl"
+    assert (
+        main(
+            ["import-captures", "--from", "openai-batch", "-i", str(oa_in), "-o", str(oa_out)]
+        )
+        == 0
+    )
+    assert "Imported 1 sample(s)" in capsys.readouterr().out
+
+    ant_in = tmp_path / "ant.jsonl"
+    ant_in.write_text(
+        json.dumps(
+            {
+                "custom_id": "p1",
+                "result": {
+                    "type": "succeeded",
+                    "message": {"content": [{"type": "text", "text": "ok"}]},
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    ant_out = tmp_path / "ant_out.jsonl"
+    assert (
+        main(
+            [
+                "import-captures",
+                "--from",
+                "anthropic-batch",
+                "-i",
+                str(ant_in),
+                "-o",
+                str(ant_out),
+            ]
+        )
+        == 0
+    )
+    assert "anthropic-batch" in capsys.readouterr().out
+
+    # distribution markdown, text failure, and out-of-range limit error
+    assert (
+        main(
+            [
+                "distribution",
+                "-b",
+                str(EXAMPLES / "baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "candidate-drift.jsonl"),
+                "--format",
+                "markdown",
+            ]
+        )
+        == 0
+    )
+    assert "# Cross-Prompt JSON Field Distribution Drift" in capsys.readouterr().out
+
+    assert (
+        main(
+            [
+                "distribution",
+                "-b",
+                str(EXAMPLES / "baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "candidate-drift.jsonl"),
+                "--max-wasserstein",
+                "0.01",
+            ]
+        )
+        == 1
+    )
+    assert "Threshold failures:" in capsys.readouterr().out
+
+    assert (
+        main(
+            [
+                "distribution",
+                "-b",
+                str(EXAMPLES / "baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "candidate-drift.jsonl"),
+                "--max-tvd",
+                "2.0",
+            ]
+        )
+        == 2
+    )
+    _ = capsys.readouterr()
+
+    # logprobs invalid negative entropy delta
+    assert (
+        main(
+            [
+                "logprobs",
+                "-b",
+                str(EXAMPLES / "baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "candidate-pass.jsonl"),
+                "--max-entropy-delta",
+                "-1.0",
+            ]
+        )
+        == 2
+    )
+    _ = capsys.readouterr()
+
+    # audit markdown and text stdout outputs
+    assert (
+        main(
+            [
+                "audit",
+                "-s",
+                str(EXAMPLES / "extraction-suite.json"),
+                "-b",
+                str(EXAMPLES / "baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "candidate-pass.jsonl"),
+                "--format",
+                "markdown",
+            ]
+        )
+        == 0
+    )
+    assert "# Unified Drift Audit: PASSED" in capsys.readouterr().out
+
+    assert (
+        main(
+            [
+                "audit",
+                "-s",
+                str(EXAMPLES / "extraction-suite.json"),
+                "-b",
+                str(EXAMPLES / "baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "candidate-pass.jsonl"),
+            ]
+        )
+        == 0
+    )
+    assert "LLM Drift Bench Unified Audit [PASSED]" in capsys.readouterr().out
+
+
+
 
 
