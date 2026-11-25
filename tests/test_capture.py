@@ -483,5 +483,158 @@ def test_capture_rejects_duplicates_handles_multipart_content_and_top_logprobs()
     assert len(lp[0]["top_logprobs"]) == 2
 
 
+def test_capture_config_url_variants_and_validation_edge_cases() -> None:
+    assert (
+        CaptureConfig(
+            endpoint="https://api.anthropic.com/v1/messages",
+            model="claude",
+            provider="anthropic",
+        ).chat_completions_url
+        == "https://api.anthropic.com/v1/messages"
+    )
+    assert (
+        CaptureConfig(
+            endpoint="https://api.anthropic.com",
+            model="claude",
+            provider="anthropic",
+        ).chat_completions_url
+        == "https://api.anthropic.com/v1/messages"
+    )
+    assert (
+        CaptureConfig(
+            endpoint="https://generativelanguage.googleapis.com/v1beta/models/g:generateContent",
+            model="models/g",
+            provider="gemini",
+        ).chat_completions_url
+        == "https://generativelanguage.googleapis.com/v1beta/models/g:generateContent"
+    )
+    assert (
+        CaptureConfig(
+            endpoint="https://generativelanguage.googleapis.com/v1beta",
+            model="models/gemini-2.5-flash",
+            provider="gemini",
+        ).chat_completions_url
+        == "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    )
+
+    with pytest.raises(ValueError, match="model must be"):
+        CaptureConfig(endpoint="http://localhost:8000/v1", model="   ")
+    with pytest.raises(ValueError, match="temperature"):
+        CaptureConfig(endpoint="http://localhost:8000/v1", model="m", temperature=-0.1)
+    with pytest.raises(ValueError, match="max_tokens"):
+        CaptureConfig(endpoint="http://localhost:8000/v1", model="m", max_tokens=0)
+    with pytest.raises(ValueError, match="json_mode"):
+        CaptureConfig(endpoint="http://localhost:8000/v1", model="m", json_mode="yes")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="concurrency"):
+        CaptureConfig(endpoint="http://localhost:8000/v1", model="m", concurrency=0)
+    with pytest.raises(ValueError, match="provider"):
+        CaptureConfig(endpoint="http://localhost:8000/v1", model="m", provider="other")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="extra_headers"):
+        CaptureConfig(endpoint="http://localhost:8000/v1", model="m", extra_headers=(("", "v"),))
+    with pytest.raises(ValueError, match="CR or LF"):
+        CaptureConfig(
+            endpoint="http://localhost:8000/v1", model="m", extra_headers=(("X-Test", "a\nb"),)
+        )
+    with pytest.raises(ValueError, match="syntax"):
+        parse_header_spec("NoSeparatorHeader")
+    with pytest.raises(ValueError, match="cannot be empty"):
+        parse_header_spec(": value")
+
+
+def test_default_transport_and_extract_completion_error_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from llm_drift_bench.capture import (
+        _default_transport,
+        _extract_completion,
+        _retry_after_delay,
+    )
+    from llm_drift_bench.models import ModelSample
+
+    class _FakeResp:
+        def __init__(self, raw: bytes) -> None:
+            self._raw = raw
+
+        def __enter__(self) -> _FakeResp:
+            return self
+
+        def __exit__(self, *_: Any) -> None:
+            return None
+
+        def read(self, limit: int) -> bytes:
+            return self._raw[:limit]
+
+    monkeypatch.setattr(
+        "urllib.request.urlopen", lambda req, timeout: _FakeResp(b'{"ok": true}')
+    )
+    assert _default_transport("http://localhost/v1", {"a": 1}, {}, 5.0) == {"ok": True}
+
+    monkeypatch.setattr("llm_drift_bench.capture.MAX_INPUT_BYTES", 8)
+    monkeypatch.setattr(
+        "urllib.request.urlopen", lambda req, timeout: _FakeResp(b'{"too_big": 12345}')
+    )
+    with pytest.raises(ValueError, match="limit"):
+        _default_transport("http://localhost/v1", {}, {}, 5.0)
+
+    monkeypatch.setattr("llm_drift_bench.capture.MAX_INPUT_BYTES", 1024)
+    monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout: _FakeResp(b"\xff\xfe"))
+    with pytest.raises(ValueError, match="UTF-8"):
+        _default_transport("http://localhost/v1", {}, {}, 5.0)
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout: _FakeResp(b"{bad"))
+    with pytest.raises(ValueError, match="valid JSON"):
+        _default_transport("http://localhost/v1", {}, {}, 5.0)
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout: _FakeResp(b"[1, 2]"))
+    with pytest.raises(ValueError, match="JSON object"):
+        _default_transport("http://localhost/v1", {}, {}, 5.0)
+
+    # Provider extraction error branches
+    with pytest.raises(ValueError, match="Anthropic response is missing"):
+        _extract_completion({}, provider="anthropic")
+    with pytest.raises(ValueError, match="no text blocks"):
+        _extract_completion({"content": [{"type": "tool_use"}]}, provider="anthropic")
+    with pytest.raises(ValueError, match="missing non-empty 'candidates'"):
+        _extract_completion({}, provider="gemini")
+    with pytest.raises(ValueError, match="candidate entry"):
+        _extract_completion({"candidates": ["bad"]}, provider="gemini")
+    with pytest.raises(ValueError, match="content.parts"):
+        _extract_completion({"candidates": [{}]}, provider="gemini")
+    with pytest.raises(ValueError, match="no text blocks"):
+        _extract_completion({"candidates": [{"content": {"parts": [{}]}}]}, provider="gemini")
+    with pytest.raises(ValueError, match="choice entry"):
+        _extract_completion({"choices": ["bad"]}, provider="openai")
+    with pytest.raises(ValueError, match="missing string 'message.content'"):
+        _extract_completion({"choices": [{"message": {"content": 123}}]}, provider="openai")
+    with pytest.raises(ValueError, match="no text blocks"):
+        _extract_completion(
+            {"choices": [{"message": {"content": [{"type": "image"}]}}]}, provider="openai"
+        )
+
+    # Invalid Retry-After falls back to default delay
+    err = urllib.error.HTTPError(
+        "http://x", 429, "Too Many", hdrs={"Retry-After": "not-a-number"}, fp=io.BytesIO(b"")  # type: ignore[arg-type]
+    )
+    assert _retry_after_delay(err, 2.5) == 2.5
+
+    # Existing samples mismatch and complete resume short-circuit
+    cfg = CaptureConfig(endpoint="http://localhost:8000/v1", model="m1", max_tokens=64)
+    prompts = [PromptCase(prompt_id="p1", prompt="hi")]
+    with pytest.raises(ValueError, match="belongs to model"):
+        capture_suite(
+            prompts,
+            cfg,
+            existing_samples=[ModelSample(prompt_id="p1", output="a", model_name="other")],
+        )
+    reused = capture_suite(
+        prompts,
+        cfg,
+        existing_samples=[ModelSample(prompt_id="p1", output="cached", model_name="m1")],
+        transport=lambda *_: (_ for _ in ()).throw(AssertionError("should not call transport")),
+    )
+    assert reused[0].output == "cached"
+
+
+
 
 
