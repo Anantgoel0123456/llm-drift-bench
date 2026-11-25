@@ -285,6 +285,33 @@ else:
             cwd=root, env=env, check=True, capture_output=True, text=True,
         )
         assert json.loads(qual_out.stdout)["passed"] is True
+        pack_dir = root / "pack_extraction"
+        subprocess.run(
+            [str(cli), "init-sample", "--dir", str(pack_dir), "--pack", "extraction"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        audit_out = subprocess.run(
+            [
+                str(cli), "audit",
+                "-s", str(pack_dir / "prompts.json"),
+                "-b", str(pack_dir / "baseline.jsonl"),
+                "-c", str(pack_dir / "candidate-pass.jsonl"),
+                "--config", str(pack_dir / "drift.toml"),
+                "--format", "json",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(audit_out.stdout)["passed"] is True
+        fmt_out = subprocess.run(
+            [
+                str(cli), "check-formats",
+                "-i", str(pack_dir / "baseline.jsonl"),
+                "--rule", "$.currency=iso-currency",
+                "--format", "json",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(fmt_out.stdout)["passed"] is True
     print(f"Installed artifact checks passed: {artifact.name}")
 
 
