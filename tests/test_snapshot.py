@@ -86,3 +86,72 @@ def test_snapshot_rejects_path_traversal_and_outside_base_dir(tmp_path: Path) ->
 
     with pytest.raises(ValueError, match="Unsupported snapshot manifest version"):
         SnapshotManifest.from_dict({"version": True})
+
+
+def test_snapshot_validation_base_dir_and_prompt_id_digest_mismatch(tmp_path: Path) -> None:
+    from llm_drift_bench.snapshot import SnapshotArtifact
+
+    with pytest.raises(ValueError, match="non-empty string 'role'"):
+        SnapshotArtifact.from_dict(
+            {"role": "", "path": "a.jsonl", "sha256": "a" * 64, "size_bytes": 1}
+        )
+    with pytest.raises(ValueError, match="relative POSIX path"):
+        SnapshotArtifact.from_dict(
+            {"role": "baseline", "path": "a\\b.jsonl", "sha256": "a" * 64, "size_bytes": 1}
+        )
+    with pytest.raises(ValueError, match="invalid sha256"):
+        SnapshotArtifact.from_dict(
+            {"role": "baseline", "path": "a.jsonl", "sha256": "not-hex", "size_bytes": 1}
+        )
+    with pytest.raises(ValueError, match="size_bytes"):
+        SnapshotArtifact.from_dict(
+            {"role": "baseline", "path": "a.jsonl", "sha256": "a" * 64, "size_bytes": -1}
+        )
+
+    valid_base = {
+        "version": 1,
+        "created_at": "2026-11-25T00:00:00Z",
+        "tool_version": "0.3.0",
+        "baseline_model": "m",
+        "sample_count": 1,
+        "prompt_ids_sha256": "a" * 64,
+        "artifacts": [
+            {"role": "baseline", "path": "a.jsonl", "sha256": "a" * 64, "size_bytes": 1}
+        ],
+    }
+    with pytest.raises(ValueError, match="missing non-empty string"):
+        SnapshotManifest.from_dict({**valid_base, "baseline_model": ""})
+    with pytest.raises(ValueError, match="sample_count"):
+        SnapshotManifest.from_dict({**valid_base, "sample_count": 0})
+    with pytest.raises(ValueError, match="non-empty 'artifacts'"):
+        SnapshotManifest.from_dict({**valid_base, "artifacts": []})
+
+    # Mixed models in baseline are rejected
+    mixed = tmp_path / "mixed.jsonl"
+    mixed.write_text(
+        json.dumps({"prompt_id": "p1", "model_name": "m1", "output": "a"}) + "\n"
+        + json.dumps({"prompt_id": "p2", "model_name": "m2", "output": "b"}) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="mixes multiple model names"):
+        create_snapshot_manifest(mixed)
+
+    # Explicit base_dir without output_path, plus prompt_ids_sha256 mismatch detection
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    shutil.copy2(EXAMPLES / "baseline.jsonl", sub / "baseline.jsonl")
+    manifest = create_snapshot_manifest(sub / "baseline.jsonl", base_dir=tmp_path)
+    assert manifest.artifacts[0].path == "sub/baseline.jsonl"
+
+    tampered_meta = manifest.to_dict()
+    tampered_meta["prompt_ids_sha256"] = "0" * 64
+    meta_file = tmp_path / "bad_ids.json"
+    meta_file.write_text(json.dumps(tampered_meta), encoding="utf-8")
+    ver = verify_snapshot_manifest(meta_file, base_dir=tmp_path)
+    assert ver.valid is False and "prompt ID digest" in ver.mismatches[0]
+
+    non_obj = tmp_path / "list.json"
+    non_obj.write_text("[1, 2]", encoding="utf-8")
+    with pytest.raises(ValueError, match="JSON object"):
+        verify_snapshot_manifest(non_obj)
+
