@@ -299,4 +299,23 @@ def test_segmented_distribution_isolates_single_route_shift_before_totals(tmp_pa
         analyze_segmented_distributions(base, cand, group_by="unknown")
     with pytest.raises(ValueError, match="non-empty metadata key"):
         analyze_segmented_distributions(base, cand, group_by="metadata:")
+    with pytest.raises(ValueError, match="category"):
+        analyze_segmented_distributions(base, cand, group_by="   ")
+    with pytest.raises(ValueError, match="non-empty"):
+        analyze_segmented_distributions([], cand, group_by="category")
+    with pytest.raises(ValueError, match="cannot be empty"):
+        analyze_segmented_distributions(base, cand, group_by="category", prompt_cases=[])
+
+    # Category from sample.metadata without prompt_cases & metadata fallback to prompt_cases
+    m_base = [ModelSample(prompt_id="p1", output='{"a": "x"}', metadata={"category": "billing"})]
+    m_cand = [ModelSample(prompt_id="p1", output='{"a": "x"}', metadata={"category": "billing"})]
+    by_meta_cat = analyze_segmented_distributions(m_base, m_cand, group_by="category")
+    assert "billing" in by_meta_cat.segments
+
+    c_cases = [PromptCase(prompt_id="p1", prompt="hi", metadata={"tenant": "acme"})]
+    by_case_meta = analyze_segmented_distributions(
+        m_base, m_cand, group_by="metadata:tenant", prompt_cases=c_cases
+    )
+    assert "acme" in by_case_meta.segments
+
 

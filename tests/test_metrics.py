@@ -200,3 +200,20 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(len(flat), 1)
         self.assertEqual(next(iter(flat.values())), 42)
 
+    def test_metrics_boundary_and_error_branches(self) -> None:
+        self.assertEqual(jaccard_similarity("", "hello"), 0.0)
+        self.assertEqual(ngram_overlap_similarity("", "hello"), 0.0)
+        self.assertEqual(json_structural_similarity({}, {}), 1.0)
+        self.assertEqual(json_structural_similarity({}, {"a": 1}), 0.0)
+        self.assertEqual(json_exact_field_match({}, {}), 1.0)
+        self.assertEqual(json_numeric_drift({"x": -10.0}, {"x": 10.0}), 1.0)
+        self.assertEqual(compute_percentile([-10.0, 10.0], 50.0), 0.0)
+        with self.assertRaises(ValueError):
+            compute_composite_drift_score(
+                token_jaccard=1.0,
+                ngram_sim=1.0,
+                levenshtein_sim=1.0,
+                json_num_drift=2.0,
+            )
+
+

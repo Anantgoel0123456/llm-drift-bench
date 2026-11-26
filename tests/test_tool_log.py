@@ -193,3 +193,22 @@ def test_jsonl_resource_can_contain_unicode_paragraph_separator() -> None:
     resource = "guide\u2029revision"
     text = json.dumps({"kind": "edit", "resource": resource}, ensure_ascii=False)
     assert parse_tool_events(text)[0].resource == resource
+
+
+def test_tool_log_error_guards_and_file_context(tmp_path: Path) -> None:
+    from llm_drift_bench.tool_log import _event_from_record, load_tool_events
+
+    bad_trace = tmp_path / "empty_trace.jsonl"
+    bad_trace.write_text("", encoding="utf-8")
+    with pytest.raises(ValueError, match="empty_trace.jsonl"):
+        load_tool_events(bad_trace)
+
+    with pytest.raises(ValueError, match="sequence is required"):
+        _event_from_record({"kind": "read", "resource": "r@1"}, "pos 1", None)
+
+    res = ToolCheckResult("FAIL", "bad", 0, 10, 1)
+    with pytest.raises(ValueError, match="non-negative integer"):
+        ToolCheckRecord("r", -1, 10, True, res)
+    with pytest.raises(ValueError, match="boolean"):
+        ToolCheckRecord("r", 0, 10, "yes", res)  # type: ignore[arg-type]
+
