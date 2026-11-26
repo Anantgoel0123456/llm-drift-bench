@@ -44,10 +44,12 @@ def test_full_audit_passes_clean_pack_and_fails_drifted_pack(tmp_path: Path) -> 
         prompt_cases=pack.prompts,
         policy=policy,
         max_tvd=0.1,
+        max_jsd=0.05,
         max_wasserstein=0.1,
     )
     assert bad_audit.passed is False
     assert any("Distribution max_tvd" in r for r in bad_audit.failure_reasons)
+    assert any("Distribution max_jsd" in r for r in bad_audit.failure_reasons)
     assert bad_audit.to_dict()["passed"] is False
 
     html_out = tmp_path / "audit.html"
@@ -170,4 +172,62 @@ def test_full_audit_segmented_widespread_and_consumer_integration() -> None:
     assert "Downstream consumer" in format_audit_markdown(rep)
     as_dict = rep.to_dict()
     assert "segmented_distribution" in as_dict and "consumer" in as_dict
+
+
+def test_full_audit_embedding_and_conversation_integration(tmp_path: Path) -> None:
+    from llm_drift_bench.conversation import (
+        ConversationRecord,
+        ConversationTurn,
+        analyze_conversation_drift,
+    )
+    from llm_drift_bench.embeddings import compare_embedding_vectors
+
+    samples = [ModelSample(prompt_id="p1", output='{"ok": true}', model_name="m1")]
+    emb_fail = compare_embedding_vectors(
+        {"p1": [1.0, 0.0]},
+        {"p1": [0.0, 1.0]},
+        min_mean_similarity=0.85,
+    )
+    conv_fail = analyze_conversation_drift(
+        [
+            ConversationRecord(
+                "c1",
+                (
+                    ConversationTurn("user", "hi"),
+                    ConversationTurn("assistant", '{"ok": true}'),
+                ),
+            )
+        ],
+        [
+            ConversationRecord(
+                "c1",
+                (
+                    ConversationTurn("user", "hi"),
+                    ConversationTurn("assistant", "I'm sorry, I cannot assist with that."),
+                ),
+            )
+        ],
+    )
+    rep = run_full_audit(
+        samples,
+        samples,
+        embedding_report=emb_fail,
+        conversation_report=conv_fail,
+    )
+    assert rep.passed is False
+    assert rep.embeddings is emb_fail and rep.conversations is conv_fail
+    assert any("cosine similarity" in r for r in rep.failure_reasons)
+    assert any("Refusal flip" in r or "exceeded trajectory drift" in r for r in rep.failure_reasons)
+
+    txt = format_audit_text(rep)
+    assert "Embeddings   : FAIL" in txt and "Conversations: FAIL" in txt
+    md = format_audit_markdown(rep)
+    assert "| Embedding similarity | FAIL |" in md
+    assert "| Multi-turn conversations | FAIL |" in md
+    html = export_audit_html(rep, tmp_path / "full.html")
+    assert "Embedding Mean Cos" in html and "Multi-Turn Conversations" in html
+    assert "<script" not in html.lower()
+    payload = rep.to_dict()
+    assert "embeddings" in payload and "conversations" in payload
+
 

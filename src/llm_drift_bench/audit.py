@@ -11,6 +11,7 @@ from typing import Any
 
 from llm_drift_bench._report_views import markdown_cell, measurement
 from llm_drift_bench.consumer import ConsumerComparison
+from llm_drift_bench.conversation import ConversationDriftReport
 from llm_drift_bench.cost import CostComparison, ModelPricing, estimate_cost_drift
 from llm_drift_bench.distribution import (
     DistributionReport,
@@ -18,6 +19,7 @@ from llm_drift_bench.distribution import (
     analyze_field_distributions,
     analyze_segmented_distributions,
 )
+from llm_drift_bench.embeddings import EmbeddingDriftReport
 from llm_drift_bench.engine import DriftBenchmarkEngine
 from llm_drift_bench.logprobs import LogprobDriftSummary, analyze_logprobs_drift
 from llm_drift_bench.models import (
@@ -50,6 +52,8 @@ class AuditReport:
     failure_reasons: tuple[str, ...]
     segmented_distribution: SegmentedDistributionReport | None = None
     consumer: ConsumerComparison | None = None
+    embeddings: EmbeddingDriftReport | None = None
+    conversations: ConversationDriftReport | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -65,6 +69,10 @@ class AuditReport:
             payload["segmented_distribution"] = self.segmented_distribution.to_dict()
         if self.consumer is not None:
             payload["consumer"] = self.consumer.to_dict()
+        if self.embeddings is not None:
+            payload["embeddings"] = self.embeddings.to_dict()
+        if self.conversations is not None:
+            payload["conversations"] = self.conversations.to_dict()
         return payload
 
 
@@ -87,6 +95,8 @@ def run_full_audit(
     shift_threshold: float = 0.10,
     fail_on_widespread_shift: bool = False,
     consumer_comparison: ConsumerComparison | None = None,
+    embedding_report: EmbeddingDriftReport | None = None,
+    conversation_report: ConversationDriftReport | None = None,
 ) -> AuditReport:
     """Run canonical drift, field distribution, quality, logprobs, and cost checks in one pass."""
     _validate_optional_unit("max_tvd", max_tvd)
@@ -192,6 +202,16 @@ def run_full_audit(
             consumer_comparison.failure_reasons
             or ("Downstream consumer validation check failed.",)
         )
+    if embedding_report is not None and not embedding_report.passed:
+        failures.extend(
+            embedding_report.failure_reasons
+            or ("Embedding similarity drift check failed.",)
+        )
+    if conversation_report is not None and not conversation_report.passed:
+        failures.extend(
+            conversation_report.failure_reasons
+            or ("Multi-turn conversation trajectory check failed.",)
+        )
 
     return AuditReport(
         benchmark=benchmark,
@@ -203,6 +223,8 @@ def run_full_audit(
         failure_reasons=tuple(failures),
         segmented_distribution=segmented,
         consumer=consumer_comparison,
+        embeddings=embedding_report,
+        conversations=conversation_report,
     )
 
 
@@ -252,6 +274,22 @@ def format_audit_text(report: AuditReport) -> str:
             f"Consumer     : {'PASS' if cons.passed else 'FAIL'} | "
             f"rejected {cons.baseline_rejection_rate:.1%} -> {cons.candidate_rejection_rate:.1%} "
             f"({cons.rejection_rate_delta:+.1%})"
+        )
+    if report.embeddings is not None:
+        emb = report.embeddings
+        lines.append(
+            f"Embeddings   : {'PASS' if emb.passed else 'FAIL'} | "
+            f"mean cosine={measurement(emb.mean_similarity, '.4f')}, "
+            f"min={measurement(emb.min_similarity, '.4f')} "
+            f"({emb.comparable_samples}/{emb.total_samples})"
+        )
+    if report.conversations is not None:
+        conv = report.conversations
+        lines.append(
+            f"Conversations: {'PASS' if conv.passed else 'FAIL'} | "
+            f"drifted {conv.drifted_conversations}/{conv.total_conversations}, "
+            f"mean drift={conv.mean_trajectory_drift:.4f}, "
+            f"refusal flips={conv.total_refusal_flip_turns}"
         )
     if report.failure_reasons:
         lines.append("")
@@ -311,6 +349,22 @@ def format_audit_markdown(report: AuditReport) -> str:
             f"| Downstream consumer | {'PASS' if cons.passed else 'FAIL'} "
             f"| rejected {cons.baseline_rejection_rate:.1%} -&gt; "
             f"{cons.candidate_rejection_rate:.1%} ({cons.rejection_rate_delta:+.1%}) |"
+        )
+    if report.embeddings is not None:
+        emb = report.embeddings
+        lines.append(
+            f"| Embedding similarity | {'PASS' if emb.passed else 'FAIL'} "
+            f"| mean={measurement(emb.mean_similarity, '.4f')}, "
+            f"min={measurement(emb.min_similarity, '.4f')} "
+            f"({emb.comparable_samples}/{emb.total_samples}) |"
+        )
+    if report.conversations is not None:
+        conv = report.conversations
+        lines.append(
+            f"| Multi-turn conversations | {'PASS' if conv.passed else 'FAIL'} "
+            f"| drifted {conv.drifted_conversations}/{conv.total_conversations}, "
+            f"mean={conv.mean_trajectory_drift:.4f}, "
+            f"refusal flips={conv.total_refusal_flip_turns} |"
         )
     if report.failure_reasons:
         lines += ["", "## Failure reasons", ""]
@@ -399,6 +453,41 @@ def export_audit_html(
         if lp.comparable_samples > 0
         else "n/a"
     )
+    extra_cards = ""
+    if report.embeddings is not None:
+        emb = report.embeddings
+        extra_cards += (
+            '  <div class="card"><div class="label">Embedding Mean Cos</div>'
+            f'<div class="val">{measurement(emb.mean_similarity, ".4f")} '
+            f'({"PASS" if emb.passed else "FAIL"})</div></div>\n'
+        )
+    if report.conversations is not None:
+        conv = report.conversations
+        extra_cards += (
+            '  <div class="card"><div class="label">Conversations Drifted</div>'
+            f'<div class="val">{conv.drifted_conversations} / {conv.total_conversations} '
+            f'({"PASS" if conv.passed else "FAIL"})</div></div>\n'
+        )
+    conv_section = ""
+    if report.conversations is not None:
+        conv_rows = "".join(
+            "<tr>"
+            f"<td>{escape(item.conversation_id)}</td>"
+            f"<td>{item.compared_turns}</td>"
+            f"<td>{item.mean_turn_drift:.4f}</td>"
+            f"<td>{item.max_turn_drift:.4f}</td>"
+            f"<td>{item.first_divergence_turn or 'none'}</td>"
+            f"<td>{len(item.refusal_flip_turns)}</td>"
+            f"<td>{'DRIFT' if item.drifted else 'OK'}</td>"
+            "</tr>"
+            for item in report.conversations.conversations
+        )
+        conv_section = (
+            "<h2>Multi-Turn Conversations</h2><div class='scroll'><table><thead><tr>"
+            "<th>Conversation ID</th><th>Turns</th><th>Mean Drift</th><th>Max Drift</th>"
+            "<th>First Div</th><th>Refusal Flips</th><th>State</th>"
+            f"</tr></thead><tbody>{conv_rows}</tbody></table></div>"
+        )
 
     html = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -434,12 +523,13 @@ td{{white-space:pre-wrap;overflow-wrap:anywhere}}.muted{{color:#a8bad2}}
     <div class="val">{lp_card}</div></div>
   <div class="card"><div class="label">Output Tokens</div>
     <div class="val">{tok_card}</div></div>
-</div>
+{extra_cards}</div>
 {failure_html}
 <h2>Per-Prompt Drift</h2>
 <div class="scroll"><table><thead><tr>
 <th>Prompt ID</th><th>Category</th><th>Schema OK</th><th>Drift</th><th>State</th>
 </tr></thead><tbody>{prompt_rows}</tbody></table></div>
+{conv_section}
 {qual_section}
 </main></body></html>
 """
