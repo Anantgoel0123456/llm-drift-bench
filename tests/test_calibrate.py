@@ -278,5 +278,31 @@ def test_detect_numeric_tolerances_and_invalid_volatile_path_rejection(tmp_path:
 
     with pytest.raises(ValueError, match="must start with"):
         calibrate_from_reports([report], volatile_fields=["timestamp"])
+    with pytest.raises(ValueError, match="must start with"):
+        calibrate_from_reports([report], numeric_tolerances={"bad": 0.1})
+    with pytest.raises(ValueError, match="non-negative"):
+        calibrate_from_reports([report], numeric_tolerances={"$.confidence": -0.1})
+
+    # Empty input, bad headroom, non-JSON skip, and array wildcard collapse in numeric tolerances
+    with pytest.raises(ValueError, match="non-empty"):
+        detect_numeric_tolerances([], run2)
+    with pytest.raises(ValueError, match="headroom"):
+        detect_numeric_tolerances(run1, run2, headroom=0.5)
+
+    arr_a = _make_samples(
+        {
+            "p1": '{"items": [{"s": 1.0}, {"s": 2.0}]}',
+            "p2": "plain non-json",
+        }
+    )
+    arr_b = _make_samples(
+        {
+            "p1": '{"items": [{"s": 1.1}, {"s": 2.3}]}',
+            "p2": "plain non-json",
+        }
+    )
+    collapsed_tol = detect_numeric_tolerances(arr_a, arr_b, headroom=1.0)
+    assert collapsed_tol == {"$.items[*].s": pytest.approx(0.3, abs=1e-6)}
+
 
 

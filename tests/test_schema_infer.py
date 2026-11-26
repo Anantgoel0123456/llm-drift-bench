@@ -185,3 +185,13 @@ def test_merge_schemas_single_schema_deepcopy_and_strict_additional() -> None:
     strict["properties"]["meta"]["properties"]["id"]["type"] = "string"
     assert original["properties"]["meta"]["properties"]["id"]["type"] == "integer"
 
+    # Strict additionalProperties recurses into array items & _normalize_types handles lists/None
+    from llm_drift_bench.schema_infer import _normalize_types
+
+    assert _normalize_types(["string", "null"]) == {"string", "null"}
+    assert _normalize_types(None) == set()
+    arr_schema = infer_schema_from_value([{"a": 1}], strict_additional=False)
+    strict_arr = merge_schemas([arr_schema], strict_additional=True)
+    assert strict_arr["items"]["additionalProperties"] is False
+
+

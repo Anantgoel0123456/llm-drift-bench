@@ -155,3 +155,19 @@ def test_snapshot_validation_base_dir_and_prompt_id_digest_mismatch(tmp_path: Pa
     with pytest.raises(ValueError, match="JSON object"):
         verify_snapshot_manifest(non_obj)
 
+    # create_snapshot_manifest without base_dir or output_path resolves commonpath cleanly
+    m_auto = create_snapshot_manifest(sub / "baseline.jsonl")
+    assert m_auto.artifacts[0].path == "baseline.jsonl"
+
+    # Empty baseline capture and empty prompt suite rejected explicitly
+    empty_cap = tmp_path / "empty_cap.jsonl"
+    empty_cap.write_text("[]", encoding="utf-8")
+    with pytest.raises(ValueError, match="empty"):
+        create_snapshot_manifest(empty_cap)
+
+    empty_suite = tmp_path / "empty_suite.json"
+    empty_suite.write_text("[]", encoding="utf-8")
+    with pytest.raises(ValueError, match="empty"):
+        create_snapshot_manifest(sub / "baseline.jsonl", suite_path=empty_suite)
+
+

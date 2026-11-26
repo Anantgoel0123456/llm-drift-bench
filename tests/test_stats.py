@@ -184,4 +184,22 @@ def test_holm_bonferroni_wilson_and_strict_candidate_matching() -> None:
     with pytest.raises(ValueError, match="same candidate model"):
         summarize_multi_run([pass_rep, drift_rep], require_same_candidate=True)
 
+    # Additional validation branches (100% coverage on stats.py)
+    from dataclasses import replace
+
+    with pytest.raises(ValueError, match="equal length"):
+        mcnemar_exact_test([], [])
+    with pytest.raises(ValueError, match="strictly between 0 and 1"):
+        paired_permutation_test([0.1, 0.2], [0.2, 0.3], alpha=1.5)
+    with pytest.raises(ValueError, match="integer >= 10"):
+        paired_permutation_test([0.1, 0.2], [0.2, 0.3], n_permutations=5)
+    with pytest.raises(ValueError, match="strictly between 0 and 1"):
+        wilson_score_interval(1, 2, confidence=1.0)
+    with pytest.raises(ValueError, match="at least one"):
+        summarize_multi_run([])
+    other_base = replace(pass_rep, baseline_model="different-ref")
+    with pytest.raises(ValueError, match="same baseline model"):
+        summarize_multi_run([pass_rep, other_base])
+
+
 
