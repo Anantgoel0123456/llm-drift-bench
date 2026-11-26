@@ -74,3 +74,18 @@ def test_wizard_answers_validation() -> None:
         WizardAnswers(use_case="extraction", numeric_sensitivity="extreme")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="starting with '\\$'"):
         WizardAnswers(use_case="extraction", ignored_paths=("request_id",))
+    with pytest.raises(ValueError, match="boolean"):
+        WizardAnswers(use_case="extraction", track_latency="yes")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="boolean"):
+        WizardAnswers(use_case="extraction", long_outputs="no")  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="WizardAnswers"):
+        build_policy_from_answers({"use_case": "extraction"})  # type: ignore[arg-type]
+
+    # Leading-dot/bracket path normalization + unrecognized interactive inputs fallback cleanly
+    responses = iter(["bogus_case", "moderate", ".req_id, [0].ts", "", "maybe", "maybe"])
+    printed: list[str] = []
+    ans, _ = run_guided_wizard(input_fn=lambda _p: next(responses), output_fn=printed.append)
+    assert ans.use_case == "extraction"
+    assert ans.ignored_paths == ("$.req_id", "$[0].ts")
+    assert any("Unrecognized choice" in line for line in printed)
+

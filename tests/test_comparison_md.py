@@ -27,3 +27,13 @@ def test_export_comparison_markdown_leaderboard_and_transitions(tmp_path: Path) 
     assert "| 2 | `demo-candidate-drift` | **FAIL**" in md
     assert "## Prompt transitions vs `demo-candidate-pass`" in md
     assert "**regressed**" in md
+
+    # Without 'against' (lines 24-25) and with identical candidates / zero flips (line 52)
+    md_plain = export_comparison_markdown([drift_rep, pass_rep])
+    assert "## Prompt transitions" not in md_plain
+
+    from dataclasses import replace
+
+    twin = replace(pass_rep, candidate_model="twin-pass")
+    md_no_flips = export_comparison_markdown([pass_rep, twin], against="demo-candidate-pass")
+    assert "No prompt verdicts flipped" in md_no_flips

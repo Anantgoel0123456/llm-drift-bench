@@ -120,3 +120,40 @@ def test_max_tool_calls_allowed_resources_and_jwt_db_secrets() -> None:
     with pytest.raises(ValueError, match="non-empty strings"):
         check_allowed_resources(events, allowed_prefixes=[])
 
+    # Cover remaining validation guards & EvidenceScore bridge (100% tool_events.py)
+    from llm_drift_bench.tool_events import check_max_tool_retries, check_read_before_edit
+
+    bad_bool: object = "yes"
+    with pytest.raises(ValueError, match="read or edit"):
+        ToolEvent(0, "delete", "a@1")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="boolean"):
+        ToolEvent(0, "read", "a@1", success=bad_bool)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="boolean"):
+        check_read_before_edit(
+            events,
+            resource="a@1",
+            required_start=0,
+            required_end=10,
+            trace_complete=bad_bool,  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="non-negative integer"):
+        check_max_tool_retries(events, max_failed_calls=True)
+    with pytest.raises(ValueError, match="boolean"):
+        check_max_tool_retries(
+            events, max_failed_calls=1, trace_complete=bad_bool  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="boolean"):
+        check_no_secret_in_tool_args(["ok"], trace_complete=bad_bool)  # type: ignore[arg-type]
+    assert check_no_secret_in_tool_args(["clean"], trace_complete=False).status == "UNKNOWN"
+    with pytest.raises(ValueError, match="boolean"):
+        check_max_tool_calls(
+            events, max_calls=5, trace_complete=bad_bool  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="boolean"):
+        check_allowed_resources(
+            events, allowed_prefixes=["src/"], trace_complete=bad_bool  # type: ignore[arg-type]
+        )
+    score = check_max_tool_calls(events, max_calls=5, trace_complete=True).to_score()
+    assert score.value == 1.0 and score.scoring_failed is False
+
+

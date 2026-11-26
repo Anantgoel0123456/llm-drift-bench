@@ -163,3 +163,49 @@ def test_html_diffs_honor_policy_ignores_and_preserve_unicode() -> None:
     assert "\\u20ac" not in html
     assert "$.timestamp" not in html
 
+    # Policy-only JSON changes skip diff section; plain-text fallback; PR tool_checks
+    from llm_drift_bench._visuals import canonical_pr_comment, render_html_diffs_section
+    from llm_drift_bench.tool_events import ToolCheckResult
+    from llm_drift_bench.tool_log import ToolCheckRecord
+
+    same_pol = DriftBenchmarkEngine(policy=policy).evaluate(
+        [ModelSample(prompt_id="p1", output='{"price": 1, "timestamp": "a"}')],
+        [ModelSample(prompt_id="p1", output='{"price": 1, "timestamp": "b"}')],
+    )
+    assert (
+        render_html_diffs_section(
+            same_pol,
+            {"p1": ('{"price": 1, "timestamp": "a"}', '{"price": 1, "timestamp": "b"}')},
+            policy=policy,
+        )
+        == ""
+    )
+    assert render_html_diffs_section(same_pol, {}) == ""
+    assert (
+        render_html_diffs_section(
+            same_pol,
+            {"p1": ('{"price": 1}', '{"price": 1}')},
+        )
+        == ""
+    )
+
+    txt_rep = DriftBenchmarkEngine().evaluate(
+        [ModelSample(prompt_id="t1", output="hello world")],
+        [ModelSample(prompt_id="t1", output="goodbye universe")],
+    )
+    txt_html = render_html_diffs_section(
+        txt_rep, {"t1": ("hello world", "goodbye universe")}
+    )
+    assert "<pre>hello world</pre>" in txt_html
+
+    tc = ToolCheckRecord(
+        resource="src/a.py@1",
+        required_start=0,
+        required_end=10,
+        trace_complete=True,
+        result=ToolCheckResult("PASS", "ok", 10, 10, 1),
+    )
+    pr_md = canonical_pr_comment(txt_rep, tool_checks=[tc])
+    assert "Tool evidence (1 check(s))" in pr_md
+
+
