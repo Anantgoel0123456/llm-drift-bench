@@ -85,6 +85,9 @@ def test_all_exports_resolve_cleanly() -> None:
     assert "compare_embedding_vectors" in exported
     assert "cosine_similarity" in exported
     assert "EmbeddingConfig" in exported
+    assert "analyze_conversation_drift" in exported
+    assert "ConversationDriftReport" in exported
+    assert "load_conversations" in exported
 
     for name in llm_drift_bench.__all__:
         value = getattr(llm_drift_bench, name)
