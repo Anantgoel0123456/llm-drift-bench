@@ -233,6 +233,46 @@ def register_extra_subcommands(
         help="Block release when attached consumer rejection check fails (default: enabled).",
     )
     gate_p.add_argument(
+        "--baseline-capture",
+        default=None,
+        metavar="FILE",
+        help="Optional baseline capture (.json/.jsonl) for segmented distribution blast-radius.",
+    )
+    gate_p.add_argument(
+        "--candidate-capture",
+        default=None,
+        metavar="FILE",
+        help="Optional candidate capture (.json/.jsonl) for segmented distribution blast-radius.",
+    )
+    gate_p.add_argument(
+        "-s",
+        "--suite",
+        default=None,
+        help="Optional prompt suite JSON/JSONL used with --group-by on gate.",
+    )
+    gate_p.add_argument(
+        "--config",
+        default=None,
+        help="Optional drift.toml/drift.json policy for ignored fields in segmented distribution.",
+    )
+    gate_p.add_argument(
+        "--group-by",
+        default=None,
+        metavar="SPEC",
+        help="Segment key ('category' or 'metadata:<key>') for distribution blast-radius check.",
+    )
+    gate_p.add_argument(
+        "--shift-threshold",
+        type=float,
+        default=0.10,
+        help="Per-segment TVD/W1 threshold for localized vs widespread scope (default: 0.10).",
+    )
+    gate_p.add_argument(
+        "--fail-on-widespread",
+        action="store_true",
+        help="Block release when segmented distribution shift_scope is 'widespread'.",
+    )
+    gate_p.add_argument(
         "--format",
         choices=("text", "json"),
         default="text",
@@ -963,16 +1003,44 @@ def _handle_gate(args: argparse.Namespace) -> int:
             max_rejection_increase=args.max_rejection_increase,
         )
 
+    segmented_dist = None
+    using_dist = (
+        args.baseline_capture is not None
+        or args.candidate_capture is not None
+        or args.group_by is not None
+        or args.fail_on_widespread
+    )
+    if using_dist:
+        if not (args.baseline_capture and args.candidate_capture and args.group_by):
+            raise ValueError(
+                "Segmented gate check requires --baseline-capture, --candidate-capture, "
+                "and --group-by."
+            )
+        from llm_drift_bench.distribution import analyze_segmented_distributions
+        from llm_drift_bench.engine import load_model_samples, load_prompt_cases
+        from llm_drift_bench.policy import load_policy
+
+        segmented_dist = analyze_segmented_distributions(
+            load_model_samples(args.baseline_capture),
+            load_model_samples(args.candidate_capture),
+            group_by=args.group_by,
+            prompt_cases=load_prompt_cases(args.suite) if args.suite else None,
+            policy=load_policy(args.config) if args.config else None,
+            shift_threshold=args.shift_threshold,
+        )
+
     verdict = evaluate_release_gates(
         report,
         history_check=history_check,
         significance=sig,
         mcnemar=mcnemar,
         tool_checks=tool_checks,
+        segmented_distribution=segmented_dist,
         consumer_comparison=consumer_comp,
         fail_on_history_regression=args.fail_on_history,
         fail_on_significant_degradation=args.fail_on_significant,
         require_tool_checks_pass=args.require_tool_pass,
+        fail_on_widespread_shift=args.fail_on_widespread,
         fail_on_consumer_rejection=args.fail_on_consumer,
     )
     if args.format == "json":

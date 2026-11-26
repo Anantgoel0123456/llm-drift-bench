@@ -1901,6 +1901,123 @@ def test_cli_audit_with_consumer_decisions_and_validator(
     _ = capsys.readouterr()
 
 
+def test_cli_gate_with_segmented_blast_radius(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    suite = tmp_path / "routes.json"
+    suite.write_text(
+        json.dumps(
+            [
+                {
+                    "prompt_id": f"p_{r}_{i}",
+                    "category": "cls",
+                    "prompt": f"P {r} {i}",
+                    "metadata": {"route": r},
+                }
+                for r in ("a", "b")
+                for i in range(2)
+            ]
+        ),
+        encoding="utf-8",
+    )
+    base = tmp_path / "base.jsonl"
+    cand_wide = tmp_path / "cand_wide.jsonl"
+    base.write_text(
+        "\n".join(
+            json.dumps(
+                {"prompt_id": f"p_{r}_{i}", "model_name": "b", "output": '{"tier": "high"}'}
+            )
+            for r in ("a", "b")
+            for i in range(2)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    cand_wide.write_text(
+        "\n".join(
+            json.dumps(
+                {"prompt_id": f"p_{r}_{i}", "model_name": "c", "output": '{"tier": "low"}'}
+            )
+            for r in ("a", "b")
+            for i in range(2)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    # Incomplete segmented gate flags -> exit 2
+    assert (
+        main(
+            [
+                "gate",
+                "-i",
+                str(EXAMPLES / "expected-pass.json"),
+                "--fail-on-widespread",
+            ]
+        )
+        == 2
+    )
+    _ = capsys.readouterr()
+
+    # Advisory mode (without --fail-on-widespread) -> GO with distribution_blast_radius WARN
+    assert (
+        main(
+            [
+                "gate",
+                "-i",
+                str(EXAMPLES / "expected-pass.json"),
+                "--baseline-capture",
+                str(base),
+                "--candidate-capture",
+                str(cand_wide),
+                "-s",
+                str(suite),
+                "--group-by",
+                "metadata:route",
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    adv = json.loads(capsys.readouterr().out)
+    assert adv["approved"] is True
+    assert any(
+        c["name"] == "distribution_blast_radius" and not c["passed"] and not c["blocking"]
+        for c in adv["checks"]
+    )
+
+    # Blocking mode (--fail-on-widespread) -> NO-GO (exit 1)
+    assert (
+        main(
+            [
+                "gate",
+                "-i",
+                str(EXAMPLES / "expected-pass.json"),
+                "--baseline-capture",
+                str(base),
+                "--candidate-capture",
+                str(cand_wide),
+                "-s",
+                str(suite),
+                "--group-by",
+                "metadata:route",
+                "--fail-on-widespread",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    blk = json.loads(capsys.readouterr().out)
+    assert blk["approved"] is False
+    assert any(
+        c["name"] == "distribution_blast_radius" and not c["passed"] and c["blocking"]
+        for c in blk["checks"]
+    )
+
+
+
 
 
 
