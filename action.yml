@@ -43,6 +43,18 @@ inputs:
     description: "Optional path to render a compact GitHub PR comment Markdown file."
     required: false
     default: ""
+  audit-html-output:
+    description: "Optional path to render a standalone offline unified audit HTML dashboard."
+    required: false
+    default: ""
+  group-by:
+    description: "Optional segmented distribution key ('category' or 'metadata:<key>') for audit."
+    required: false
+    default: ""
+  fail-on-widespread:
+    description: "Fail audit when segmented shift_scope is 'widespread' ('true' or 'false')."
+    required: false
+    default: "false"
   github-summary:
     description: "Append verdict and metrics to GITHUB_STEP_SUMMARY ('true' or 'false')."
     required: false
@@ -91,6 +103,9 @@ runs:
         INPUT_JUNIT_OUTPUT: ${{ inputs.junit-output }}
         INPUT_SARIF_OUTPUT: ${{ inputs.sarif-output }}
         INPUT_PR_COMMENT_OUTPUT: ${{ inputs.pr-comment-output }}
+        INPUT_AUDIT_HTML_OUTPUT: ${{ inputs.audit-html-output }}
+        INPUT_GROUP_BY: ${{ inputs.group-by }}
+        INPUT_FAIL_ON_WIDESPREAD: ${{ inputs.fail-on-widespread }}
         INPUT_GITHUB_SUMMARY: ${{ inputs.github-summary }}
         INPUT_FAIL_ON_DRIFT: ${{ inputs.fail-on-drift }}
       run: |
@@ -128,5 +143,26 @@ runs:
         print(f"mean_drift={data.get('mean_composite_drift', '')}")
         print(f"report_path={sys.argv[1]}")
         PY
+        fi
+
+        if [ -n "$INPUT_AUDIT_HTML_OUTPUT" ]; then
+          audit_args=(audit -b "$INPUT_BASELINE" -c "$INPUT_CANDIDATE" --format html -o "$INPUT_AUDIT_HTML_OUTPUT")
+          if [ -n "$INPUT_SUITE" ]; then
+            audit_args+=(-s "$INPUT_SUITE")
+          fi
+          if [ -n "$INPUT_CONFIG" ]; then
+            audit_args+=(--config "$INPUT_CONFIG")
+          fi
+          if [ -n "$INPUT_GROUP_BY" ]; then
+            audit_args+=(--group-by "$INPUT_GROUP_BY")
+          fi
+          if [ "$INPUT_FAIL_ON_WIDESPREAD" = "true" ]; then
+            audit_args+=(--fail-on-widespread)
+          fi
+          llm-drift-bench "${audit_args[@]}"
+          audit_rc=$?
+          if [ "$rc" -eq 0 ] && [ "$audit_rc" -ne 0 ] && [ "$INPUT_FAIL_ON_DRIFT" != "false" ]; then
+            rc=$audit_rc
+          fi
         fi
         exit "$rc"
