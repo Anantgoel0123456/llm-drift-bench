@@ -2163,6 +2163,204 @@ def test_cli_check_embeddings_offline_and_live(
     assert "# Embedding Similarity Drift: PASSED" in md_out.read_text(encoding="utf-8")
 
 
+def test_cli_extras_remaining_text_output_and_error_branches(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # 1. gate with --ledger, --candidate, and --tool-check + mismatched --compare-against
+    ledger = tmp_path / "gate_hist.jsonl"
+    for tag in ("r1", "r2"):
+        assert (
+            main(
+                [
+                    "history",
+                    "record",
+                    "--ledger",
+                    str(ledger),
+                    "-i",
+                    str(EXAMPLES / "expected-pass.json"),
+                    "--tag",
+                    tag,
+                ]
+            )
+            == 0
+        )
+    trace = tmp_path / "t.jsonl"
+    trace.write_text(
+        '{"kind": "read", "resource": "g@1", "start": 0, "end": 10}\n'
+        '{"kind": "edit", "resource": "a@1"}\n',
+        encoding="utf-8",
+    )
+    tc_json = tmp_path / "tc.json"
+    assert (
+        main(
+            [
+                "check-tools",
+                "-i",
+                str(trace),
+                "--resource",
+                "g@1",
+                "--end",
+                "10",
+                "--trace-complete",
+                "-o",
+                str(tc_json),
+            ]
+        )
+        == 0
+    )
+    _ = capsys.readouterr()
+    assert (
+        main(
+            [
+                "gate",
+                "-i",
+                str(EXAMPLES / "expected-pass.json"),
+                "--ledger",
+                str(ledger),
+                "--candidate",
+                "demo-candidate-pass",
+                "--tool-check",
+                str(tc_json),
+                "--require-tool-pass",
+            ]
+        )
+        == 0
+    )
+    assert "GO (APPROVED)" in capsys.readouterr().out
+
+    # Mismatched baseline model in --compare-against -> exit 2
+    other_ref = tmp_path / "other_ref.json"
+    ref_data = json.loads((EXAMPLES / "expected-pass.json").read_text(encoding="utf-8"))
+    ref_data["baseline_model"] = "different-baseline"
+    other_ref.write_text(json.dumps(ref_data), encoding="utf-8")
+    assert (
+        main(
+            [
+                "gate",
+                "-i",
+                str(EXAMPLES / "expected-pass.json"),
+                "--compare-against",
+                str(other_ref),
+            ]
+        )
+        == 2
+    )
+    _ = capsys.readouterr()
+
+    # 2. distribution segmented text failure + markdown + -o text + unsegmented --max-jsd
+    seg_b = tmp_path / "seg_b.jsonl"
+    seg_c = tmp_path / "seg_c.jsonl"
+    seg_b.write_text(
+        '{"prompt_id": "p1", "model_name": "b", "output": "{\\"lbl\\": \\"a\\"}"}\n',
+        encoding="utf-8",
+    )
+    seg_c.write_text(
+        '{"prompt_id": "p1", "model_name": "c", "output": "{\\"lbl\\": \\"b\\"}"}\n',
+        encoding="utf-8",
+    )
+    dist_txt_out = tmp_path / "dist.txt"
+    assert (
+        main(
+            [
+                "distribution",
+                "-b",
+                str(seg_b),
+                "-c",
+                str(seg_c),
+                "--group-by",
+                "category",
+                "--max-tvd",
+                "0.1",
+                "--max-jsd",
+                "0.1",
+                "-o",
+                str(dist_txt_out),
+            ]
+        )
+        == 1
+    )
+    assert "Threshold failures:" in capsys.readouterr().out
+    assert dist_txt_out.is_file()
+
+    assert (
+        main(
+            [
+                "distribution",
+                "-b",
+                str(seg_b),
+                "-c",
+                str(seg_c),
+                "--group-by",
+                "category",
+                "--format",
+                "markdown",
+            ]
+        )
+        == 0
+    )
+    assert "# Segmented" in capsys.readouterr().out
+
+    assert main(["distribution", "-b", str(seg_b), "-c", str(seg_c), "--max-jsd", "0.1"]) == 1
+    assert "max_jsd" in capsys.readouterr().out
+
+    # 3. check-consumer text + -o file + validation errors; audit half-decisions error
+    dec = tmp_path / "dec.jsonl"
+    dec.write_text('{"prompt_id": "p1", "accepted": true}\n', encoding="utf-8")
+    cons_txt = tmp_path / "cons.txt"
+    assert (
+        main(
+            [
+                "check-consumer",
+                "--baseline-decisions",
+                str(dec),
+                "--candidate-decisions",
+                str(dec),
+                "-o",
+                str(cons_txt),
+            ]
+        )
+        == 0
+    )
+    assert "PASSED" in capsys.readouterr().out and cons_txt.is_file()
+    assert (
+        main(
+            [
+                "check-consumer",
+                "--baseline-decisions",
+                str(dec),
+                "-b",
+                str(seg_b),
+            ]
+        )
+        == 2
+    )
+    assert main(["check-consumer", "--baseline-decisions", str(dec)]) == 2
+    assert main(["check-consumer", "-b", str(seg_b)]) == 2
+    assert (
+        main(
+            [
+                "audit",
+                "-b",
+                str(seg_b),
+                "-c",
+                str(seg_c),
+                "--baseline-decisions",
+                str(dec),
+            ]
+        )
+        == 2
+    )
+    _ = capsys.readouterr()
+
+    # 4. rolling-distribution and check-embeddings default text output branches
+    assert main(["rolling-distribution", "-w", str(seg_b), "-c", str(seg_b)]) == 0
+    assert "Rolling Baseline Distribution Drift [PASSED]" in capsys.readouterr().out
+
+    assert main(["check-embeddings", "-b", str(seg_b), "-c", str(seg_b)]) == 0
+    assert "Embedding Similarity Drift [PASSED]" in capsys.readouterr().out
+
+
+
 
 
 
