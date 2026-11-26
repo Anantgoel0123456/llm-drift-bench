@@ -1803,6 +1803,105 @@ def test_cli_rolling_distribution_multi_window(
     _ = capsys.readouterr()
 
 
+def test_cli_audit_with_consumer_decisions_and_validator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import sys
+
+    b_dec = tmp_path / "b_dec.jsonl"
+    c_bad = tmp_path / "c_bad.jsonl"
+    b_dec.write_text(
+        '{"prompt_id": "invoice-01", "accepted": true}\n'
+        '{"prompt_id": "ticket-01", "accepted": true}\n',
+        encoding="utf-8",
+    )
+    c_bad.write_text(
+        '{"prompt_id": "invoice-01", "accepted": true}\n'
+        '{"prompt_id": "ticket-01", "accepted": false, "reason": "invalid_priority"}\n',
+        encoding="utf-8",
+    )
+
+    # Consumer rejection causes passing captures to FAIL audit with consumer payload
+    assert (
+        main(
+            [
+                "audit",
+                "-s",
+                str(EXAMPLES / "extraction-suite.json"),
+                "-b",
+                str(EXAMPLES / "baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "candidate-pass.jsonl"),
+                "--baseline-decisions",
+                str(b_dec),
+                "--candidate-decisions",
+                str(c_bad),
+                "--max-rejection-increase",
+                "0.1",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    aud_fail = json.loads(capsys.readouterr().out)
+    assert aud_fail["passed"] is False
+    assert aud_fail["consumer"]["passed"] is False
+    assert aud_fail["consumer"]["newly_rejected_ids"] == ["ticket-01"]
+
+    # Via --validator-module passing cleanly
+    mod_file = tmp_path / "audit_cons_val.py"
+    mod_file.write_text("def ok_val(_sample):\n    return True\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    try:
+        assert (
+            main(
+                [
+                    "audit",
+                    "-s",
+                    str(EXAMPLES / "extraction-suite.json"),
+                    "-b",
+                    str(EXAMPLES / "baseline.jsonl"),
+                    "-c",
+                    str(EXAMPLES / "candidate-pass.jsonl"),
+                    "--validator-module",
+                    "audit_cons_val:ok_val",
+                    "--max-rejection-rate",
+                    "0.0",
+                    "--format",
+                    "json",
+                ]
+            )
+            == 0
+        )
+        aud_ok = json.loads(capsys.readouterr().out)
+        assert aud_ok["passed"] is True and aud_ok["consumer"]["passed"] is True
+    finally:
+        sys.modules.pop("audit_cons_val", None)
+
+    # Conflicting decisions + validator returns exit 2
+    assert (
+        main(
+            [
+                "audit",
+                "-b",
+                str(EXAMPLES / "baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "candidate-pass.jsonl"),
+                "--baseline-decisions",
+                str(b_dec),
+                "--candidate-decisions",
+                str(c_bad),
+                "--validator-module",
+                "audit_cons_val:ok_val",
+            ]
+        )
+        == 2
+    )
+    _ = capsys.readouterr()
+
+
+
 
 
 

@@ -595,6 +595,36 @@ def register_extra_subcommands(
         help="Fail audit when quality regressions are detected (default: enabled).",
     )
     audit_p.add_argument(
+        "--baseline-decisions",
+        default=None,
+        metavar="FILE",
+        help="Optional baseline downstream consumer decision log (.json/.jsonl).",
+    )
+    audit_p.add_argument(
+        "--candidate-decisions",
+        default=None,
+        metavar="FILE",
+        help="Optional candidate downstream consumer decision log (.json/.jsonl).",
+    )
+    audit_p.add_argument(
+        "--validator-module",
+        default=None,
+        metavar="MOD:FUNC",
+        help="Optional Python consumer validator callable ('pkg.mod:fn') run on captures.",
+    )
+    audit_p.add_argument(
+        "--max-rejection-rate",
+        type=float,
+        default=None,
+        help="Optional max allowed candidate consumer rejection rate in [0, 1].",
+    )
+    audit_p.add_argument(
+        "--max-rejection-increase",
+        type=float,
+        default=None,
+        help="Optional max allowed consumer rejection rate increase vs baseline in [0, 1].",
+    )
+    audit_p.add_argument(
         "--format",
         choices=("text", "json", "markdown", "html"),
         default="text",
@@ -1379,7 +1409,25 @@ def _handle_audit(
 ) -> int:
     if args.fail_on_widespread and not args.group_by:
         raise ValueError("--fail-on-widespread requires --group-by.")
-    protect_inputs(args.output, args.baseline, args.candidate, args.suite, args.config)
+    using_decisions = (
+        args.baseline_decisions is not None or args.candidate_decisions is not None
+    )
+    if using_decisions and args.validator_module is not None:
+        raise ValueError(
+            "Provide either --baseline-decisions/--candidate-decisions OR "
+            "--validator-module on audit, not both."
+        )
+    if using_decisions and not (args.baseline_decisions and args.candidate_decisions):
+        raise ValueError("Both --baseline-decisions and --candidate-decisions are required.")
+    protect_inputs(
+        args.output,
+        args.baseline,
+        args.candidate,
+        args.suite,
+        args.config,
+        args.baseline_decisions,
+        args.candidate_decisions,
+    )
     from llm_drift_bench.audit import (
         export_audit_html,
         format_audit_markdown,
@@ -1393,6 +1441,33 @@ def _handle_audit(
     cand = load_model_samples(args.candidate)
     prompts = load_prompt_cases(args.suite) if args.suite else None
     policy = load_policy(args.config) if args.config else None
+
+    consumer_comp = None
+    if using_decisions:
+        from llm_drift_bench.consumer import (
+            compare_consumer_decisions,
+            load_consumer_decisions,
+        )
+
+        consumer_comp = compare_consumer_decisions(
+            load_consumer_decisions(args.baseline_decisions),
+            load_consumer_decisions(args.candidate_decisions),
+            max_rejection_rate=args.max_rejection_rate,
+            max_rejection_increase=args.max_rejection_increase,
+        )
+    elif args.validator_module is not None:
+        from llm_drift_bench.consumer import (
+            evaluate_consumer_rejection,
+            load_validator_callable,
+        )
+
+        consumer_comp = evaluate_consumer_rejection(
+            base,
+            cand,
+            load_validator_callable(args.validator_module),
+            max_rejection_rate=args.max_rejection_rate,
+            max_rejection_increase=args.max_rejection_increase,
+        )
 
     report = run_full_audit(
         base,
@@ -1408,6 +1483,7 @@ def _handle_audit(
         group_by=args.group_by,
         shift_threshold=args.shift_threshold,
         fail_on_widespread_shift=args.fail_on_widespread,
+        consumer_comparison=consumer_comp,
     )
     if args.format == "json":
         rendered = json.dumps(report.to_dict(), indent=2) + "\n"
