@@ -364,6 +364,51 @@ else:
             cwd=root, env=env, check=True, capture_output=True, text=True,
         )
         assert json.loads(gate_full.stdout)["approved"] is True
+        cons_html = root / "consumer.html"
+        subprocess.run(
+            [
+                str(cli), "check-consumer",
+                "--baseline-decisions", str(cons_b),
+                "--candidate-decisions", str(cons_c),
+                "--format", "html", "-o", str(cons_html),
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "<table" in cons_html.read_text(encoding="utf-8")
+        roll_html = root / "rolling.html"
+        subprocess.run(
+            [
+                str(cli), "rolling-distribution",
+                "-w", str(examples / "baseline.jsonl"),
+                "-c", str(examples / "candidate-pass.jsonl"),
+                "--format", "html", "-o", str(roll_html),
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "<table" in roll_html.read_text(encoding="utf-8")
+        emb_out = subprocess.run(
+            [
+                str(cli), "check-embeddings",
+                "-b", str(examples / "baseline.jsonl"),
+                "-c", str(examples / "candidate-pass.jsonl"),
+                "--format", "json",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(emb_out.stdout)["complete"] is False
+        case_dir = examples / "case-study"
+        case_doc = subprocess.run(
+            [
+                str(cli), "doctor",
+                "--config", str(case_dir / "drift.toml"),
+                "-s", str(case_dir / "prompts.json"),
+                "-b", str(case_dir / "baseline-fp16.jsonl"),
+                "-c", str(case_dir / "candidate-q8.jsonl"),
+                "--format", "json",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(case_doc.stdout)["ok"] is True
     print(f"Installed artifact checks passed: {artifact.name}")
 
 
