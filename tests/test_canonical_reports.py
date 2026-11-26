@@ -180,3 +180,29 @@ def test_legacy_evaluator_reports_are_not_reinterpreted(tmp_path: Path) -> None:
     assert "Legacy evaluator scores" in export_markdown_report(loaded)
     with pytest.raises(ValueError, match="HTML requires an engine report"):
         export_html_report(loaded)
+
+
+def test_canonical_report_schema_version_backward_compat_and_rejection(tmp_path: Path) -> None:
+    from llm_drift_bench import REPORT_SCHEMA_VERSION
+
+    samples = [ModelSample(prompt_id="p", output="{}")]
+    report = DriftBenchmarkEngine().evaluate(samples, samples)
+    payload = report.to_dict()
+    assert payload["schema_version"] == REPORT_SCHEMA_VERSION
+
+    # Legacy pre-versioned report omitting schema_version loads cleanly with default 1
+    legacy_dict = dict(payload)
+    legacy_dict.pop("schema_version")
+    legacy_path = tmp_path / "pre_version.json"
+    legacy_path.write_text(json.dumps(legacy_dict), encoding="utf-8")
+    loaded = load_report(legacy_path)
+    assert isinstance(loaded, DriftBenchmarkReport)
+    assert loaded.schema_version == 1
+
+    # Unsupported or non-integer schema_version values fail cleanly
+    bad_path = tmp_path / "bad_ver.json"
+    for bad_ver in (0, 99, True, "1"):
+        bad_path.write_text(json.dumps({**payload, "schema_version": bad_ver}), encoding="utf-8")
+        with pytest.raises(ValueError, match="schema_version"):
+            load_report(bad_path)
+

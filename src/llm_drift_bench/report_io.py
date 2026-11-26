@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench.models import (
+    REPORT_SCHEMA_VERSION,
     DriftBenchmarkReport,
     DriftThresholds,
     SampleDriftResult,
@@ -325,6 +326,12 @@ def load_report(path: str | Path) -> DriftBenchmarkReport | BenchmarkResult:
         legacy_result = BenchmarkResult.model_validate_json(text, strict=True)
         _validate_legacy_report(legacy_result)
         return legacy_result
+    raw_ver = raw.get("schema_version", 1)
+    if type(raw_ver) is not int or not 1 <= raw_ver <= REPORT_SCHEMA_VERSION:
+        raise ValueError(
+            f"Unsupported report schema_version {raw_ver!r}; "
+            f"supported: 1..{REPORT_SCHEMA_VERSION}."
+        )
     global _ENGINE_ADAPTER
     if _ENGINE_ADAPTER is None:
         from pydantic import TypeAdapter

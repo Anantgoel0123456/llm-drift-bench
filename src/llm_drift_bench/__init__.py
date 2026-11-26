@@ -179,6 +179,7 @@ if TYPE_CHECKING:
         tokenize_text,
     )
     from llm_drift_bench.models import (
+        REPORT_SCHEMA_VERSION,
         BenchmarkResult,
         DriftBenchmarkReport,
         DriftMetrics,
@@ -368,6 +369,7 @@ _EXPORTS: dict[str, str] = {
     "PromptStability": "stats",
     "QualityFinding": "quality_checks",
     "QualityReport": "quality_checks",
+    "REPORT_SCHEMA_VERSION": "models",
     "RedactionReport": "redaction",
     "ReleaseVerdict": "gates",
     "RollingWindowReport": "rolling",
@@ -606,6 +608,7 @@ __all__ = [
     "PromptStability",
     "QualityFinding",
     "QualityReport",
+    "REPORT_SCHEMA_VERSION",
     "RedactionReport",
     "ReleaseVerdict",
     "RollingWindowReport",

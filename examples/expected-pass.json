@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "baseline_model": "demo-reference",
   "candidate_model": "demo-candidate-pass",
   "total_samples": 2,

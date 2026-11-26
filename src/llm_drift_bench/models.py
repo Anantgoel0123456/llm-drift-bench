@@ -247,6 +247,9 @@ class SampleDriftResult:
         }
 
 
+REPORT_SCHEMA_VERSION = 1
+
+
 @dataclass(frozen=True)
 class DriftBenchmarkReport:
     """Aggregate report summarizing a full baseline-vs-candidate benchmark run."""
@@ -271,6 +274,7 @@ class DriftBenchmarkReport:
     failure_reasons: tuple[str, ...] = ()
     results: tuple[SampleDriftResult, ...] = ()
     thresholds: DriftThresholds | None = None
+    schema_version: int = REPORT_SCHEMA_VERSION
 
     @property
     def drift_rate(self) -> float:
@@ -282,6 +286,7 @@ class DriftBenchmarkReport:
     def to_dict(self) -> dict[str, Any]:
         """Serialize the full benchmark report to a dictionary."""
         return {
+            "schema_version": self.schema_version,
             "baseline_model": self.baseline_model,
             "candidate_model": self.candidate_model,
             "total_samples": self.total_samples,
