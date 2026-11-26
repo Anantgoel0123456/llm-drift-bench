@@ -338,6 +338,32 @@ else:
             cwd=root, env=env, check=True, capture_output=True, text=True,
         )
         assert json.loads(cons_out.stdout)["passed"] is True
+        roll_out = subprocess.run(
+            [
+                str(cli), "rolling-distribution",
+                "-w", str(examples / "baseline.jsonl"),
+                "-w", str(examples / "candidate-pass.jsonl"),
+                "-c", str(examples / "candidate-pass.jsonl"),
+                "--format", "json",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(roll_out.stdout)["passed"] is True
+        gate_full = subprocess.run(
+            [
+                str(cli), "gate",
+                "-i", str(examples / "expected-pass.json"),
+                "--baseline-decisions", str(cons_b),
+                "--candidate-decisions", str(cons_c),
+                "--baseline-capture", str(examples / "baseline.jsonl"),
+                "--candidate-capture", str(examples / "candidate-pass.jsonl"),
+                "-s", str(examples / "extraction-suite.json"),
+                "--group-by", "category",
+                "--format", "json",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(gate_full.stdout)["approved"] is True
     print(f"Installed artifact checks passed: {artifact.name}")
 
 
