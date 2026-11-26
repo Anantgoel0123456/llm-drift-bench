@@ -273,6 +273,51 @@ def register_extra_subcommands(
         help="Block release when segmented distribution shift_scope is 'widespread'.",
     )
     gate_p.add_argument(
+        "--min-embedding-similarity",
+        type=float,
+        default=None,
+        help=(
+            "Optional min mean embedding cosine similarity in [-1, 1] over "
+            "--baseline-capture/--candidate-capture metadata embeddings."
+        ),
+    )
+    gate_p.add_argument(
+        "--fail-on-embeddings",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Block release when attached embedding similarity check fails (default: enabled).",
+    )
+    gate_p.add_argument(
+        "--baseline-conversations",
+        default=None,
+        metavar="FILE",
+        help="Optional baseline multi-turn conversations file (.json/.jsonl).",
+    )
+    gate_p.add_argument(
+        "--candidate-conversations",
+        default=None,
+        metavar="FILE",
+        help="Optional candidate multi-turn conversations file (.json/.jsonl).",
+    )
+    gate_p.add_argument(
+        "--max-turn-drift",
+        type=float,
+        default=0.20,
+        help="Per-turn drift threshold for attached conversation checks (default: 0.20).",
+    )
+    gate_p.add_argument(
+        "--max-mean-trajectory-drift",
+        type=float,
+        default=0.25,
+        help="Max mean trajectory drift for attached conversation checks (default: 0.25).",
+    )
+    gate_p.add_argument(
+        "--fail-on-conversations",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Block release when attached conversation trajectory check fails (default: enabled).",
+    )
+    gate_p.add_argument(
         "--format",
         choices=("text", "json"),
         default="text",
@@ -1113,30 +1158,75 @@ def _handle_gate(args: argparse.Namespace) -> int:
             max_rejection_increase=args.max_rejection_increase,
         )
 
+    using_emb = args.min_embedding_similarity is not None
     segmented_dist = None
     using_dist = (
-        args.baseline_capture is not None
-        or args.candidate_capture is not None
-        or args.group_by is not None
+        args.group_by is not None
         or args.fail_on_widespread
+        or (
+            (args.baseline_capture is not None or args.candidate_capture is not None)
+            and not using_emb
+        )
     )
-    if using_dist:
-        if not (args.baseline_capture and args.candidate_capture and args.group_by):
+    loaded_base_samples = None
+    loaded_cand_samples = None
+    if using_dist or using_emb:
+        if using_dist and not (args.baseline_capture and args.candidate_capture and args.group_by):
             raise ValueError(
                 "Segmented gate check requires --baseline-capture, --candidate-capture, "
                 "and --group-by."
             )
+        if using_emb and not (args.baseline_capture and args.candidate_capture):
+            raise ValueError(
+                "Embedding gate check requires --baseline-capture and --candidate-capture."
+            )
+        from llm_drift_bench.engine import load_model_samples
+
+        loaded_base_samples = load_model_samples(args.baseline_capture)
+        loaded_cand_samples = load_model_samples(args.candidate_capture)
+
+    if using_dist:
         from llm_drift_bench.distribution import analyze_segmented_distributions
-        from llm_drift_bench.engine import load_model_samples, load_prompt_cases
+        from llm_drift_bench.engine import load_prompt_cases
         from llm_drift_bench.policy import load_policy
 
+        assert loaded_base_samples is not None and loaded_cand_samples is not None
         segmented_dist = analyze_segmented_distributions(
-            load_model_samples(args.baseline_capture),
-            load_model_samples(args.candidate_capture),
+            loaded_base_samples,
+            loaded_cand_samples,
             group_by=args.group_by,
             prompt_cases=load_prompt_cases(args.suite) if args.suite else None,
             policy=load_policy(args.config) if args.config else None,
             shift_threshold=args.shift_threshold,
+        )
+
+    embedding_rep = None
+    if using_emb:
+        from llm_drift_bench.embeddings import analyze_capture_embeddings
+
+        assert loaded_base_samples is not None and loaded_cand_samples is not None
+        embedding_rep = analyze_capture_embeddings(
+            loaded_base_samples,
+            loaded_cand_samples,
+            min_mean_similarity=args.min_embedding_similarity,
+        )
+
+    conversation_rep = None
+    if args.baseline_conversations is not None or args.candidate_conversations is not None:
+        if not (args.baseline_conversations and args.candidate_conversations):
+            raise ValueError(
+                "Both --baseline-conversations and --candidate-conversations are required."
+            )
+        from llm_drift_bench.conversation import (
+            analyze_conversation_drift,
+            load_conversations,
+        )
+
+        conversation_rep = analyze_conversation_drift(
+            load_conversations(args.baseline_conversations),
+            load_conversations(args.candidate_conversations),
+            max_turn_drift=args.max_turn_drift,
+            max_mean_drift=args.max_mean_trajectory_drift,
         )
 
     verdict = evaluate_release_gates(
@@ -1147,11 +1237,15 @@ def _handle_gate(args: argparse.Namespace) -> int:
         tool_checks=tool_checks,
         segmented_distribution=segmented_dist,
         consumer_comparison=consumer_comp,
+        embedding_report=embedding_rep,
+        conversation_report=conversation_rep,
         fail_on_history_regression=args.fail_on_history,
         fail_on_significant_degradation=args.fail_on_significant,
         require_tool_checks_pass=args.require_tool_pass,
         fail_on_widespread_shift=args.fail_on_widespread,
         fail_on_consumer_rejection=args.fail_on_consumer,
+        fail_on_embedding_drift=args.fail_on_embeddings,
+        fail_on_conversation_drift=args.fail_on_conversations,
     )
     if args.format == "json":
         print(json.dumps(verdict.to_dict(), indent=2))

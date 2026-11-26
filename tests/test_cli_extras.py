@@ -2481,6 +2481,149 @@ def test_cli_check_conversations_formats_and_verdicts(
     assert "<table" in html_out.read_text(encoding="utf-8")
 
 
+def test_cli_gate_with_conversations_and_embeddings(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    emb_b = tmp_path / "emb_b.jsonl"
+    emb_c = tmp_path / "emb_c.jsonl"
+    emb_b.write_text(
+        json.dumps(
+            {
+                "prompt_id": "p1",
+                "model_name": "b",
+                "output": "ok",
+                "metadata": {"embedding": [1.0, 0.0]},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    emb_c.write_text(
+        json.dumps(
+            {
+                "prompt_id": "p1",
+                "model_name": "c",
+                "output": "ok",
+                "metadata": {"embedding": [0.0, 1.0]},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    # Passing conversations + passing embeddings -> GO (exit 0)
+    rc_ok = main(
+        [
+            "gate",
+            "-i",
+            str(EXAMPLES / "expected-pass.json"),
+            "--baseline-capture",
+            str(emb_b),
+            "--candidate-capture",
+            str(emb_b),
+            "--min-embedding-similarity",
+            "0.90",
+            "--baseline-conversations",
+            str(EXAMPLES / "conversations-baseline.jsonl"),
+            "--candidate-conversations",
+            str(EXAMPLES / "conversations-baseline.jsonl"),
+            "--format",
+            "json",
+        ]
+    )
+    assert rc_ok == 0
+    ok_payload = json.loads(capsys.readouterr().out)
+    assert ok_payload["approved"] is True
+    assert {c["name"] for c in ok_payload["checks"]} >= {
+        "benchmark_drift",
+        "embedding_similarity",
+        "conversation_trajectory",
+    }
+
+    # Failing embeddings + failing conversations block by default (exit 1)
+    rc_block = main(
+        [
+            "gate",
+            "-i",
+            str(EXAMPLES / "expected-pass.json"),
+            "--baseline-capture",
+            str(emb_b),
+            "--candidate-capture",
+            str(emb_c),
+            "--min-embedding-similarity",
+            "0.90",
+            "--baseline-conversations",
+            str(EXAMPLES / "conversations-baseline.jsonl"),
+            "--candidate-conversations",
+            str(EXAMPLES / "conversations-candidate-drift.jsonl"),
+            "--format",
+            "json",
+        ]
+    )
+    assert rc_block == 1
+    block_payload = json.loads(capsys.readouterr().out)
+    assert block_payload["approved"] is False
+    assert any(
+        msg.startswith("embedding_similarity:") for msg in block_payload["blocking_failures"]
+    )
+    assert any(
+        msg.startswith("conversation_trajectory:") for msg in block_payload["blocking_failures"]
+    )
+
+    # Advisory flags allow GO with warnings
+    rc_warn = main(
+        [
+            "gate",
+            "-i",
+            str(EXAMPLES / "expected-pass.json"),
+            "--baseline-capture",
+            str(emb_b),
+            "--candidate-capture",
+            str(emb_c),
+            "--min-embedding-similarity",
+            "0.90",
+            "--no-fail-on-embeddings",
+            "--baseline-conversations",
+            str(EXAMPLES / "conversations-baseline.jsonl"),
+            "--candidate-conversations",
+            str(EXAMPLES / "conversations-candidate-drift.jsonl"),
+            "--no-fail-on-conversations",
+        ]
+    )
+    assert rc_warn == 0
+    assert "GO (APPROVED)" in capsys.readouterr().out
+
+    # Missing companion flags raise exit 2
+    assert (
+        main(
+            [
+                "gate",
+                "-i",
+                str(EXAMPLES / "expected-pass.json"),
+                "--min-embedding-similarity",
+                "0.90",
+            ]
+        )
+        == 2
+    )
+    capsys.readouterr()
+    assert (
+        main(
+            [
+                "gate",
+                "-i",
+                str(EXAMPLES / "expected-pass.json"),
+                "--baseline-conversations",
+                str(EXAMPLES / "conversations-baseline.jsonl"),
+            ]
+        )
+        == 2
+    )
+    capsys.readouterr()
+
+
+
 
 
 
