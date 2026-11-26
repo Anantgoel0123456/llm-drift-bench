@@ -154,7 +154,8 @@ Commands are:
 - `distribution` (cross-prompt JSON field distribution drift using categorical TVD/JSD and numeric quantiles + exact 1D Wasserstein, with optional `--group-by category|metadata:<key>` segmentation, `localized` vs `widespread` blast-radius classification, and `--fail-on-widespread`)
 - `rolling-distribution` (unpaired rolling-baseline cross-window JSON field distribution analyzer pooling prior traffic windows `-w`, measuring consecutive-window baseline jitter, classifying segmented blast radius, and exporting `text`, `json`, `markdown`, or offline `html`)
 - `logprobs` (optional `top_logprobs` token entropy and position-aligned top-k JSD analyzer)
-- `check-embeddings` (opt-in semantic embedding cosine similarity drift analyzer working offline on `metadata.embedding` or via any OpenAI-compatible `/v1/embeddings` endpoint)
+- `check-embeddings` (opt-in semantic embedding cosine similarity drift analyzer working offline on `metadata.embedding` or via any OpenAI-compatible `/v1/embeddings` endpoint, exporting `text`, `json`, `markdown`, or offline `html`)
+- `check-conversations` (multi-turn assistant conversation trajectory drift analyzer detecting per-turn divergence, earliest divergence turn, escalation slope, turn-count mismatches, JSON adherence drops, and refusal flips in `text`, `json`, `markdown`, or offline `html`)
 - `check-quality` (deterministic repetition-loop, refusal-flip, length-truncation, and length-blowup regression checks)
 - `check-formats` (standalone semantic format validator for `date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, and `iso-currency` on exact or `[*]` wildcard JSONPaths)
 - `check-consumer` (downstream consumer validation rejection-rate comparator from pre-recorded decision logs or `--validator-module pkg.mod:fn`, exporting `text`, `json`, `markdown`, or offline `html`)
@@ -166,7 +167,7 @@ Commands are:
 - `compare-many` (supports `--sort-by`, `--format rich`, `--html-output`, `--markdown-output`, `--json-output`, `--config`)
 - `compare-reports` (supports `--sort-by`, `--format rich`, `--html-output`, `--markdown-output`, `--json-output`)
 - `matrix` (Prompt x Candidate drift heatmap matrix in `text`, `json`, or offline `html`)
-- `gate` (composite GO/NO-GO release gate combining drift, persistent history trends, statistical tests, tool checks, segmented distribution blast radius, and downstream consumer rejection logs)
+- `gate` (composite GO/NO-GO release gate combining drift, persistent history trends, statistical tests, tool checks, segmented distribution blast radius, offline embedding similarity, multi-turn conversation trajectories, and downstream consumer rejection logs)
 - `cost` (explicit generated token volume, optional USD output cost drift comparator, and `--max-token-increase-pct` / `--max-cost-increase-pct` budgets)
 - `badge` (offline shields-style static SVG drift status badge generator)
 - `import-captures` (offline importers for OpenAI Batch API JSONL, Anthropic Message Batches JSONL, and CSV captures)
@@ -181,7 +182,7 @@ Commands are:
 - `lint-suite` (prompt suite quality and JSON Schema hygiene auditor)
 - `calibrate` (automatic `drift.toml` threshold calibration, volatile JSON field detection with `[*]` wildcard collapse, and `--numeric-tolerances`)
 - `init-sample` (optional `--with-policy` to scaffold `drift.toml`, or `--pack extraction|classification|coding|rag` for curated starter suites)
-- `doctor` (pre-flight validation of environment, policies, suite schemas/regex safety, blank capture outputs, consumer decision logs, and ID alignment)
+- `doctor` (pre-flight validation of environment, report/history schema versions, policies, suite schemas/regex safety, blank capture outputs, consumer decision logs, multi-turn conversation transcripts, and ID alignment)
 - `ai-devices`
 
 Additional library modules:
@@ -216,7 +217,8 @@ Additional library modules:
 - `audit.py`: unified offline audit report and script-free HTML dashboard aggregating drift, distributions, quality checks, logprobs, and token volume.
 - `consumer.py`: downstream consumer validation and rejection-rate creep checker supporting pre-recorded decision logs, Python validator callables, and offline HTML exports.
 - `rolling.py`: rolling-baseline cross-window distribution drift analyzer supporting unpaired traffic windows, consecutive-window baseline jitter measurement, segmented blast-radius classification, and offline HTML dashboards.
-- `embeddings.py`: opt-in zero-dependency semantic embedding cosine similarity drift analyzer supporting offline precomputed vectors (`metadata.embedding`) and OpenAI-compatible `/v1/embeddings` endpoints without altering lexical scores.
+- `embeddings.py`: opt-in zero-dependency semantic embedding cosine similarity drift analyzer supporting offline precomputed vectors (`metadata.embedding`), OpenAI-compatible `/v1/embeddings` endpoints, and standalone offline HTML reports without altering lexical scores.
+- `conversation.py`: multi-turn conversation trajectory drift analyzer comparing stateful assistant turns for earliest divergence, snowballing escalation slope, turn-count mismatches, JSON adherence drops, and refusal flips, with text, Markdown, and offline HTML exports.
 - `_comparison_md.py` and `_cli_extras.py`: GitHub-Flavored Markdown multi-candidate comparison exporter and lazily imported extra CLI subcommand handlers.
 
 All CLI run formats render one DriftBenchmarkReport. Rich, Markdown, and HTML

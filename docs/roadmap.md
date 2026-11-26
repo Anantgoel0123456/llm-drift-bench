@@ -48,7 +48,8 @@ This is a prioritized plan, not a list of shipped capabilities or release dates.
 - [x] Segmented field distributions (`--group-by category|metadata:<key>`) with `localized` vs `widespread` blast-radius classification (`--fail-on-widespread`).
 - [x] Multi-window persistence gating (`--persist-windows`) and schema-versioned canonical reports & history ledgers (`REPORT_SCHEMA_VERSION = 1`, `HISTORY_SCHEMA_VERSION = 1`).
 - [x] Downstream consumer rejection-rate creep checks (`check-consumer` with offline HTML, `audit`, `gate`, and `doctor` pre-flight validation).
-- [x] Opt-in zero-dependency semantic embedding cosine similarity drift (`embeddings.py`, `check-embeddings`) that never alters deterministic lexical scores.
+- [x] Opt-in zero-dependency semantic embedding cosine similarity drift (`embeddings.py`, `check-embeddings` with offline HTML export) that never alters deterministic lexical scores.
+- [x] Multi-turn conversation trajectory drift analyzer (`conversation.py`, `check-conversations`, `gate` & `doctor` integrations, offline HTML dashboards, and example fixtures).
 - [x] Reproducible offline quantization drift case study (`docs/case-study-quantization.md`, `examples/case-study/`) verified in CI.
 - [x] Reusable GitHub Action offline audit dashboard and blast-radius inputs (`audit-html-output`, `group-by`, `fail-on-widespread`).
 
@@ -57,7 +58,6 @@ This is a prioritized plan, not a list of shipped capabilities or release dates.
 | Feature | Value | Relative effort |
 | :--- | :--- | :--- |
 | Real-model quantization benchmark report | Publish hardware-reproduced captures from open-weight GGUF quantizations | Medium |
-| Multi-turn conversation drift checks | Compare stateful assistant trajectories beyond single-turn captures | Medium |
 
 Embedding scorers (when added as an optional extra or pluggable scorer) must never silently alter existing deterministic lexical scores.
 

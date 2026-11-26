@@ -13,6 +13,9 @@ Handwritten demonstration fixtures for trying every core `llm-drift-bench` workf
 | `expected-pass.json` | Canonical saved engine report for the passing run (checked by `tests/test_examples.py`). |
 | `expected-drift.json` | Canonical saved engine report for the failing run (checked by `tests/test_examples.py`). |
 | `drift.toml` | Sample evaluation policy demonstrating thresholds, metric weights, and per-field rules (`ignore`, `tolerance_abs`). |
+| `conversations-baseline.jsonl` | Multi-turn baseline conversation transcripts (`conv-support-01`, `conv-triage-02`) for `check-conversations`. |
+| `conversations-candidate-drift.jsonl` | Multi-turn candidate transcripts demonstrating turn-1 stability, turn-2 drift, and turn-3 refusal flip + JSON drop. |
+| `case-study/` | End-to-end FP16 -> Q8 -> Q4 offline quantization case study fixtures (see [docs/case-study-quantization.md](../docs/case-study-quantization.md)). |
 | `demo_suite.json` | Original legacy prompt suite (kept separate; do not mix its prompt IDs with `extraction-suite.json`). |
 
 ---
@@ -79,6 +82,20 @@ python -m llm_drift_bench history record --ledger demo-history.jsonl -i examples
 python -m llm_drift_bench history show --ledger demo-history.jsonl --format text
 python -m llm_drift_bench history show --ledger demo-history.jsonl --format html -o trends.html
 python -m llm_drift_bench history check --ledger demo-history.jsonl --window 1 --max-drift-increase 0.05
+```
+
+### 6. Multi-turn conversation trajectory drift
+```bash
+# Pre-flight validation of conversation transcripts & conversation_id alignment
+python -m llm_drift_bench doctor \
+  --baseline-conversations examples/conversations-baseline.jsonl \
+  --candidate-conversations examples/conversations-candidate-drift.jsonl
+
+# Detect turn-by-turn divergence, escalation slope, and refusal flips -> exit 1
+python -m llm_drift_bench check-conversations \
+  -b examples/conversations-baseline.jsonl \
+  -c examples/conversations-candidate-drift.jsonl \
+  --format html -o conversation-drift.html
 ```
 
 ---
