@@ -85,6 +85,7 @@ def test_all_exports_resolve_cleanly() -> None:
     assert "compare_embedding_vectors" in exported
     assert "cosine_similarity" in exported
     assert "EmbeddingConfig" in exported
+    assert "export_embedding_drift_html" in exported
     assert "analyze_conversation_drift" in exported
     assert "ConversationDriftReport" in exported
     assert "load_conversations" in exported

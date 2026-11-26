@@ -2359,6 +2359,26 @@ def test_cli_extras_remaining_text_output_and_error_branches(
     assert main(["check-embeddings", "-b", str(seg_b), "-c", str(seg_b)]) == 0
     assert "Embedding Similarity Drift [PASSED]" in capsys.readouterr().out
 
+    emb_html = tmp_path / "emb.html"
+    assert (
+        main(
+            [
+                "check-embeddings",
+                "-b",
+                str(seg_b),
+                "-c",
+                str(seg_b),
+                "--format",
+                "html",
+                "-o",
+                str(emb_html),
+            ]
+        )
+        == 0
+    )
+    assert "Wrote embedding similarity drift report" in capsys.readouterr().out
+    assert "<table" in emb_html.read_text(encoding="utf-8")
+
 
 def test_cli_check_conversations_formats_and_verdicts(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]

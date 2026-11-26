@@ -18,6 +18,8 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from html import escape
+from pathlib import Path
 from typing import Any
 
 from llm_drift_bench._matching import index_records, require_same_ids
@@ -474,3 +476,56 @@ def format_embedding_drift_markdown(report: EmbeddingDriftReport) -> str:
         lines += ["", "## Threshold failures", ""]
         lines.extend(f"- {markdown_cell(msg)}" for msg in report.failure_reasons)
     return "\n".join(lines) + "\n"
+
+
+def export_embedding_drift_html(
+    report: EmbeddingDriftReport,
+    output_path: str | Path | None = None,
+) -> str:
+    """Export a standalone script-free offline HTML report for an EmbeddingDriftReport."""
+    status = "PASSED" if report.passed else "FAILED"
+    badge_cls = "pass" if report.passed else "fail"
+    mean_s = "n/a" if report.mean_similarity is None else f"{report.mean_similarity:.4f}"
+    min_s = "n/a" if report.min_similarity is None else f"{report.min_similarity:.4f}"
+    rows_html = "".join(
+        f"<tr><td>{escape(it.prompt_id)}</td>"
+        f"<td>{'n/a' if it.cosine_similarity is None else f'{it.cosine_similarity:.4f}'}</td>"
+        f"<td>{'n/a' if it.cosine_distance is None else f'{it.cosine_distance:.4f}'}</td></tr>"
+        for it in report.items
+    )
+    fail_html = ""
+    if report.failure_reasons:
+        items = "".join(f"<li>{escape(msg)}</li>" for msg in report.failure_reasons)
+        fail_html = (
+            f"<section class='failures'><h2>Threshold Failures</h2><ul>{items}</ul></section>"
+        )
+    html = (
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        "<title>LLM Drift Bench — Embedding Similarity Drift</title>"
+        "<style>"
+        "body{font-family:system-ui,-apple-system,sans-serif;background:#0b1320;color:#e6edf7;"
+        "margin:0;padding:24px;line-height:1.5}"
+        "main{max-width:900px;margin:0 auto}h1,h2{color:#f8fafc}.muted{color:#94a3b8}"
+        ".badge{display:inline-block;padding:4px 10px;border-radius:6px;font-weight:700}"
+        ".pass{background:#064e3b;color:#6ee7b7}.fail{background:#4c0519;color:#fda4af}"
+        "table{width:100%;border-collapse:collapse;background:#111e32;margin-top:12px}"
+        "th,td{padding:10px 12px;border-bottom:1px solid #26354d;text-align:left}"
+        "th{color:#7dd3fc}.failures{margin-top:16px;padding:12px;background:#3b0a17;"
+        "border:1px solid #881337;border-radius:8px}"
+        "</style></head><body><main>"
+        "<p class='muted'>llm-drift-bench / opt-in semantic embedding similarity</p>"
+        "<h1>Embedding Similarity Drift "
+        f"<span class='badge {badge_cls}'>{status}</span></h1>"
+        f"<p>Model: <strong>{escape(report.model)}</strong> | "
+        f"Coverage: <strong>{report.comparable_samples}/{report.total_samples}</strong> | "
+        f"Mean / Min cosine similarity: <strong>{mean_s} / {min_s}</strong></p>"
+        "<table><thead><tr><th>Prompt ID</th><th>Cosine Similarity</th>"
+        f"<th>Cosine Distance</th></tr></thead><tbody>{rows_html}</tbody></table>"
+        f"{fail_html}</main></body></html>\n"
+    )
+    if output_path is not None:
+        target = Path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(html, encoding="utf-8")
+    return html
+

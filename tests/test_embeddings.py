@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import urllib.error
 from email.message import Message
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -14,6 +15,7 @@ from llm_drift_bench.embeddings import (
     analyze_capture_embeddings,
     compare_embedding_vectors,
     cosine_similarity,
+    export_embedding_drift_html,
     fetch_embeddings,
     format_embedding_drift_markdown,
     format_embedding_drift_text,
@@ -21,7 +23,7 @@ from llm_drift_bench.embeddings import (
 from llm_drift_bench.models import ModelSample
 
 
-def test_cosine_similarity_and_precomputed_vector_comparison() -> None:
+def test_cosine_similarity_and_precomputed_vector_comparison(tmp_path: Path) -> None:
     assert cosine_similarity([1.0, 0.0], [1.0, 0.0]) == pytest.approx(1.0)
     assert cosine_similarity([1.0, 0.0], [0.0, 1.0]) == pytest.approx(0.0)
     assert cosine_similarity([1.0, 0.0], [-1.0, 0.0]) == pytest.approx(-1.0)
@@ -42,6 +44,12 @@ def test_cosine_similarity_and_precomputed_vector_comparison() -> None:
     assert "FAILED" in format_embedding_drift_text(rep)
     md = format_embedding_drift_markdown(rep)
     assert "# Embedding Similarity Drift: FAILED" in md and "| p2 |" in md
+
+    html_out = tmp_path / "emb" / "report.html"
+    html = export_embedding_drift_html(rep, output_path=html_out)
+    assert html_out.read_text(encoding="utf-8") == html
+    assert "Embedding Similarity Drift" in html and "Threshold Failures" in html
+    assert "<script" not in html.lower()
 
 
 def test_analyze_capture_embeddings_offline_and_incomplete_honesty() -> None:

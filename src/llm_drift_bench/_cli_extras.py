@@ -842,9 +842,9 @@ def register_extra_subcommands(
     )
     emb_p.add_argument(
         "--format",
-        choices=("text", "json", "markdown"),
+        choices=("text", "json", "markdown", "html"),
         default="text",
-        help="Output format: text (default), json, or markdown.",
+        help="Output format: text (default), json, markdown, or html.",
     )
     emb_p.add_argument(
         "-o", "--output", default=None, help="Optional output file path to write the report."
@@ -1890,6 +1890,7 @@ def _handle_check_embeddings(
     from llm_drift_bench.embeddings import (
         EmbeddingConfig,
         analyze_capture_embeddings,
+        export_embedding_drift_html,
         format_embedding_drift_markdown,
         format_embedding_drift_text,
     )
@@ -1919,11 +1920,18 @@ def _handle_check_embeddings(
         rendered = json.dumps(report.to_dict(), indent=2) + "\n"
     elif args.format == "markdown":
         rendered = format_embedding_drift_markdown(report)
+    elif args.format == "html":
+        rendered = export_embedding_drift_html(report)
     else:
         rendered = format_embedding_drift_text(report)
     if args.output:
         atomic_write_text(Path(args.output), rendered)
-    print(rendered, end="")
+        if args.format == "html":
+            print(f"Wrote embedding similarity drift report -> {args.output}")
+        else:
+            print(rendered, end="")
+    else:
+        print(rendered, end="")
     return 0 if report.passed else 1
 
 
