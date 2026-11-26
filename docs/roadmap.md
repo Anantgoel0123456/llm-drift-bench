@@ -44,18 +44,20 @@ This is a prioritized plan, not a list of shipped capabilities or release dates.
 
 ## Unreleased (heading toward 0.5.0)
 
-- [x] Rolling-baseline cross-window distribution drift with natural window-to-window jitter measurement (`rolling.py`, `rolling-distribution`).
+- [x] Rolling-baseline cross-window distribution drift with natural window-to-window jitter measurement and offline HTML dashboards (`rolling.py`, `rolling-distribution`).
 - [x] Segmented field distributions (`--group-by category|metadata:<key>`) with `localized` vs `widespread` blast-radius classification (`--fail-on-widespread`).
-- [x] Multi-window persistence gating (`--persist-windows`) and schema-versioned drift history ledgers (`HISTORY_SCHEMA_VERSION = 1`).
-- [x] Downstream consumer rejection-rate creep checks (`check-consumer`, `audit`, `gate`, and `doctor` pre-flight validation).
+- [x] Multi-window persistence gating (`--persist-windows`) and schema-versioned canonical reports & history ledgers (`REPORT_SCHEMA_VERSION = 1`, `HISTORY_SCHEMA_VERSION = 1`).
+- [x] Downstream consumer rejection-rate creep checks (`check-consumer` with offline HTML, `audit`, `gate`, and `doctor` pre-flight validation).
+- [x] Opt-in zero-dependency semantic embedding cosine similarity drift (`embeddings.py`, `check-embeddings`) that never alters deterministic lexical scores.
+- [x] Reproducible offline quantization drift case study (`docs/case-study-quantization.md`, `examples/case-study/`) verified in CI.
 - [x] Reusable GitHub Action offline audit dashboard and blast-radius inputs (`audit-html-output`, `group-by`, `fail-on-widespread`).
 
 ## Future exploration
 
 | Feature | Value | Relative effort |
 | :--- | :--- | :--- |
-| Optional embedding scorers | Add an opt-in semantic similarity signal alongside lexical scorers | Medium |
-| Hosted CI benchmark case study | Publish a reproducible real-model quantization benchmark report | Medium |
+| Real-model quantization benchmark report | Publish hardware-reproduced captures from open-weight GGUF quantizations | Medium |
+| Multi-turn conversation drift checks | Compare stateful assistant trajectories beyond single-turn captures | Medium |
 
 Embedding scorers (when added as an optional extra or pluggable scorer) must never silently alter existing deterministic lexical scores.
 

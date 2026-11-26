@@ -152,11 +152,12 @@ Commands are:
 - `audit` (unified offline audit combining per-prompt drift, field distributions with optional `--group-by`/`--fail-on-widespread` blast-radius checks, optional downstream consumer validation via decision logs or `--validator-module`, quality checks, logprobs, and token volume in `text`, `json`, `markdown`, or offline `html`)
 - `diff` (policy-aware JSON field-level and unified text diff inspector in `text`, `json`, or GFM `markdown`)
 - `distribution` (cross-prompt JSON field distribution drift using categorical TVD/JSD and numeric quantiles + exact 1D Wasserstein, with optional `--group-by category|metadata:<key>` segmentation, `localized` vs `widespread` blast-radius classification, and `--fail-on-widespread`)
-- `rolling-distribution` (unpaired rolling-baseline cross-window JSON field distribution analyzer pooling prior traffic windows `-w`, measuring consecutive-window baseline jitter, and classifying segmented blast radius)
+- `rolling-distribution` (unpaired rolling-baseline cross-window JSON field distribution analyzer pooling prior traffic windows `-w`, measuring consecutive-window baseline jitter, classifying segmented blast radius, and exporting `text`, `json`, `markdown`, or offline `html`)
 - `logprobs` (optional `top_logprobs` token entropy and position-aligned top-k JSD analyzer)
+- `check-embeddings` (opt-in semantic embedding cosine similarity drift analyzer working offline on `metadata.embedding` or via any OpenAI-compatible `/v1/embeddings` endpoint)
 - `check-quality` (deterministic repetition-loop, refusal-flip, length-truncation, and length-blowup regression checks)
 - `check-formats` (standalone semantic format validator for `date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, and `iso-currency` on exact or `[*]` wildcard JSONPaths)
-- `check-consumer` (downstream consumer validation rejection-rate comparator from pre-recorded decision logs or `--validator-module pkg.mod:fn`)
+- `check-consumer` (downstream consumer validation rejection-rate comparator from pre-recorded decision logs or `--validator-module pkg.mod:fn`, exporting `text`, `json`, `markdown`, or offline `html`)
 - `wizard` (guided plain-English interactive setup wizard and use-case preset generator for `drift.toml`)
 - `score` (pluggable scorer CLI supporting `--list-scorers` and repeatable `--scorer`)
 - `validate` (supports `--category` and `--strict`)
@@ -213,8 +214,9 @@ Additional library modules:
 - `formats.py`: standalone semantic JSON field format validator (`date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, `iso-currency`) on exact or `[*]` wildcard paths.
 - `packs.py`: curated starter benchmark packs (`extraction`, `classification`, `coding`, `rag`) with lint-clean prompts, baseline/passing/drifted captures, and policies.
 - `audit.py`: unified offline audit report and script-free HTML dashboard aggregating drift, distributions, quality checks, logprobs, and token volume.
-- `consumer.py`: downstream consumer validation and rejection-rate creep checker supporting both pre-recorded decision logs and Python validator callables.
-- `rolling.py`: rolling-baseline cross-window distribution drift analyzer supporting unpaired traffic windows, consecutive-window baseline jitter measurement, and segmented blast-radius classification.
+- `consumer.py`: downstream consumer validation and rejection-rate creep checker supporting pre-recorded decision logs, Python validator callables, and offline HTML exports.
+- `rolling.py`: rolling-baseline cross-window distribution drift analyzer supporting unpaired traffic windows, consecutive-window baseline jitter measurement, segmented blast-radius classification, and offline HTML dashboards.
+- `embeddings.py`: opt-in zero-dependency semantic embedding cosine similarity drift analyzer supporting offline precomputed vectors (`metadata.embedding`) and OpenAI-compatible `/v1/embeddings` endpoints without altering lexical scores.
 - `_comparison_md.py` and `_cli_extras.py`: GitHub-Flavored Markdown multi-candidate comparison exporter and lazily imported extra CLI subcommand handlers.
 
 All CLI run formats render one DriftBenchmarkReport. Rich, Markdown, and HTML

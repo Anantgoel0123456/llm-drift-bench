@@ -285,11 +285,12 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | `audit` | Run a unified offline audit combining per-prompt drift, field distributions (`--group-by`, `--shift-threshold`, `--fail-on-widespread`), downstream consumer validation (`--baseline-decisions`/`--candidate-decisions` or `--validator-module`), quality checks, logprobs, and token volume (`--format text\|json\|markdown\|html`, `-o`) |
 | `diff` | Show policy-aware JSON field-level or unified text diffs between two captures (`--only-changed`, `--prompt-id`, `--format text\|json\|markdown`) |
 | `distribution` | Measure cross-prompt JSON field distribution drift (categorical TVD/JSD, numeric p10/p50/p90 & normalized 1D Wasserstein; `--group-by category\|metadata:<key>`, `--shift-threshold`, `--fail-on-widespread`, `--max-tvd`, `--max-jsd`, `--max-wasserstein`, `--format text\|json\|markdown\|html`) |
-| `rolling-distribution` | Compare an unpaired candidate capture window against a pooled rolling baseline of prior windows (`-w FILE` repeatable), measuring natural window-to-window baseline jitter (`--max-jitter-multiplier`) and segmented blast radius (`--group-by`, `--fail-on-widespread`) |
+| `rolling-distribution` | Compare an unpaired candidate capture window against a pooled rolling baseline of prior windows (`-w FILE` repeatable), measuring natural window-to-window baseline jitter (`--max-jitter-multiplier`), segmented blast radius (`--group-by`, `--fail-on-widespread`), and exporting `text\|json\|markdown\|html` |
 | `logprobs` | Compare optional `top_logprobs` token entropy (bits) and position-aligned top-k JSD (`--max-entropy-delta`, `--max-jsd`) |
+| `check-embeddings` | Opt-in semantic embedding cosine similarity drift offline (`metadata.embedding`) or via any OpenAI-compatible `/v1/embeddings` endpoint (`--endpoint`, `--model`, `--min-mean-similarity`, `--min-prompt-similarity`) |
 | `check-quality` | Detect quantization/upgrade failure modes: repetition loops, refusal flips, length truncation, and verbosity blowups |
 | `check-formats` | Validate semantic JSON field formats (`date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, `iso-currency`) on exact or `[*]` wildcard paths (`--rule JSONPATH=FORMAT`) |
-| `check-consumer` | Compare downstream consumer validation rejection rates from decision logs (`--baseline-decisions`/`--candidate-decisions`) or a Python callable (`--validator-module pkg.mod:fn`) |
+| `check-consumer` | Compare downstream consumer validation rejection rates from decision logs (`--baseline-decisions`/`--candidate-decisions`) or a Python callable (`--validator-module pkg.mod:fn`; `--format text\|json\|markdown\|html`, `-o`) |
 | `wizard` | Guided 5-question plain-English setup wizard or `--preset` generator (`extraction\|classification\|coding\|rag\|strict`) for `drift.toml` |
 | `score` | Run pluggable scorers (`char_ngram_cosine`, `json_key_jaccard`, `markdown_structure`, `numeric_prose`, `python_ast`, `tfidf_cosine`, or entry-point plugins; `--list-scorers`) |
 | `validate` | Validate captures for JSON syntax and JSON Schema conformity (`--category`, `--strict`) |
@@ -477,6 +478,7 @@ A failed individual sample fails the suite even when aggregate means stay under 
 ## Documentation & Community
 
 - [Examples & Hands-On Playground](examples/README.md) — Reproducible offline fixtures, `drift.toml`, and Python batch examples
+- [Quantization Drift Case Study](docs/case-study-quantization.md) — End-to-end FP16 -> Q8 -> Q4 offline walkthrough with sanitized reference fixtures
 - [Architecture](docs/architecture.md) — Module map, lazy-loading design, scoring formulas, and schema subset
 - [Workflow Recipes](docs/workflows.md) — Quantization, JSON extraction, RAG, and agent evaluation boundaries
 - [Tool-Event Checks](docs/tool-events.md) — Normalized trace format, vendor adapters, and PASS/FAIL/UNKNOWN semantics
