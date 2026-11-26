@@ -7,7 +7,9 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from llm_drift_bench.consumer import ConsumerComparison
+from llm_drift_bench.conversation import ConversationDriftReport
 from llm_drift_bench.distribution import SegmentedDistributionReport
+from llm_drift_bench.embeddings import EmbeddingDriftReport
 from llm_drift_bench.history import HistoryTrendCheck
 from llm_drift_bench.models import DriftBenchmarkReport
 from llm_drift_bench.stats import McNemarResult, PairedSignificance
@@ -54,11 +56,15 @@ def evaluate_release_gates(
     tool_checks: Sequence[ToolCheckRecord] = (),
     segmented_distribution: SegmentedDistributionReport | None = None,
     consumer_comparison: ConsumerComparison | None = None,
+    embedding_report: EmbeddingDriftReport | None = None,
+    conversation_report: ConversationDriftReport | None = None,
     fail_on_history_regression: bool = True,
     fail_on_significant_degradation: bool = False,
     require_tool_checks_pass: bool = False,
     fail_on_widespread_shift: bool = False,
     fail_on_consumer_rejection: bool = True,
+    fail_on_embedding_drift: bool = True,
+    fail_on_conversation_drift: bool = True,
 ) -> ReleaseVerdict:
     """Aggregate canonical drift, trend, statistical, and tool evidence into one verdict.
 
@@ -162,6 +168,43 @@ def evaluate_release_gates(
                     if consumer_comparison.passed
                     else "; ".join(consumer_comparison.failure_reasons)
                     or "Downstream consumer rejection threshold exceeded."
+                ),
+            )
+        )
+
+    if embedding_report is not None:
+        mean_s = (
+            "n/a"
+            if embedding_report.mean_similarity is None
+            else f"{embedding_report.mean_similarity:.4f}"
+        )
+        checks.append(
+            GateCheck(
+                name="embedding_similarity",
+                passed=embedding_report.passed,
+                blocking=fail_on_embedding_drift,
+                detail=(
+                    f"Passed (model={embedding_report.model}, mean_sim={mean_s}, "
+                    f"{embedding_report.comparable_samples}/{embedding_report.total_samples})"
+                    if embedding_report.passed
+                    else "; ".join(embedding_report.failure_reasons)
+                    or "Embedding similarity gate failed."
+                ),
+            )
+        )
+
+    if conversation_report is not None:
+        checks.append(
+            GateCheck(
+                name="conversation_trajectory",
+                passed=conversation_report.passed,
+                blocking=fail_on_conversation_drift,
+                detail=(
+                    f"Passed ({conversation_report.total_conversations} conversation(s), "
+                    f"mean_drift={conversation_report.mean_trajectory_drift:.4f})"
+                    if conversation_report.passed
+                    else "; ".join(conversation_report.failure_reasons)
+                    or "Multi-turn conversation trajectory gate failed."
                 ),
             )
         )

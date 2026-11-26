@@ -158,3 +158,48 @@ def test_evaluate_release_gates_with_widespread_distribution_and_consumer_reject
     assert {"distribution_blast_radius", "consumer_rejection"} <= names
     assert len(verdict.blocking_failures) == 2
 
+
+def test_evaluate_release_gates_with_embeddings_and_conversations() -> None:
+    from llm_drift_bench.conversation import (
+        ConversationRecord,
+        ConversationTurn,
+        analyze_conversation_drift,
+    )
+    from llm_drift_bench.embeddings import compare_embedding_vectors
+
+    pass_rep = load_engine_report(EXAMPLES / "expected-pass.json")
+    emb_fail = compare_embedding_vectors(
+        {"p1": [1.0, 0.0]},
+        {"p1": [0.0, 1.0]},
+        min_mean_similarity=0.8,
+    )
+    conv_fail = analyze_conversation_drift(
+        [ConversationRecord("c1", (ConversationTurn("assistant", "Complete answer."),))],
+        [
+            ConversationRecord(
+                "c1", (ConversationTurn("assistant", "I'm sorry, I cannot help with that."),)
+            )
+        ],
+    )
+    blocked = evaluate_release_gates(
+        pass_rep,
+        embedding_report=emb_fail,
+        conversation_report=conv_fail,
+    )
+    assert blocked.approved is False
+    assert {c.name for c in blocked.checks} >= {"embedding_similarity", "conversation_trajectory"}
+    assert len(blocked.blocking_failures) == 2
+
+    emb_ok = compare_embedding_vectors({"p1": [1.0, 0.0]}, {"p1": [1.0, 0.0]})
+    conv_ok = analyze_conversation_drift(
+        [ConversationRecord("c1", (ConversationTurn("assistant", "hi"),))],
+        [ConversationRecord("c1", (ConversationTurn("assistant", "hi"),))],
+    )
+    approved = evaluate_release_gates(
+        pass_rep,
+        embedding_report=emb_ok,
+        conversation_report=conv_ok,
+    )
+    assert approved.approved is True and approved.warnings == ()
+
+
