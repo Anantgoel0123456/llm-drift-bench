@@ -396,6 +396,52 @@ else:
             cwd=root, env=env, check=True, capture_output=True, text=True,
         )
         assert json.loads(emb_out.stdout)["complete"] is False
+        emb_html = root / "embeddings.html"
+        subprocess.run(
+            [
+                str(cli), "check-embeddings",
+                "-b", str(examples / "baseline.jsonl"),
+                "-c", str(examples / "candidate-pass.jsonl"),
+                "--format", "html", "-o", str(emb_html),
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "<table" in emb_html.read_text(encoding="utf-8")
+        conv_pass = subprocess.run(
+            [
+                str(cli), "check-conversations",
+                "-b", str(examples / "conversations-baseline.jsonl"),
+                "-c", str(examples / "conversations-baseline.jsonl"),
+                "--format", "json",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(conv_pass.stdout)["passed"] is True
+        conv_html = root / "conversations.html"
+        conv_drift = subprocess.run(
+            [
+                str(cli), "check-conversations",
+                "-b", str(examples / "conversations-baseline.jsonl"),
+                "-c", str(examples / "conversations-candidate-drift.jsonl"),
+                "--format", "html", "-o", str(conv_html),
+            ],
+            cwd=root, env=env, check=False, capture_output=True, text=True,
+        )
+        if conv_drift.returncode != 1:
+            raise SystemExit(
+                f"check-conversations drift: exit {conv_drift.returncode}, want 1"
+            )
+        assert "<table" in conv_html.read_text(encoding="utf-8")
+        conv_doc = subprocess.run(
+            [
+                str(cli), "doctor",
+                "--baseline-conversations", str(examples / "conversations-baseline.jsonl"),
+                "--candidate-conversations", str(examples / "conversations-candidate-drift.jsonl"),
+                "--format", "json",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(conv_doc.stdout)["ok"] is True
         case_dir = examples / "case-study"
         case_doc = subprocess.run(
             [
