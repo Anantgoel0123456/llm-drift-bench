@@ -202,3 +202,75 @@ def test_embeddings_validation_and_error_paths() -> None:
                 ]
             },
         )
+
+
+def test_embeddings_default_transport_retry_after_and_transient_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json
+    import urllib.request
+
+    from llm_drift_bench.embeddings import (
+        _MAX_RESPONSE_BYTES,
+        _default_embedding_transport,
+        _parse_retry_after,
+    )
+
+    assert _parse_retry_after(None) is None
+    assert _parse_retry_after("not-a-number") is None
+    assert _parse_retry_after("-3.0") is None
+    assert _parse_retry_after("inf") is None
+    assert _parse_retry_after("120") == 30.0
+
+    # Transient TimeoutError retries once then succeeds
+    attempts = 0
+    sleeps: list[float] = []
+
+    def recover_transport(
+        url: str, body: dict[str, Any], headers: dict[str, str], timeout: float
+    ) -> dict[str, Any]:
+        nonlocal attempts
+        del url, body, headers, timeout
+        attempts += 1
+        if attempts == 1:
+            raise TimeoutError("transient stall")
+        return {"data": [{"index": 0, "embedding": [0.5, 0.5]}]}
+
+    cfg = EmbeddingConfig(endpoint="https://api.example.com", model="m", max_retries=1)
+    vecs = fetch_embeddings(["hello"], cfg, transport=recover_transport, sleep_fn=sleeps.append)
+    assert vecs == [[0.5, 0.5]]
+    assert sleeps == [1.0]
+
+    # Exercise _default_embedding_transport via mocked urllib.request.urlopen
+    class _FakeResp:
+        def __init__(self, payload: bytes) -> None:
+            self._payload = payload
+
+        def read(self, n: int = -1) -> bytes:
+            return self._payload if n < 0 else self._payload[:n]
+
+        def __enter__(self) -> _FakeResp:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    ok_bytes = json.dumps({"data": [{"index": 0, "embedding": [1.0, 2.0]}]}).encode("utf-8")
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: _FakeResp(ok_bytes))
+    assert _default_embedding_transport(
+        "https://api.example.com/v1/embeddings", {"model": "m", "input": ["a"]}, {}, 5.0
+    )["data"][0]["embedding"] == [1.0, 2.0]
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: _FakeResp(b"[1, 2, 3]"))
+    with pytest.raises(ValueError, match="must be a JSON object"):
+        _default_embedding_transport(
+            "https://api.example.com/v1/embeddings", {"model": "m", "input": ["a"]}, {}, 5.0
+        )
+
+    huge = b"x" * (_MAX_RESPONSE_BYTES + 1)
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: _FakeResp(huge))
+    with pytest.raises(ValueError, match="exceeded 16 MiB"):
+        _default_embedding_transport(
+            "https://api.example.com/v1/embeddings", {"model": "m", "input": ["a"]}, {}, 5.0
+        )
+

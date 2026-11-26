@@ -206,3 +206,65 @@ def test_canonical_report_schema_version_backward_compat_and_rejection(tmp_path:
         with pytest.raises(ValueError, match="schema_version"):
             load_report(bad_path)
 
+
+def test_report_io_and_reporter_defensive_edges(tmp_path: Path) -> None:
+    from llm_drift_bench.report_io import _check_pass_status, _check_unit, load_engine_report
+    from llm_drift_bench.reporter import _export_legacy_markdown_report, export_pr_comment
+
+    with pytest.raises(ValueError, match="is required"):
+        _check_unit("metric", None)
+
+    # Non-JSON report (valid == 0) round-trips through load_report cleanly
+    plain = [ModelSample(prompt_id="p1", output="plain text answer")]
+    plain_rep = DriftBenchmarkEngine().evaluate(plain, plain)
+    plain_path = tmp_path / "plain.json"
+    plain_path.write_text(plain_rep.to_json(), encoding="utf-8")
+    assert load_engine_report(plain_path).total_samples == 1
+
+    # Unexpected aggregate numeric drift when no sample supplies numeric drift
+    no_num_samples = [ModelSample(prompt_id="p1", output='{"k": "v"}')]
+    no_num_rep = DriftBenchmarkEngine().evaluate(no_num_samples, no_num_samples)
+    bad_opt = no_num_rep.to_dict()
+    bad_opt["mean_json_numeric_drift"] = 0.25
+    bad_opt_path = tmp_path / "bad_opt.json"
+    bad_opt_path.write_text(json.dumps(bad_opt), encoding="utf-8")
+    with pytest.raises(ValueError, match="no per-prompt result supplies it"):
+        load_report(bad_opt_path)
+
+    # Non-JSON sample claiming numeric drift
+    bad_plain = plain_rep.to_dict()
+    bad_plain["results"][0]["json_numeric_drift"] = 0.1
+    bad_plain["mean_json_numeric_drift"] = 0.1
+    bad_plain_path = tmp_path / "bad_plain.json"
+    bad_plain_path.write_text(json.dumps(bad_plain), encoding="utf-8")
+    with pytest.raises(ValueError, match="numeric drift requires two valid JSON"):
+        load_report(bad_plain_path)
+
+    # Direct _check_pass_status defensive threshold guards
+    with pytest.raises(ValueError, match="mean composite drift exceeds"):
+        _check_pass_status(replace(no_num_rep, passed=True, mean_composite_drift=0.95))
+    with pytest.raises(ValueError, match="mean numeric drift exceeds"):
+        _check_pass_status(replace(no_num_rep, passed=True, mean_json_numeric_drift=0.95))
+
+    # Legacy report latency mismatch, load_engine_report rejection, PR comment rejection,
+    # and _export_legacy_markdown_report file output
+    timed = [ModelSample(prompt_id="p1", output="{}", latency_ms=10.0)]
+    legacy = evaluate_suite([], timed, timed)
+    legacy_path = tmp_path / "legacy_ok.json"
+    legacy_path.write_text(legacy.model_dump_json(), encoding="utf-8")
+    with pytest.raises(ValueError, match="expected a saved engine report"):
+        load_engine_report(legacy_path)
+    with pytest.raises(ValueError, match="PR comment export requires a canonical engine report"):
+        export_pr_comment(legacy)
+    md_out = tmp_path / "legacy_dir" / "legacy.md"
+    rendered = _export_legacy_markdown_report(legacy, output_path=md_out)
+    assert md_out.read_text(encoding="utf-8") == rendered
+
+    bad_legacy_dict = legacy.model_dump()
+    bad_legacy_dict["mean_baseline_latency_ms"] = 99.0
+    bad_legacy_path = tmp_path / "legacy_bad.json"
+    bad_legacy_path.write_text(json.dumps(bad_legacy_dict), encoding="utf-8")
+    with pytest.raises(ValueError, match="does not match its per-prompt metrics"):
+        load_report(bad_legacy_path)
+
+

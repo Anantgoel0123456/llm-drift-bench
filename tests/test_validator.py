@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import unittest
+import unittest.mock
 
 from llm_drift_bench.validator import (
     _check_json_type,
@@ -270,3 +272,26 @@ class TestValidator(unittest.TestCase):
             {"type": "object", "properties": {"a.b": {"type": "string"}}},
         )
         self.assertEqual(key_issues[0].path, '$["a.b"]')
+
+    def test_extract_json_empty_fence_attempt_cap_and_nesting_limit(self) -> None:
+        # Empty ```json fence is skipped cleanly before a populated fence
+        ok, data, err = extract_json_payload('```json\n   \n```\n```json\n{"ok": 1}\n```')
+        self.assertTrue(ok)
+        self.assertEqual(data, {"ok": 1})
+        self.assertIsNone(err)
+
+        # Excessive malformed opening braces hit the prose scan attempt cap safely
+        ok_cap, data_cap, err_cap = extract_json_payload("{" * 140 + '{"ok": 1}')
+        self.assertFalse(ok_cap)
+        self.assertIsNone(data_cap)
+        self.assertIn("Invalid JSON syntax", err_cap or "")
+
+        # RecursionError during prose JSON decoding fails gracefully
+        with unittest.mock.patch.object(
+            json.JSONDecoder, "raw_decode", side_effect=RecursionError("too deep")
+        ):
+            ok_deep, data_deep, err_deep = extract_json_payload('prefix {"a": 1}')
+        self.assertFalse(ok_deep)
+        self.assertIsNone(data_deep)
+        self.assertIn("nesting exceeds", err_deep or "")
+
