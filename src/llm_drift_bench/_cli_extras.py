@@ -710,6 +710,36 @@ def register_extra_subcommands(
         help="Optional max allowed consumer rejection rate increase vs baseline in [0, 1].",
     )
     audit_p.add_argument(
+        "--min-embedding-similarity",
+        type=float,
+        default=None,
+        help="Optional min mean embedding cosine similarity in [-1, 1] on capture embeddings.",
+    )
+    audit_p.add_argument(
+        "--baseline-conversations",
+        default=None,
+        metavar="FILE",
+        help="Optional baseline multi-turn conversations file (.json/.jsonl).",
+    )
+    audit_p.add_argument(
+        "--candidate-conversations",
+        default=None,
+        metavar="FILE",
+        help="Optional candidate multi-turn conversations file (.json/.jsonl).",
+    )
+    audit_p.add_argument(
+        "--max-turn-drift",
+        type=float,
+        default=0.20,
+        help="Per-turn drift threshold for attached conversation checks (default: 0.20).",
+    )
+    audit_p.add_argument(
+        "--max-mean-trajectory-drift",
+        type=float,
+        default=0.25,
+        help="Max mean trajectory drift for attached conversation checks (default: 0.25).",
+    )
+    audit_p.add_argument(
         "--format",
         choices=("text", "json", "markdown", "html"),
         default="text",
@@ -1691,6 +1721,13 @@ def _handle_audit(
         )
     if using_decisions and not (args.baseline_decisions and args.candidate_decisions):
         raise ValueError("Both --baseline-decisions and --candidate-decisions are required.")
+    using_convs = (
+        args.baseline_conversations is not None or args.candidate_conversations is not None
+    )
+    if using_convs and not (args.baseline_conversations and args.candidate_conversations):
+        raise ValueError(
+            "Both --baseline-conversations and --candidate-conversations are required."
+        )
     protect_inputs(
         args.output,
         args.baseline,
@@ -1699,6 +1736,8 @@ def _handle_audit(
         args.config,
         args.baseline_decisions,
         args.candidate_decisions,
+        args.baseline_conversations,
+        args.candidate_conversations,
     )
     from llm_drift_bench.audit import (
         export_audit_html,
@@ -1741,6 +1780,30 @@ def _handle_audit(
             max_rejection_increase=args.max_rejection_increase,
         )
 
+    embedding_rep = None
+    if args.min_embedding_similarity is not None:
+        from llm_drift_bench.embeddings import analyze_capture_embeddings
+
+        embedding_rep = analyze_capture_embeddings(
+            base,
+            cand,
+            min_mean_similarity=args.min_embedding_similarity,
+        )
+
+    conversation_rep = None
+    if using_convs:
+        from llm_drift_bench.conversation import (
+            analyze_conversation_drift,
+            load_conversations,
+        )
+
+        conversation_rep = analyze_conversation_drift(
+            load_conversations(args.baseline_conversations),
+            load_conversations(args.candidate_conversations),
+            max_turn_drift=args.max_turn_drift,
+            max_mean_drift=args.max_mean_trajectory_drift,
+        )
+
     report = run_full_audit(
         base,
         cand,
@@ -1756,6 +1819,8 @@ def _handle_audit(
         shift_threshold=args.shift_threshold,
         fail_on_widespread_shift=args.fail_on_widespread,
         consumer_comparison=consumer_comp,
+        embedding_report=embedding_rep,
+        conversation_report=conversation_rep,
     )
     if args.format == "json":
         rendered = json.dumps(report.to_dict(), indent=2) + "\n"

@@ -2623,6 +2623,110 @@ def test_cli_gate_with_conversations_and_embeddings(
     capsys.readouterr()
 
 
+def test_cli_audit_with_conversations_and_embeddings(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    emb_b = tmp_path / "b.jsonl"
+    emb_c = tmp_path / "c.jsonl"
+    emb_b.write_text(
+        json.dumps(
+            {
+                "prompt_id": "p1",
+                "model_name": "b",
+                "output": '{"ok": true}',
+                "metadata": {"embedding": [1.0, 0.0]},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    emb_c.write_text(
+        json.dumps(
+            {
+                "prompt_id": "p1",
+                "model_name": "c",
+                "output": '{"ok": true}',
+                "metadata": {"embedding": [0.0, 1.0]},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    # Passing audit with embeddings + conversations -> exit 0
+    assert (
+        main(
+            [
+                "audit",
+                "-b",
+                str(emb_b),
+                "-c",
+                str(emb_b),
+                "--min-embedding-similarity",
+                "0.90",
+                "--baseline-conversations",
+                str(EXAMPLES / "conversations-baseline.jsonl"),
+                "--candidate-conversations",
+                str(EXAMPLES / "conversations-baseline.jsonl"),
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    ok_data = json.loads(capsys.readouterr().out)
+    assert ok_data["passed"] is True
+    assert ok_data["embeddings"]["passed"] is True
+    assert ok_data["conversations"]["passed"] is True
+
+    # Failing embeddings + failing conversations -> exit 1 & HTML dashboard contains both sections
+    html_out = tmp_path / "audit_full.html"
+    assert (
+        main(
+            [
+                "audit",
+                "-b",
+                str(emb_b),
+                "-c",
+                str(emb_c),
+                "--min-embedding-similarity",
+                "0.90",
+                "--baseline-conversations",
+                str(EXAMPLES / "conversations-baseline.jsonl"),
+                "--candidate-conversations",
+                str(EXAMPLES / "conversations-candidate-drift.jsonl"),
+                "--format",
+                "html",
+                "-o",
+                str(html_out),
+            ]
+        )
+        == 1
+    )
+    capsys.readouterr()
+    html_text = html_out.read_text(encoding="utf-8")
+    assert "Embedding Mean Cos" in html_text and "Multi-Turn Conversations" in html_text
+
+    # Single-sided conversation flag fails cleanly with exit 2
+    assert (
+        main(
+            [
+                "audit",
+                "-b",
+                str(emb_b),
+                "-c",
+                str(emb_b),
+                "--baseline-conversations",
+                str(EXAMPLES / "conversations-baseline.jsonl"),
+            ]
+        )
+        == 2
+    )
+    capsys.readouterr()
+
+
+
 
 
 
