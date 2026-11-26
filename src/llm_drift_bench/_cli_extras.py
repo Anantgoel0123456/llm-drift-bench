@@ -714,9 +714,12 @@ def register_extra_subcommands(
     )
     cons_p.add_argument(
         "--format",
-        choices=("text", "json", "markdown"),
+        choices=("text", "json", "markdown", "html"),
         default="text",
-        help="Output format: text (default), json, or markdown.",
+        help="Output format: text (default), json, markdown, or html.",
+    )
+    cons_p.add_argument(
+        "-o", "--output", default=None, help="Optional output file path to write the report."
     )
 
     roll_p = subparsers.add_parser(
@@ -1611,16 +1614,28 @@ def dispatch_extra_command(
     if args.command == "audit":
         return _handle_audit(args, protect_inputs, atomic_write_text)
     if args.command == "check-consumer":
-        return _handle_check_consumer(args)
+        return _handle_check_consumer(args, protect_inputs, atomic_write_text)
     if args.command == "rolling-distribution":
         return _handle_rolling_distribution(args, protect_inputs, atomic_write_text)
     return None
 
 
-def _handle_check_consumer(args: argparse.Namespace) -> int:
+def _handle_check_consumer(
+    args: argparse.Namespace,
+    protect_inputs: ProtectFn,
+    atomic_write_text: AtomicWriteFn,
+) -> int:
+    protect_inputs(
+        args.output,
+        args.baseline_decisions,
+        args.candidate_decisions,
+        args.baseline,
+        args.candidate,
+    )
     from llm_drift_bench.consumer import (
         compare_consumer_decisions,
         evaluate_consumer_rejection,
+        export_consumer_html,
         format_consumer_markdown,
         format_consumer_text,
         load_consumer_decisions,
@@ -1673,11 +1688,21 @@ def _handle_check_consumer(args: argparse.Namespace) -> int:
         )
 
     if args.format == "json":
-        print(json.dumps(comp.to_dict(), indent=2))
+        rendered = json.dumps(comp.to_dict(), indent=2) + "\n"
     elif args.format == "markdown":
-        print(format_consumer_markdown(comp), end="")
+        rendered = format_consumer_markdown(comp)
+    elif args.format == "html":
+        rendered = export_consumer_html(comp)
     else:
-        print(format_consumer_text(comp), end="")
+        rendered = format_consumer_text(comp)
+    if args.output:
+        atomic_write_text(Path(args.output), rendered)
+        if args.format == "html":
+            print(f"Wrote downstream consumer rejection report -> {args.output}")
+        else:
+            print(rendered, end="")
+    else:
+        print(rendered, end="")
     return 0 if comp.passed else 1
 
 

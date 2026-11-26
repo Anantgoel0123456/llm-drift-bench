@@ -1407,6 +1407,26 @@ def test_cli_segmented_distribution_persist_windows_and_check_consumer(
     )
     assert "# Downstream Consumer Rejection Check: FAILED" in capsys.readouterr().out
 
+    cons_html = tmp_path / "consumer.html"
+    assert (
+        main(
+            [
+                "check-consumer",
+                "--baseline-decisions",
+                str(b_dec),
+                "--candidate-decisions",
+                str(c_dec),
+                "--format",
+                "html",
+                "-o",
+                str(cons_html),
+            ]
+        )
+        == 0
+    )
+    assert "Wrote downstream consumer rejection report" in capsys.readouterr().out
+    assert "<table" in cons_html.read_text(encoding="utf-8")
+
     # Via --validator-module
     val_mod = tmp_path / "cli_consumer_val.py"
     val_mod.write_text(

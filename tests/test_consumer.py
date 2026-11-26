@@ -12,6 +12,7 @@ from llm_drift_bench.consumer import (
     ConsumerDecision,
     compare_consumer_decisions,
     evaluate_consumer_rejection,
+    export_consumer_html,
     format_consumer_markdown,
     format_consumer_text,
     load_consumer_decisions,
@@ -20,7 +21,7 @@ from llm_drift_bench.consumer import (
 from llm_drift_bench.models import ModelSample
 
 
-def test_evaluate_consumer_rejection_catches_business_rule_creep() -> None:
+def test_evaluate_consumer_rejection_catches_business_rule_creep(tmp_path: Path) -> None:
     # All JSON outputs are structurally valid, but downstream requires total == subtotal + tax.
     def _invoice_invariant(sample: ModelSample) -> tuple[bool, str | None]:
         data = json.loads(sample.output)
@@ -62,6 +63,12 @@ def test_evaluate_consumer_rejection_catches_business_rule_creep() -> None:
     assert "FAILED" in format_consumer_text(comp)
     md = format_consumer_markdown(comp)
     assert "# Downstream Consumer Rejection Check: FAILED" in md and "| p2 |" in md
+
+    html_out = tmp_path / "cons" / "report.html"
+    html = export_consumer_html(comp, output_path=html_out)
+    assert html_out.read_text(encoding="utf-8") == html
+    assert "Downstream Consumer Rejection Check" in html and "Newly Rejected Prompts" in html
+    assert "<script" not in html.lower()
 
 
 def test_load_consumer_decisions_jsonl_and_json_plus_dynamic_validator(

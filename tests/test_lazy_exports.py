@@ -73,6 +73,7 @@ def test_all_exports_resolve_cleanly() -> None:
     assert "analyze_segmented_distributions" in exported
     assert "SegmentedDistributionReport" in exported
     assert "evaluate_consumer_rejection" in exported
+    assert "export_consumer_html" in exported
     assert "compare_consumer_decisions" in exported
     assert "load_consumer_decisions" in exported
     assert "analyze_rolling_distribution" in exported

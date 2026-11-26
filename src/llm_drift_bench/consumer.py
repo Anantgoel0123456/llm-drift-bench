@@ -10,6 +10,7 @@ import importlib
 import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -322,3 +323,66 @@ def format_consumer_markdown(comparison: ConsumerComparison) -> str:
         lines += ["", "## Threshold failures", ""]
         lines.extend(f"- {markdown_cell(msg)}" for msg in comparison.failure_reasons)
     return "\n".join(lines) + "\n"
+
+
+def export_consumer_html(
+    comparison: ConsumerComparison,
+    output_path: str | Path | None = None,
+) -> str:
+    """Export a standalone script-free offline HTML report for a ConsumerComparison."""
+    status = "PASSED" if comparison.passed else "FAILED"
+    badge_cls = "pass" if comparison.passed else "fail"
+    rej_rows = ""
+    if comparison.newly_rejected_ids:
+        body = "".join(
+            f"<tr><td>{escape(pid)}</td>"
+            f"<td>{escape(comparison.candidate_reasons.get(pid, 'rejected'))}</td></tr>"
+            for pid in comparison.newly_rejected_ids
+        )
+        rej_rows = (
+            "<h2>Newly Rejected Prompts</h2>"
+            "<table><thead><tr><th>Prompt ID</th><th>Candidate Reason</th></tr></thead>"
+            f"<tbody>{body}</tbody></table>"
+        )
+    fail_html = ""
+    if comparison.failure_reasons:
+        items = "".join(f"<li>{escape(msg)}</li>" for msg in comparison.failure_reasons)
+        fail_html = (
+            f"<section class='failures'><h2>Threshold Failures</h2><ul>{items}</ul></section>"
+        )
+    html = (
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        "<title>LLM Drift Bench — Downstream Consumer Rejection</title>"
+        "<style>"
+        "body{font-family:system-ui,-apple-system,sans-serif;background:#0b1320;color:#e6edf7;"
+        "margin:0;padding:24px;line-height:1.5}"
+        "main{max-width:900px;margin:0 auto}h1,h2{color:#f8fafc}.muted{color:#94a3b8}"
+        ".badge{display:inline-block;padding:4px 10px;border-radius:6px;font-weight:700}"
+        ".pass{background:#064e3b;color:#6ee7b7}.fail{background:#4c0519;color:#fda4af}"
+        "table{width:100%;border-collapse:collapse;background:#111e32;margin-top:12px}"
+        "th,td{padding:10px 12px;border-bottom:1px solid #26354d;text-align:left}"
+        "th{color:#7dd3fc}.failures{margin-top:16px;padding:12px;background:#3b0a17;"
+        "border:1px solid #881337;border-radius:8px}"
+        "</style></head><body><main>"
+        "<p class='muted'>llm-drift-bench / downstream consumer validation</p>"
+        "<h1>Downstream Consumer Rejection Check "
+        f"<span class='badge {badge_cls}'>{status}</span></h1>"
+        "<table><thead><tr><th>Metric</th><th>Baseline</th>"
+        "<th>Candidate</th><th>Delta</th></tr></thead><tbody>"
+        f"<tr><td>Rejected prompts</td>"
+        f"<td>{comparison.baseline_rejected}/{comparison.total_samples}</td>"
+        f"<td>{comparison.candidate_rejected}/{comparison.total_samples}</td>"
+        f"<td>{comparison.candidate_rejected - comparison.baseline_rejected:+d}</td></tr>"
+        f"<tr><td>Rejection rate</td>"
+        f"<td>{comparison.baseline_rejection_rate:.1%}</td>"
+        f"<td>{comparison.candidate_rejection_rate:.1%}</td>"
+        f"<td>{comparison.rejection_rate_delta:+.1%}</td></tr>"
+        "</tbody></table>"
+        f"{rej_rows}{fail_html}</main></body></html>\n"
+    )
+    if output_path is not None:
+        target = Path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(html, encoding="utf-8")
+    return html
+
