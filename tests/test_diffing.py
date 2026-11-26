@@ -182,4 +182,23 @@ def test_format_diffs_markdown_renders_json_tables_and_text_diffs() -> None:
     with pytest.raises(ValueError, match="positive integer"):
         format_diffs_markdown([d_json], max_changes_per_prompt=0)
 
+    # Empty lists, text diff formatting, string-value changes, omission & ignored notes
+    assert "No matching prompts" in format_diffs_text([])
+    assert "No matching prompts" in format_diffs_markdown([])
+    assert "[CHANGED] txt-1 (text)" in format_diffs_text([d_text])
+
+    pol = DriftPolicy(field_rules={"$.ts": FieldRule(path="$.ts", ignore=True)})
+    d_str = diff_sample_pair(
+        ModelSample(prompt_id="s1", output='{"a": "old", "b": "x", "ts": 1}'),
+        ModelSample(prompt_id="s1", output='{"a": "new", "b": "y", "ts": 2}'),
+        policy=pol,
+    )
+    md_trunc = format_diffs_markdown([d_str], max_changes_per_prompt=1)
+    assert "additional field change(s) omitted" in md_trunc
+    assert "Ignored 1 path(s) via policy" in md_trunc
+
+    dup_s = ModelSample(prompt_id="p1", output='{"a": 1}')
+    with pytest.raises(ValueError, match="duplicate prompt_id"):
+        diff_captures([dup_s, dup_s], [dup_s])
+
 

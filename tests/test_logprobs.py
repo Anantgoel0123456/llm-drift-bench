@@ -140,3 +140,50 @@ def test_logprobs_validation_errors() -> None:
         analyze_logprobs_drift([], s1)
     with pytest.raises(ValueError, match="do not match"):
         analyze_logprobs_drift(s1, [ModelSample(prompt_id="p2", output="a", model_name="c")])
+
+    # Malformed token entries, >1.0 probability renormalization, and all-invalid logprobs list
+    noisy_b = [
+        ModelSample(
+            prompt_id="p1",
+            output="ok",
+            model_name="b",
+            metadata={
+                "logprobs": [
+                    "not-a-dict",
+                    {"token": "skip", "logprob": 2.5},
+                    {
+                        "token": "yes",
+                        "logprob": _lp(0.8),
+                        "top_logprobs": [
+                            "bad-cand",
+                            {"token": "yes", "logprob": _lp(0.8)},
+                            {"token": "no", "logprob": _lp(0.5)},
+                        ],
+                    },
+                ]
+            },
+        ),
+        ModelSample(
+            prompt_id="p2",
+            output="ok",
+            model_name="b",
+            metadata={"logprobs": ["bad", {"token": "x", "logprob": 5.0}]},
+        ),
+    ]
+    noisy_c = [
+        ModelSample(
+            prompt_id="p1",
+            output="ok",
+            model_name="c",
+            metadata={"logprobs": [{"token": "yes", "logprob": _lp(0.8)}]},
+        ),
+        ModelSample(
+            prompt_id="p2",
+            output="ok",
+            model_name="c",
+            metadata={"logprobs": [{"token": "x", "logprob": _lp(0.8)}]},
+        ),
+    ]
+    noisy_summary = analyze_logprobs_drift(noisy_b, noisy_c)
+    assert noisy_summary.comparable_samples == 1
+    assert noisy_summary.complete is False

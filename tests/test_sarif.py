@@ -42,6 +42,19 @@ def test_export_sarif_report_passing_and_drifted(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="artifact_uri"):
         export_sarif_report(drifted, artifact_uri="   ")
+    with pytest.raises(ValueError, match="canonical engine report"):
+        export_sarif_report({"passed": True})  # type: ignore[arg-type]
+
+    # Pure string-field composite drift (valid JSON, no numeric drift) emits DRIFT003
+    from llm_drift_bench.engine import DriftBenchmarkEngine
+    from llm_drift_bench.models import ModelSample
+
+    lex_rep = DriftBenchmarkEngine().evaluate(
+        [ModelSample(prompt_id="p1", output='{"summary": "alpha beta gamma delta"}')],
+        [ModelSample(prompt_id="p1", output='{"summary": "completely unrelated prose output"}')],
+    )
+    lex_doc = json.loads(export_sarif_report(lex_rep))
+    assert any(r["ruleId"] == "DRIFT003" for r in lex_doc["runs"][0]["results"])
 
 
 def test_cli_run_and_report_sarif_output(

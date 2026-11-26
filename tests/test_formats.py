@@ -104,3 +104,18 @@ def test_parse_format_rule_spec_and_errors() -> None:
         check_field_formats([], {"$.x": "email"})
     with pytest.raises(ValueError, match="At least one"):
         check_field_formats([ModelSample(prompt_id="p1", output="{}")], {})
+
+    # Additional validation & non-JSON skip branches
+    with pytest.raises(ValueError, match="Unsupported format"):
+        validate_format_value("x", "unknown")  # type: ignore[arg-type]
+    assert validate_format_value("   ", "email")[0] is False
+    assert validate_format_value("not-a-date", "date")[0] is False
+    assert validate_format_value("not-a-datetime", "date-time")[0] is False
+
+    sample_ok = [ModelSample(prompt_id="p1", output="plain non-json text")]
+    with pytest.raises(ValueError, match="start with"):
+        check_field_formats(sample_ok, {"no_dollar": "email"})
+    with pytest.raises(ValueError, match="Unsupported format"):
+        check_field_formats(sample_ok, {"$.x": "bogus"})  # type: ignore[arg-type]
+    skipped = check_field_formats(sample_ok, {"$.email": "email"})
+    assert skipped.passed is True and skipped.checked_values == 0
