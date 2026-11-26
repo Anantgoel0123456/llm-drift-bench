@@ -282,9 +282,10 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | Command | Purpose |
 | :--- | :--- |
 | `run` | Compare baseline and candidate captures (`--config`, `--category`, `--long-text-mode`, `--include-diffs`, `--format`, `--junit-output`, `--sarif-output`, `--github-summary`) |
-| `audit` | Run a unified offline audit combining per-prompt drift, field distributions (with optional `--group-by`, `--shift-threshold`, `--fail-on-widespread`), quality checks, logprobs, and token volume (`--format text\|json\|markdown\|html`, `-o`) |
+| `audit` | Run a unified offline audit combining per-prompt drift, field distributions (`--group-by`, `--shift-threshold`, `--fail-on-widespread`), downstream consumer validation (`--baseline-decisions`/`--candidate-decisions` or `--validator-module`), quality checks, logprobs, and token volume (`--format text\|json\|markdown\|html`, `-o`) |
 | `diff` | Show policy-aware JSON field-level or unified text diffs between two captures (`--only-changed`, `--prompt-id`, `--format text\|json\|markdown`) |
 | `distribution` | Measure cross-prompt JSON field distribution drift (categorical TVD/JSD, numeric p10/p50/p90 & normalized 1D Wasserstein; `--group-by category\|metadata:<key>`, `--shift-threshold`, `--fail-on-widespread`, `--max-tvd`, `--max-jsd`, `--max-wasserstein`, `--format text\|json\|markdown\|html`) |
+| `rolling-distribution` | Compare an unpaired candidate capture window against a pooled rolling baseline of prior windows (`-w FILE` repeatable), measuring natural window-to-window baseline jitter (`--max-jitter-multiplier`) and segmented blast radius (`--group-by`, `--fail-on-widespread`) |
 | `logprobs` | Compare optional `top_logprobs` token entropy (bits) and position-aligned top-k JSD (`--max-entropy-delta`, `--max-jsd`) |
 | `check-quality` | Detect quantization/upgrade failure modes: repetition loops, refusal flips, length truncation, and verbosity blowups |
 | `check-formats` | Validate semantic JSON field formats (`date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, `iso-currency`) on exact or `[*]` wildcard paths (`--rule JSONPATH=FORMAT`) |
@@ -297,7 +298,7 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | `compare-many` | Evaluate 2+ labeled candidate captures against one baseline (`--sort-by`, `--against`, `--hotspots`, `--format rich`, `--html-output`, `--markdown-output`) |
 | `compare-reports` | Rank saved candidate reports and export SVG Pareto HTML or GFM `--markdown-output` leaderboards |
 | `matrix` | Render a Prompt x Candidate drift heatmap matrix across 2+ saved reports (`--sort-prompts`, `--format text\|json\|html`) |
-| `gate` | Evaluate a composite GO/NO-GO release gate combining drift report, history trends (`--persist-windows`), significance tests, tool checks, and downstream consumer rejection logs (`--baseline-decisions`/`--candidate-decisions`) |
+| `gate` | Evaluate a composite GO/NO-GO release gate combining drift report, history trends (`--persist-windows`), significance tests, tool checks, segmented distribution blast radius (`--baseline-capture`/`--candidate-capture`/`--group-by`/`--fail-on-widespread`), and downstream consumer rejection logs (`--baseline-decisions`/`--candidate-decisions`) |
 | `cost` | Compare explicit generated token counts & optional USD output cost drift (`--max-token-increase-pct`, `--max-cost-increase-pct`) |
 | `badge` | Generate an offline shields-style static SVG drift status badge from a saved engine report (`--label`) |
 | `import-captures` | Convert OpenAI Batch API JSONL, Anthropic Message Batches JSONL, or CSV exports into canonical `ModelSample` JSONL (`--from`) |

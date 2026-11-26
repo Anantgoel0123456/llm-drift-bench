@@ -149,9 +149,10 @@ other thresholds does not certify latency performance.
 Commands are:
 
 - `run` (with `--config`, `--category`, `--long-text-mode`, `--include-diffs`, `--format pr-comment|csv|sarif`, `--junit-output`, `--sarif-output`, `--github-summary`)
-- `audit` (unified offline audit combining per-prompt drift, field distributions with optional `--group-by`/`--fail-on-widespread` blast-radius checks, quality checks, logprobs, and token volume in `text`, `json`, `markdown`, or offline `html`)
+- `audit` (unified offline audit combining per-prompt drift, field distributions with optional `--group-by`/`--fail-on-widespread` blast-radius checks, optional downstream consumer validation via decision logs or `--validator-module`, quality checks, logprobs, and token volume in `text`, `json`, `markdown`, or offline `html`)
 - `diff` (policy-aware JSON field-level and unified text diff inspector in `text`, `json`, or GFM `markdown`)
 - `distribution` (cross-prompt JSON field distribution drift using categorical TVD/JSD and numeric quantiles + exact 1D Wasserstein, with optional `--group-by category|metadata:<key>` segmentation, `localized` vs `widespread` blast-radius classification, and `--fail-on-widespread`)
+- `rolling-distribution` (unpaired rolling-baseline cross-window JSON field distribution analyzer pooling prior traffic windows `-w`, measuring consecutive-window baseline jitter, and classifying segmented blast radius)
 - `logprobs` (optional `top_logprobs` token entropy and position-aligned top-k JSD analyzer)
 - `check-quality` (deterministic repetition-loop, refusal-flip, length-truncation, and length-blowup regression checks)
 - `check-formats` (standalone semantic format validator for `date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, and `iso-currency` on exact or `[*]` wildcard JSONPaths)
@@ -164,7 +165,7 @@ Commands are:
 - `compare-many` (supports `--sort-by`, `--format rich`, `--html-output`, `--markdown-output`, `--json-output`, `--config`)
 - `compare-reports` (supports `--sort-by`, `--format rich`, `--html-output`, `--markdown-output`, `--json-output`)
 - `matrix` (Prompt x Candidate drift heatmap matrix in `text`, `json`, or offline `html`)
-- `gate` (composite GO/NO-GO release gate combining drift, persistent history trends, statistical tests, tool checks, and downstream consumer rejection logs)
+- `gate` (composite GO/NO-GO release gate combining drift, persistent history trends, statistical tests, tool checks, segmented distribution blast radius, and downstream consumer rejection logs)
 - `cost` (explicit generated token volume, optional USD output cost drift comparator, and `--max-token-increase-pct` / `--max-cost-increase-pct` budgets)
 - `badge` (offline shields-style static SVG drift status badge generator)
 - `import-captures` (offline importers for OpenAI Batch API JSONL, Anthropic Message Batches JSONL, and CSV captures)
@@ -213,6 +214,7 @@ Additional library modules:
 - `packs.py`: curated starter benchmark packs (`extraction`, `classification`, `coding`, `rag`) with lint-clean prompts, baseline/passing/drifted captures, and policies.
 - `audit.py`: unified offline audit report and script-free HTML dashboard aggregating drift, distributions, quality checks, logprobs, and token volume.
 - `consumer.py`: downstream consumer validation and rejection-rate creep checker supporting both pre-recorded decision logs and Python validator callables.
+- `rolling.py`: rolling-baseline cross-window distribution drift analyzer supporting unpaired traffic windows, consecutive-window baseline jitter measurement, and segmented blast-radius classification.
 - `_comparison_md.py` and `_cli_extras.py`: GitHub-Flavored Markdown multi-candidate comparison exporter and lazily imported extra CLI subcommand handlers.
 
 All CLI run formats render one DriftBenchmarkReport. Rich, Markdown, and HTML

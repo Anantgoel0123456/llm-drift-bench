@@ -42,13 +42,20 @@ This is a prioritized plan, not a list of shipped capabilities or release dates.
 - [x] Composite GO/NO-GO release gates (`gate`), multi-candidate Prompt x Candidate drift heatmap matrix (`matrix`), explicit token/cost drift & budgets (`cost`), offline SHA-256 baseline snapshot manifests (`snapshot`), deterministic credential/PII redaction (`redact`), stratified subsampling (`subsample`), suite linting (`lint-suite`), offline batch/CSV importers (`import-captures`), and static SVG status badges (`badge`).
 - [x] Native Anthropic Messages & Google Gemini capture + Gemini tool-trace adapter, reusable composite GitHub Action (`action.yml`), and automated GitHub Release publishing in `publish.yml`.
 
+## Unreleased (heading toward 0.5.0)
+
+- [x] Rolling-baseline cross-window distribution drift with natural window-to-window jitter measurement (`rolling.py`, `rolling-distribution`).
+- [x] Segmented field distributions (`--group-by category|metadata:<key>`) with `localized` vs `widespread` blast-radius classification (`--fail-on-widespread`).
+- [x] Multi-window persistence gating (`--persist-windows`) and schema-versioned drift history ledgers (`HISTORY_SCHEMA_VERSION = 1`).
+- [x] Downstream consumer rejection-rate creep checks (`check-consumer`, `audit`, `gate`, and `doctor` pre-flight validation).
+- [x] Reusable GitHub Action offline audit dashboard and blast-radius inputs (`audit-html-output`, `group-by`, `fail-on-widespread`).
+
 ## Future exploration
 
 | Feature | Value | Relative effort |
 | :--- | :--- | :--- |
 | Optional embedding scorers | Add an opt-in semantic similarity signal alongside lexical scorers | Medium |
 | Hosted CI benchmark case study | Publish a reproducible real-model quantization benchmark report | Medium |
-| Versioned report schema migrations | Formal schema version tags for long-lived history ledgers | Small |
 
 Embedding scorers (when added as an optional extra or pluggable scorer) must never silently alter existing deterministic lexical scores.
 
