@@ -95,3 +95,24 @@ def test_selection_or_fallback_for_suite_first_input(
         if heading.startswith("Model selection unavailable"):
             expected.append("- Check gate.")
         assert generate_advice(findings, tmp_path, "GPU").splitlines() == expected
+
+
+def test_local_advisor_parse_guards_device_validation_and_missing_extra(tmp_path: Path) -> None:
+    from llm_drift_bench.local_advisor import _parse_selection, available_devices
+
+    assert _parse_selection(123) == []
+    assert _parse_selection("[invalid json") == []
+    assert _parse_selection("[1, 2, 3]") == []
+
+    with pytest.raises(ValueError, match="CPU, GPU or NPU"):
+        generate_advice([], tmp_path, "TPU")
+    with pytest.raises(ValueError, match="existing directory"):
+        generate_advice([], tmp_path / "missing_model_dir", "CPU")
+    assert generate_advice([], tmp_path, "CPU") == "No diagnostic checks to prioritize."
+
+    with (
+        patch("llm_drift_bench.local_advisor.importlib.import_module", side_effect=ImportError),
+        pytest.raises(ValueError, match="Install the ai extra"),
+    ):
+        available_devices()
+

@@ -634,6 +634,34 @@ def test_default_transport_and_extract_completion_error_paths(
     )
     assert reused[0].output == "cached"
 
+    # Cover openai max_tokens body field, malformed message object, and noisy logprobs entries
+    from llm_drift_bench.capture import _build_request_body, _extract_openai_logprobs
+
+    body = _build_request_body(prompts[0], cfg)
+    assert body["max_tokens"] == 64
+
+    with pytest.raises(ValueError, match="message.content"):
+        _extract_completion({"choices": [{"message": "not-a-dict"}]}, provider="openai")
+
+    assert _extract_openai_logprobs({"logprobs": {"content": []}}) is None
+    parsed_lp = _extract_openai_logprobs(
+        {
+            "logprobs": {
+                "content": [
+                    "not-a-dict",
+                    {"token": "skip", "logprob": "nan"},
+                    {
+                        "token": "ok",
+                        "logprob": -0.1,
+                        "top_logprobs": ["bad", {"token": "ok", "logprob": -0.1}],
+                    },
+                ]
+            }
+        }
+    )
+    assert parsed_lp is not None and len(parsed_lp) == 1
+
+
 
 
 
