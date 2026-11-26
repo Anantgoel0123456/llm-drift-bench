@@ -850,6 +850,62 @@ def register_extra_subcommands(
         "-o", "--output", default=None, help="Optional output file path to write the report."
     )
 
+    conv_p = subparsers.add_parser(
+        "check-conversations",
+        help="Compare multi-turn assistant conversation trajectories turn-by-turn.",
+    )
+    conv_p.add_argument(
+        "-b", "--baseline", required=True, help="Baseline conversations file (.json/.jsonl)."
+    )
+    conv_p.add_argument(
+        "-c", "--candidate", required=True, help="Candidate conversations file (.json/.jsonl)."
+    )
+    conv_p.add_argument(
+        "--max-turn-drift",
+        type=float,
+        default=0.25,
+        help="Max allowed composite drift per assistant turn in [0, 1] (default: 0.25).",
+    )
+    conv_p.add_argument(
+        "--max-mean-drift",
+        type=float,
+        default=0.25,
+        help="Max allowed suite mean trajectory drift in [0, 1] (default: 0.25).",
+    )
+    conv_p.add_argument(
+        "--max-final-turn-drift",
+        type=float,
+        default=None,
+        help="Optional max allowed drift on the final assistant turn in [0, 1].",
+    )
+    conv_p.add_argument(
+        "--max-turn-count-delta",
+        type=int,
+        default=None,
+        help="Optional max allowed absolute difference in assistant turn counts.",
+    )
+    conv_p.add_argument(
+        "--fail-on-refusal-flip",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Fail when any baseline answer flips into a refusal in candidate (default: enabled).",
+    )
+    conv_p.add_argument(
+        "--long-text-mode",
+        choices=("error", "skip_levenshtein"),
+        default="error",
+        help="How to handle turns > 16,384 chars: error (default) or skip_levenshtein.",
+    )
+    conv_p.add_argument(
+        "--format",
+        choices=("text", "json", "markdown", "html"),
+        default="text",
+        help="Output format: text (default), json, markdown, or html.",
+    )
+    conv_p.add_argument(
+        "-o", "--output", default=None, help="Optional output file path to write the report."
+    )
+
 
 def _serialize_prompt_case(case: PromptCase) -> dict[str, Any]:
     record: dict[str, Any] = {
@@ -1670,6 +1726,8 @@ def dispatch_extra_command(
         return _handle_rolling_distribution(args, protect_inputs, atomic_write_text)
     if args.command == "check-embeddings":
         return _handle_check_embeddings(args, protect_inputs, atomic_write_text)
+    if args.command == "check-conversations":
+        return _handle_check_conversations(args, protect_inputs, atomic_write_text)
     return None
 
 
@@ -1866,4 +1924,49 @@ def _handle_check_embeddings(
     if args.output:
         atomic_write_text(Path(args.output), rendered)
     print(rendered, end="")
+    return 0 if report.passed else 1
+
+
+def _handle_check_conversations(
+    args: argparse.Namespace,
+    protect_inputs: ProtectFn,
+    atomic_write_text: AtomicWriteFn,
+) -> int:
+    protect_inputs(args.output, args.baseline, args.candidate)
+    from llm_drift_bench.conversation import (
+        analyze_conversation_drift,
+        export_conversation_html,
+        format_conversation_markdown,
+        format_conversation_text,
+        load_conversations,
+    )
+
+    base = load_conversations(args.baseline)
+    cand = load_conversations(args.candidate)
+    report = analyze_conversation_drift(
+        base,
+        cand,
+        max_turn_drift=args.max_turn_drift,
+        max_mean_drift=args.max_mean_drift,
+        max_final_turn_drift=args.max_final_turn_drift,
+        max_turn_count_delta=args.max_turn_count_delta,
+        fail_on_refusal_flip=args.fail_on_refusal_flip,
+        long_text_mode=args.long_text_mode,
+    )
+    if args.format == "json":
+        rendered = json.dumps(report.to_dict(), indent=2) + "\n"
+    elif args.format == "markdown":
+        rendered = format_conversation_markdown(report)
+    elif args.format == "html":
+        rendered = export_conversation_html(report)
+    else:
+        rendered = format_conversation_text(report)
+    if args.output:
+        atomic_write_text(Path(args.output), rendered)
+        if args.format == "html":
+            print(f"Wrote multi-turn conversation drift report -> {args.output}")
+        else:
+            print(rendered, end="")
+    else:
+        print(rendered, end="")
     return 0 if report.passed else 1

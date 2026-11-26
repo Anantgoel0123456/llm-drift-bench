@@ -2360,6 +2360,108 @@ def test_cli_extras_remaining_text_output_and_error_branches(
     assert "Embedding Similarity Drift [PASSED]" in capsys.readouterr().out
 
 
+def test_cli_check_conversations_formats_and_verdicts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    b_conv = tmp_path / "b_conv.jsonl"
+    c_conv = tmp_path / "c_conv.jsonl"
+    b_conv.write_text(
+        json.dumps(
+            {
+                "conversation_id": "t1",
+                "model_name": "fp16",
+                "turns": [
+                    {"role": "user", "content": "Hi"},
+                    {"role": "assistant", "content": "Hello, ready to help."},
+                    {"role": "user", "content": "Refund order 9"},
+                    {"role": "assistant", "content": "Refund processed for order 9."},
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    c_conv.write_text(
+        json.dumps(
+            {
+                "conversation_id": "t1",
+                "model_name": "q4",
+                "turns": [
+                    {"role": "user", "content": "Hi"},
+                    {"role": "assistant", "content": "Hello, ready to help."},
+                    {"role": "user", "content": "Refund order 9"},
+                    {"role": "assistant", "content": "I'm sorry, I cannot assist with that."},
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert main(["check-conversations", "-b", str(b_conv), "-c", str(b_conv)]) == 0
+    assert "PASSED" in capsys.readouterr().out
+
+    assert (
+        main(
+            [
+                "check-conversations",
+                "-b",
+                str(b_conv),
+                "-c",
+                str(c_conv),
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["passed"] is False and payload["total_refusal_flip_turns"] == 1
+
+    md_out = tmp_path / "conv.md"
+    assert (
+        main(
+            [
+                "check-conversations",
+                "-b",
+                str(b_conv),
+                "-c",
+                str(b_conv),
+                "--format",
+                "markdown",
+                "-o",
+                str(md_out),
+            ]
+        )
+        == 0
+    )
+    _ = capsys.readouterr()
+    assert "# Multi-Turn Conversation Trajectory Drift: PASSED" in md_out.read_text(
+        encoding="utf-8"
+    )
+
+    html_out = tmp_path / "conv.html"
+    assert (
+        main(
+            [
+                "check-conversations",
+                "-b",
+                str(b_conv),
+                "-c",
+                str(c_conv),
+                "--format",
+                "html",
+                "-o",
+                str(html_out),
+            ]
+        )
+        == 1
+    )
+    assert "Wrote multi-turn conversation drift report" in capsys.readouterr().out
+    assert "<table" in html_out.read_text(encoding="utf-8")
+
+
+
 
 
 
