@@ -1,0 +1,12 @@
+# Quantization migration policy for FP16 -> Q8 / Q4 evaluation
+[thresholds]
+max_composite_drift = 0.20
+min_json_conformity_rate = 1.0
+max_numeric_relative_drift = 0.05
+max_latency_regression_pct = 25.0
+
+[fields."$.confidence"]
+tolerance_abs = 0.03
+
+[fields."$.tags"]
+unordered_array = true

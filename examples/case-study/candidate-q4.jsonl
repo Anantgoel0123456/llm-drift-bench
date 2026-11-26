@@ -1,0 +1,6 @@
+{"prompt_id": "bill-01", "model_name": "cand-q4", "latency_ms": 82.0, "tokens_generated": 24, "output": "{\"subtotal\": 100.0, \"tax\": 10.0, \"total\": 100.0, \"currency\": \"USD\"}"}
+{"prompt_id": "bill-02", "model_name": "cand-q4", "latency_ms": 80.0, "tokens_generated": 24, "output": "{\"subtotal\": 250.0, \"tax\": 25.0, \"total\": 250.0, \"currency\": \"EUR\"}"}
+{"prompt_id": "bill-03", "model_name": "cand-q4", "latency_ms": 85.0, "tokens_generated": 24, "output": "{\"subtotal\": 400.0, \"tax\": 40.0, \"total\": 440.0, \"currency\": \"USD\"}"}
+{"prompt_id": "sup-01", "model_name": "cand-q4", "latency_ms": 74.0, "tokens_generated": 22, "output": "{\"priority\": \"medium\", \"confidence\": 0.68, \"tags\": [\"billing\"]}"}
+{"prompt_id": "sup-02", "model_name": "cand-q4", "latency_ms": 76.0, "tokens_generated": 22, "output": "{\"priority\": \"medium\", \"confidence\": 0.65, \"tags\": [\"outage\"]}"}
+{"prompt_id": "sup-03", "model_name": "cand-q4", "latency_ms": 78.0, "tokens_generated": 28, "output": "{\"priority\": \"medium\", \"confidence\": 0.62, \"tags\": [\"security\"], \"extra_note\": \"review\"}"}

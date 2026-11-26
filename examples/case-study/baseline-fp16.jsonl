@@ -1,0 +1,6 @@
+{"prompt_id": "bill-01", "model_name": "ref-fp16", "latency_ms": 210.0, "tokens_generated": 24, "output": "{\"subtotal\": 100.0, \"tax\": 10.0, \"total\": 110.0, \"currency\": \"USD\"}"}
+{"prompt_id": "bill-02", "model_name": "ref-fp16", "latency_ms": 205.0, "tokens_generated": 24, "output": "{\"subtotal\": 250.0, \"tax\": 25.0, \"total\": 275.0, \"currency\": \"EUR\"}"}
+{"prompt_id": "bill-03", "model_name": "ref-fp16", "latency_ms": 215.0, "tokens_generated": 24, "output": "{\"subtotal\": 400.0, \"tax\": 40.0, \"total\": 440.0, \"currency\": \"USD\"}"}
+{"prompt_id": "sup-01", "model_name": "ref-fp16", "latency_ms": 180.0, "tokens_generated": 22, "output": "{\"priority\": \"high\", \"confidence\": 0.94, \"tags\": [\"billing\", \"urgent\"]}"}
+{"prompt_id": "sup-02", "model_name": "ref-fp16", "latency_ms": 185.0, "tokens_generated": 22, "output": "{\"priority\": \"high\", \"confidence\": 0.96, \"tags\": [\"outage\", \"p0\"]}"}
+{"prompt_id": "sup-03", "model_name": "ref-fp16", "latency_ms": 175.0, "tokens_generated": 22, "output": "{\"priority\": \"high\", \"confidence\": 0.95, \"tags\": [\"security\", \"auth\"]}"}

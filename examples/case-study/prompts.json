@@ -1,0 +1,101 @@
+[
+  {
+    "prompt_id": "bill-01",
+    "category": "extraction",
+    "prompt": "Extract invoice subtotal, tax, total, and currency as JSON.",
+    "metadata": {"route": "billing"},
+    "schema": {
+      "type": "object",
+      "required": ["subtotal", "tax", "total", "currency"],
+      "properties": {
+        "subtotal": {"type": "number", "minimum": 0},
+        "tax": {"type": "number", "minimum": 0},
+        "total": {"type": "number", "minimum": 0},
+        "currency": {"type": "string", "enum": ["USD", "EUR", "GBP"]}
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "prompt_id": "bill-02",
+    "category": "extraction",
+    "prompt": "Extract subscription renewal subtotal, tax, total, and currency as JSON.",
+    "metadata": {"route": "billing"},
+    "schema": {
+      "type": "object",
+      "required": ["subtotal", "tax", "total", "currency"],
+      "properties": {
+        "subtotal": {"type": "number", "minimum": 0},
+        "tax": {"type": "number", "minimum": 0},
+        "total": {"type": "number", "minimum": 0},
+        "currency": {"type": "string", "enum": ["USD", "EUR", "GBP"]}
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "prompt_id": "bill-03",
+    "category": "extraction",
+    "prompt": "Extract consulting invoice subtotal, tax, total, and currency as JSON.",
+    "metadata": {"route": "billing"},
+    "schema": {
+      "type": "object",
+      "required": ["subtotal", "tax", "total", "currency"],
+      "properties": {
+        "subtotal": {"type": "number", "minimum": 0},
+        "tax": {"type": "number", "minimum": 0},
+        "total": {"type": "number", "minimum": 0},
+        "currency": {"type": "string", "enum": ["USD", "EUR", "GBP"]}
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "prompt_id": "sup-01",
+    "category": "classification",
+    "prompt": "Classify support escalation priority, confidence, and tags as JSON.",
+    "metadata": {"route": "support"},
+    "schema": {
+      "type": "object",
+      "required": ["priority", "confidence", "tags"],
+      "properties": {
+        "priority": {"type": "string", "enum": ["low", "medium", "high"]},
+        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "tags": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "prompt_id": "sup-02",
+    "category": "classification",
+    "prompt": "Classify outage ticket priority, confidence, and tags as JSON.",
+    "metadata": {"route": "support"},
+    "schema": {
+      "type": "object",
+      "required": ["priority", "confidence", "tags"],
+      "properties": {
+        "priority": {"type": "string", "enum": ["low", "medium", "high"]},
+        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "tags": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "prompt_id": "sup-03",
+    "category": "classification",
+    "prompt": "Classify security alert priority, confidence, and tags as JSON.",
+    "metadata": {"route": "support"},
+    "schema": {
+      "type": "object",
+      "required": ["priority", "confidence", "tags"],
+      "properties": {
+        "priority": {"type": "string", "enum": ["low", "medium", "high"]},
+        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "tags": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    }
+  }
+]
