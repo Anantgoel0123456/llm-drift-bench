@@ -112,3 +112,93 @@ def test_case_study_doctor_lint_and_q8_vs_q4_verdicts(
     assert cmp_out["candidates"][0]["candidate"] == "q8"
     assert cmp_out["candidates"][0]["passed"] is True
     assert cmp_out["candidates"][1]["passed"] is False
+
+
+def test_multiturn_conversation_examples_doctor_and_cli(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    examples_dir = CASE_DIR.parent
+    base_conv = str(examples_dir / "conversations-baseline.jsonl")
+    drift_conv = str(examples_dir / "conversations-candidate-drift.jsonl")
+
+    assert (
+        main(
+            [
+                "doctor",
+                "--baseline-conversations",
+                base_conv,
+                "--candidate-conversations",
+                drift_conv,
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    doc_payload = json.loads(capsys.readouterr().out)
+    checks = {c["name"]: c for c in doc_payload["checks"]}
+    assert checks["conversation_alignment"]["status"] == "OK"
+
+    assert (
+        main(
+            [
+                "check-conversations",
+                "-b",
+                base_conv,
+                "-c",
+                base_conv,
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    pass_payload = json.loads(capsys.readouterr().out)
+    assert pass_payload["passed"] is True
+    assert pass_payload["mean_trajectory_drift"] == 0.0
+
+    assert (
+        main(
+            [
+                "check-conversations",
+                "-b",
+                base_conv,
+                "-c",
+                drift_conv,
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    drift_payload = json.loads(capsys.readouterr().out)
+    assert drift_payload["passed"] is False
+    assert drift_payload["total_refusal_flip_turns"] == 1
+    by_id = {c["conversation_id"]: c for c in drift_payload["conversations"]}
+    assert by_id["conv-support-01"]["first_divergence_turn"] == 2
+    assert by_id["conv-support-01"]["escalation_slope"] > 0.0
+    assert by_id["conv-triage-02"]["first_divergence_turn"] is None
+
+    html_out = tmp_path / "conversations.html"
+    assert (
+        main(
+            [
+                "check-conversations",
+                "-b",
+                base_conv,
+                "-c",
+                drift_conv,
+                "--format",
+                "html",
+                "-o",
+                str(html_out),
+            ]
+        )
+        == 1
+    )
+    capsys.readouterr()
+    html_text = html_out.read_text(encoding="utf-8")
+    assert "<script" not in html_text.lower()
+    assert "conv-support-01" in html_text
+
