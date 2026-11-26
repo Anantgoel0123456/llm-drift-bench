@@ -2059,6 +2059,111 @@ def test_cli_gate_with_segmented_blast_radius(
     )
 
 
+def test_cli_check_embeddings_offline_and_live(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    b_file = tmp_path / "emb_b.jsonl"
+    c_file = tmp_path / "emb_c.jsonl"
+    b_file.write_text(
+        json.dumps(
+            {
+                "prompt_id": "p1",
+                "model_name": "b",
+                "output": "hello",
+                "metadata": {"embedding": [1.0, 0.0]},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    c_file.write_text(
+        json.dumps(
+            {
+                "prompt_id": "p1",
+                "model_name": "c",
+                "output": "goodbye",
+                "metadata": {"embedding": [0.0, 1.0]},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    # Offline fails threshold cleanly
+    assert (
+        main(
+            [
+                "check-embeddings",
+                "-b",
+                str(b_file),
+                "-c",
+                str(c_file),
+                "--min-mean-similarity",
+                "0.8",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    res = json.loads(capsys.readouterr().out)
+    assert res["passed"] is False and res["mean_similarity"] == pytest.approx(0.0)
+
+    # Half-configured --endpoint without --model -> exit 2
+    assert (
+        main(
+            [
+                "check-embeddings",
+                "-b",
+                str(b_file),
+                "-c",
+                str(c_file),
+                "--endpoint",
+                "https://api.example.com",
+            ]
+        )
+        == 2
+    )
+    _ = capsys.readouterr()
+
+    # Live mode via mocked transport -> passes and writes markdown file
+    def fake_emb(
+        url: str, body: dict[str, Any], headers: dict[str, str], timeout: float
+    ) -> dict[str, Any]:
+        del url, headers, timeout
+        return {
+            "data": [{"index": i, "embedding": [1.0, 0.0]} for i in range(len(body["input"]))]
+        }
+
+    monkeypatch.setattr("llm_drift_bench.embeddings._default_embedding_transport", fake_emb)
+    md_out = tmp_path / "emb.md"
+    assert (
+        main(
+            [
+                "check-embeddings",
+                "-b",
+                str(b_file),
+                "-c",
+                str(c_file),
+                "--endpoint",
+                "https://api.example.com",
+                "--model",
+                "text-embedding-3-small",
+                "--min-mean-similarity",
+                "0.95",
+                "--format",
+                "markdown",
+                "-o",
+                str(md_out),
+            ]
+        )
+        == 0
+    )
+    _ = capsys.readouterr()
+    assert "# Embedding Similarity Drift: PASSED" in md_out.read_text(encoding="utf-8")
+
+
+
 
 
 

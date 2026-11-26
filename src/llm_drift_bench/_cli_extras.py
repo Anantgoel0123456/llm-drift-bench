@@ -799,6 +799,57 @@ def register_extra_subcommands(
         "-o", "--output", default=None, help="Optional output file path to write the report."
     )
 
+    emb_p = subparsers.add_parser(
+        "check-embeddings",
+        help="Compare semantic embedding cosine similarity offline or via an opt-in endpoint.",
+    )
+    emb_p.add_argument("-b", "--baseline", required=True, help="Baseline capture (.json/.jsonl).")
+    emb_p.add_argument(
+        "-c", "--candidate", required=True, help="Candidate capture (.json/.jsonl)."
+    )
+    emb_p.add_argument(
+        "--endpoint",
+        default=None,
+        help="Optional OpenAI-compatible embeddings base URL (omit for offline metadata mode).",
+    )
+    emb_p.add_argument(
+        "--model",
+        default=None,
+        help="Embedding model name (required when --endpoint is set).",
+    )
+    emb_p.add_argument(
+        "--api-key-env",
+        default="OPENAI_API_KEY",
+        help="Environment variable holding optional Bearer token (default: OPENAI_API_KEY).",
+    )
+    emb_p.add_argument(
+        "--timeout", type=float, default=30.0, help="HTTP timeout in seconds (default: 30)."
+    )
+    emb_p.add_argument(
+        "--batch-size", type=int, default=32, help="Max texts per embeddings batch (default: 32)."
+    )
+    emb_p.add_argument(
+        "--min-mean-similarity",
+        type=float,
+        default=None,
+        help="Optional minimum mean cosine similarity in [-1, 1] (exits 1 if below).",
+    )
+    emb_p.add_argument(
+        "--min-prompt-similarity",
+        type=float,
+        default=None,
+        help="Optional minimum per-prompt cosine similarity in [-1, 1] (exits 1 if below).",
+    )
+    emb_p.add_argument(
+        "--format",
+        choices=("text", "json", "markdown"),
+        default="text",
+        help="Output format: text (default), json, or markdown.",
+    )
+    emb_p.add_argument(
+        "-o", "--output", default=None, help="Optional output file path to write the report."
+    )
+
 
 def _serialize_prompt_case(case: PromptCase) -> dict[str, Any]:
     record: dict[str, Any] = {
@@ -1617,6 +1668,8 @@ def dispatch_extra_command(
         return _handle_check_consumer(args, protect_inputs, atomic_write_text)
     if args.command == "rolling-distribution":
         return _handle_rolling_distribution(args, protect_inputs, atomic_write_text)
+    if args.command == "check-embeddings":
+        return _handle_check_embeddings(args, protect_inputs, atomic_write_text)
     return None
 
 
@@ -1765,4 +1818,52 @@ def _handle_rolling_distribution(
             print(rendered, end="")
     else:
         print(rendered, end="")
+    return 0 if report.passed else 1
+
+
+def _handle_check_embeddings(
+    args: argparse.Namespace,
+    protect_inputs: ProtectFn,
+    atomic_write_text: AtomicWriteFn,
+) -> int:
+    protect_inputs(args.output, args.baseline, args.candidate)
+    if bool(args.endpoint) != bool(args.model):
+        raise ValueError("Provide both --endpoint and --model together for live embeddings.")
+    from llm_drift_bench.embeddings import (
+        EmbeddingConfig,
+        analyze_capture_embeddings,
+        format_embedding_drift_markdown,
+        format_embedding_drift_text,
+    )
+    from llm_drift_bench.engine import load_model_samples
+
+    base = load_model_samples(args.baseline)
+    cand = load_model_samples(args.candidate)
+    cfg = (
+        EmbeddingConfig(
+            endpoint=args.endpoint,
+            model=args.model,
+            api_key_env=args.api_key_env,
+            timeout_seconds=args.timeout,
+            batch_size=args.batch_size,
+        )
+        if args.endpoint
+        else None
+    )
+    report = analyze_capture_embeddings(
+        base,
+        cand,
+        config=cfg,
+        min_mean_similarity=args.min_mean_similarity,
+        min_prompt_similarity=args.min_prompt_similarity,
+    )
+    if args.format == "json":
+        rendered = json.dumps(report.to_dict(), indent=2) + "\n"
+    elif args.format == "markdown":
+        rendered = format_embedding_drift_markdown(report)
+    else:
+        rendered = format_embedding_drift_text(report)
+    if args.output:
+        atomic_write_text(Path(args.output), rendered)
+    print(rendered, end="")
     return 0 if report.passed else 1
