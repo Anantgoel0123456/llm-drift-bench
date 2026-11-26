@@ -80,6 +80,10 @@ def test_all_exports_resolve_cleanly() -> None:
     assert "export_rolling_html" in exported
     assert "RollingWindowReport" in exported
     assert "HISTORY_SCHEMA_VERSION" in exported
+    assert "analyze_capture_embeddings" in exported
+    assert "compare_embedding_vectors" in exported
+    assert "cosine_similarity" in exported
+    assert "EmbeddingConfig" in exported
 
     for name in llm_drift_bench.__all__:
         value = getattr(llm_drift_bench, name)
