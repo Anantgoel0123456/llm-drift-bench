@@ -1761,6 +1761,28 @@ def test_cli_rolling_distribution_multi_window(
     _ = capsys.readouterr()
     assert "# Rolling Baseline Distribution Drift: PASSED" in md_out.read_text(encoding="utf-8")
 
+    html_out = tmp_path / "rolling.html"
+    assert (
+        main(
+            [
+                "rolling-distribution",
+                "-w",
+                str(w1),
+                "-w",
+                str(w2),
+                "-c",
+                str(cand_ok),
+                "--format",
+                "html",
+                "-o",
+                str(html_out),
+            ]
+        )
+        == 0
+    )
+    assert "Wrote rolling baseline distribution report" in capsys.readouterr().out
+    assert "<table" in html_out.read_text(encoding="utf-8")
+
     # Widespread shift fails cleanly with exit 1
     assert (
         main(

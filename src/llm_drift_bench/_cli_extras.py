@@ -788,9 +788,9 @@ def register_extra_subcommands(
     )
     roll_p.add_argument(
         "--format",
-        choices=("text", "json", "markdown"),
+        choices=("text", "json", "markdown", "html"),
         default="text",
-        help="Output format: text (default), json, or markdown.",
+        help="Output format: text (default), json, markdown, or html.",
     )
     roll_p.add_argument(
         "-o", "--output", default=None, help="Optional output file path to write the report."
@@ -1691,6 +1691,7 @@ def _handle_rolling_distribution(
     from llm_drift_bench.policy import load_policy
     from llm_drift_bench.rolling import (
         analyze_rolling_distribution,
+        export_rolling_html,
         format_rolling_markdown,
         format_rolling_text,
     )
@@ -1727,9 +1728,16 @@ def _handle_rolling_distribution(
         rendered = json.dumps(report.to_dict(), indent=2) + "\n"
     elif args.format == "markdown":
         rendered = format_rolling_markdown(report)
+    elif args.format == "html":
+        rendered = export_rolling_html(report)
     else:
         rendered = format_rolling_text(report)
     if args.output:
         atomic_write_text(Path(args.output), rendered)
-    print(rendered, end="")
+        if args.format == "html":
+            print(f"Wrote rolling baseline distribution report -> {args.output}")
+        else:
+            print(rendered, end="")
+    else:
+        print(rendered, end="")
     return 0 if report.passed else 1

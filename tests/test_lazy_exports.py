@@ -76,6 +76,7 @@ def test_all_exports_resolve_cleanly() -> None:
     assert "compare_consumer_decisions" in exported
     assert "load_consumer_decisions" in exported
     assert "analyze_rolling_distribution" in exported
+    assert "export_rolling_html" in exported
     assert "RollingWindowReport" in exported
     assert "HISTORY_SCHEMA_VERSION" in exported
 

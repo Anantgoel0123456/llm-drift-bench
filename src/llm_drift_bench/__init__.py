@@ -221,6 +221,7 @@ if TYPE_CHECKING:
     from llm_drift_bench.rolling import (
         RollingWindowReport,
         analyze_rolling_distribution,
+        export_rolling_html,
         format_rolling_markdown,
         format_rolling_text,
     )
@@ -426,6 +427,7 @@ _EXPORTS: dict[str, str] = {
     "export_junit_report": "junit",
     "export_markdown_report": "reporter",
     "export_pr_comment": "reporter",
+    "export_rolling_html": "rolling",
     "export_sarif_report": "sarif",
     "export_segmented_distribution_html": "distribution",
     "extract_json_payload": "validator",
@@ -654,6 +656,7 @@ __all__ = [
     "export_junit_report",
     "export_markdown_report",
     "export_pr_comment",
+    "export_rolling_html",
     "export_sarif_report",
     "export_segmented_distribution_html",
     "extract_json_payload",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +11,7 @@ from llm_drift_bench.models import ModelSample, PromptCase
 from llm_drift_bench.policy import DriftPolicy, FieldRule
 from llm_drift_bench.rolling import (
     analyze_rolling_distribution,
+    export_rolling_html,
     format_rolling_markdown,
     format_rolling_text,
 )
@@ -30,7 +32,7 @@ def _make_window(
     ]
 
 
-def test_rolling_baseline_jitter_and_shift_detection() -> None:
+def test_rolling_baseline_jitter_and_shift_detection(tmp_path: Path) -> None:
     # Three prior windows with natural slight variation (~0.10 TVD jitter)
     win1 = _make_window(
         "d1",
@@ -92,6 +94,13 @@ def test_rolling_baseline_jitter_and_shift_detection() -> None:
     md = format_rolling_markdown(rep)
     assert "# Rolling Baseline Distribution Drift: FAILED" in md
     assert "| mon |" in md and "## Segments" in md
+
+    html_out = tmp_path / "dash" / "rolling.html"
+    html = export_rolling_html(rep, output_path=html_out)
+    assert html_out.read_text(encoding="utf-8") == html
+    assert "Rolling Baseline Distribution Drift" in html
+    assert "FAILED" in html and "Threshold Failures" in html
+    assert "<script" not in html.lower()
 
 
 def test_rolling_baseline_single_window_category_and_passing_case() -> None:

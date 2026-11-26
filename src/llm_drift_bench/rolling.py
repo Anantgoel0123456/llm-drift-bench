@@ -12,6 +12,8 @@ import math
 from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
+from html import escape
+from pathlib import Path
 from typing import Any
 
 from llm_drift_bench._numbers import finite_number
@@ -538,3 +540,93 @@ def format_rolling_markdown(report: RollingWindowReport) -> str:
         lines += ["", "## Threshold failures", ""]
         lines.extend(f"- {markdown_cell(msg)}" for msg in report.failure_reasons)
     return "\n".join(lines) + "\n"
+
+
+def export_rolling_html(
+    report: RollingWindowReport,
+    output_path: str | Path | None = None,
+) -> str:
+    """Export a standalone script-free offline HTML dashboard for a RollingWindowReport."""
+    status = "PASSED" if report.passed else "FAILED"
+    badge_cls = "pass" if report.passed else "fail"
+    jit_tvd = "n/a" if report.baseline_jitter_tvd is None else f"{report.baseline_jitter_tvd:.4f}"
+    jit_w1 = (
+        "n/a"
+        if report.baseline_jitter_wasserstein is None
+        else f"{report.baseline_jitter_wasserstein:.4f}"
+    )
+
+    win_rows = "".join(
+        f"<tr><td>{escape(lbl)}</td>"
+        f"<td>{report.per_window_max_tvd[lbl]:.4f}</td>"
+        f"<td>{report.per_window_max_wasserstein[lbl]:.4f}</td></tr>"
+        for lbl in report.window_labels
+    )
+
+    seg_section = ""
+    if report.segmented is not None and report.segmented.segments:
+        seg_rows = "".join(
+            f"<tr><td>{escape(seg_name)}</td><td>{seg.max_tvd:.4f}</td>"
+            f"<td>{seg.max_jsd:.4f}</td><td>{seg.max_normalized_wasserstein:.4f}</td></tr>"
+            for seg_name, seg in report.segmented.segments.items()
+        )
+        seg_section = (
+            f"<h2>Segments ({escape(report.segmented.group_by)} — "
+            f"scope: {escape(report.segmented.shift_scope)})</h2>"
+            "<table><thead><tr><th>Segment</th><th>Max TVD</th>"
+            "<th>Max JSD</th><th>Max Norm W1</th></tr></thead>"
+            f"<tbody>{seg_rows}</tbody></table>"
+        )
+
+    fail_section = ""
+    if report.failure_reasons:
+        items = "".join(f"<li>{escape(msg)}</li>" for msg in report.failure_reasons)
+        fail_section = (
+            f"<section class='failures'><h2>Threshold Failures</h2><ul>{items}</ul></section>"
+        )
+
+    html = (
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        "<title>LLM Drift Bench — Rolling Baseline Distribution</title>"
+        "<style>"
+        "body{font-family:system-ui,-apple-system,sans-serif;background:#0b1320;color:#e6edf7;"
+        "margin:0;padding:24px;line-height:1.5}"
+        "main{max-width:960px;margin:0 auto}"
+        "h1,h2{color:#f8fafc}.muted{color:#94a3b8}"
+        ".badge{display:inline-block;padding:4px 10px;border-radius:6px;font-weight:700}"
+        ".pass{background:#064e3b;color:#6ee7b7}.fail{background:#4c0519;color:#fda4af}"
+        ".grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));"
+        "gap:12px;margin:16px 0}"
+        ".card{background:#111e32;border:1px solid #26354d;border-radius:8px;padding:12px}"
+        ".card .k{font-size:12px;color:#94a3b8;text-transform:uppercase}"
+        ".card .v{font-size:20px;font-weight:700;margin-top:4px}"
+        "table{width:100%;border-collapse:collapse;background:#111e32;margin-top:12px}"
+        "th,td{padding:10px 12px;border-bottom:1px solid #26354d;text-align:left}"
+        "th{color:#7dd3fc}.failures{margin-top:16px;padding:12px;background:#3b0a17;"
+        "border:1px solid #881337;border-radius:8px}"
+        "</style></head><body><main>"
+        "<p class='muted'>llm-drift-bench / rolling-baseline distribution report</p>"
+        "<h1>Rolling Baseline Distribution Drift "
+        f"<span class='badge {badge_cls}'>{status}</span></h1>"
+        "<div class='grid'>"
+        f"<div class='card'><div class='k'>Baseline Windows</div>"
+        f"<div class='v'>{report.window_count} ({report.baseline_sample_count} samples)</div></div>"
+        f"<div class='card'><div class='k'>Candidate Window</div>"
+        f"<div class='v'>{report.candidate_sample_count} samples</div></div>"
+        f"<div class='card'><div class='k'>Pooled Max TVD / JSD</div>"
+        f"<div class='v'>{report.overall.max_tvd:.4f} / {report.overall.max_jsd:.4f}</div></div>"
+        f"<div class='card'><div class='k'>Baseline Jitter (TVD / W1)</div>"
+        f"<div class='v'>{jit_tvd} / {jit_w1}</div></div>"
+        "</div>"
+        "<h2>Candidate vs Prior Baseline Windows</h2>"
+        "<table><thead><tr><th>Window</th><th>Max TVD</th><th>Max Norm W1</th></tr></thead>"
+        f"<tbody>{win_rows}</tbody></table>"
+        f"{seg_section}{fail_section}"
+        "</main></body></html>\n"
+    )
+    if output_path is not None:
+        target = Path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(html, encoding="utf-8")
+    return html
+
