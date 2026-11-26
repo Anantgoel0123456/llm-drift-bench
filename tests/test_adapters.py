@@ -522,5 +522,102 @@ def test_adapter_edge_cases_jsonl_otlp_types_and_error_guards(tmp_path) -> None:
         load_adapted_tool_events(ok_empty, adapter="unknown")  # type: ignore[arg-type]
 
 
+def test_adapters_complete_defensive_branches(tmp_path) -> None:
+    from llm_drift_bench.adapters import (
+        _extract_args_dict,
+        _extract_otlp_resource_spans,
+        _normalize_otel_attributes,
+        _span_start_ns,
+        from_gemini_transcript,
+        load_adapted_tool_events,
+    )
+
+    # _extract_args_dict non-dict/non-str fallback
+    assert _extract_args_dict(123) == {}
+
+    # OpenAI tool call with missing function name skipped
+    assert from_openai_tool_calls([{"tool_calls": [{"function": {"arguments": "{}"}}]}]) == []
+
+    # Anthropic non-list content & tool_use with non-str name skipped
+    assert (
+        from_anthropic_transcript(
+            [
+                {"content": "plain string"},
+                {"content": [{"type": "tool_use", "name": 99, "input": {"path": "a"}}]},
+            ]
+        )
+        == []
+    )
+
+    # Gemini non-str name, missing resource, and top-level fn_resp.range fallback
+    gem_events = from_gemini_transcript(
+        [
+            {
+                "parts": [
+                    {"functionCall": {"name": 123}},
+                    {"functionCall": {"name": "read_file", "args": {}}},
+                    {"functionCall": {"name": "read_file", "args": {"path": "doc@1"}}},
+                ]
+            },
+            {
+                "parts": [
+                    {
+                        "functionResponse": {
+                            "name": "read_file",
+                            "range": {"start": 0, "end": 40},
+                        }
+                    }
+                ]
+            },
+        ]
+    )
+    assert len(gem_events) == 1 and gem_events[0].start == 0 and gem_events[0].end == 40
+
+    # OTel integer timestamp, malformed attributes, malformed resourceSpans, and skipped spans
+    assert _span_start_ns({"startTimeUnixNano": 12345}) == 12345
+    assert _normalize_otel_attributes(42) == {}
+    assert (
+        _normalize_otel_attributes(["bad", {"key": 1, "value": {}}, {"key": "k", "value": 9}])
+        == {}
+    )
+    assert _extract_otlp_resource_spans({"resourceSpans": "nope"}) == []
+    assert (
+        _extract_otlp_resource_spans(
+            {
+                "resourceSpans": [
+                    "bad",
+                    {"scopeSpans": "nope"},
+                    {"scopeSpans": ["bad", {"spans": [{"name": "ok"}]}]},
+                ]
+            }
+        )
+        == [{"name": "ok"}]
+    )
+    assert (
+        from_otel_genai_spans(
+            [
+                {"attributes": {}},
+                {"attributes": {"gen_ai.tool.name": 99}},
+                {"attributes": {"gen_ai.tool.name": "other_tool"}},
+                {
+                    "attributes": {
+                        "gen_ai.tool.name": "read_file",
+                        "gen_ai.tool.call.arguments": "{}",
+                    }
+                },
+            ]
+        )
+        == []
+    )
+
+    # load_adapted_tool_events adapter="normalized" delegates cleanly to load_tool_events
+    norm_file = tmp_path / "norm.jsonl"
+    norm_file.write_text(
+        '{"kind": "read", "resource": "r@1", "start": 0, "end": 10}\n', encoding="utf-8"
+    )
+    assert len(load_adapted_tool_events(norm_file, adapter="normalized")) == 1
+
+
+
 
 
