@@ -18,6 +18,7 @@ from llm_drift_bench._numbers import finite_number
 from llm_drift_bench.models import DriftBenchmarkReport
 
 _SPARK_BARS = "▁▂▃▄▅▆▇█"
+HISTORY_SCHEMA_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ class HistoryEntry:
     git_sha: str | None = None
     max_distribution_tvd: float | None = None
     max_distribution_wasserstein: float | None = None
+    schema_version: int = HISTORY_SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -95,6 +97,12 @@ class HistoryEntry:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> HistoryEntry:
+        raw_ver = data.get("schema_version", 1)
+        if type(raw_ver) is not int or not 1 <= raw_ver <= HISTORY_SCHEMA_VERSION:
+            raise ValueError(
+                f"Unsupported history entry schema_version {raw_ver!r}; "
+                f"supported: 1..{HISTORY_SCHEMA_VERSION}."
+            )
         required = (
             "recorded_at", "baseline_model", "candidate_model", "passed",
             "total_samples", "drifted_samples", "mean_composite_drift",
@@ -170,6 +178,7 @@ class HistoryEntry:
             git_sha=data.get("git_sha"),
             max_distribution_tvd=dist_vals["max_distribution_tvd"],
             max_distribution_wasserstein=dist_vals["max_distribution_wasserstein"],
+            schema_version=raw_ver,
         )
 
 

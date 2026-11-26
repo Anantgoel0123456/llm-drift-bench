@@ -128,6 +128,7 @@ if TYPE_CHECKING:
         evaluate_release_gates,
     )
     from llm_drift_bench.history import (
+        HISTORY_SCHEMA_VERSION,
         HistoryEntry,
         HistoryTrendCheck,
         detect_history_regression,
@@ -330,6 +331,7 @@ _EXPORTS: dict[str, str] = {
     "FormatIssue": "formats",
     "FormatReport": "formats",
     "GateCheck": "gates",
+    "HISTORY_SCHEMA_VERSION": "history",
     "HistoryEntry": "history",
     "HistoryTrendCheck": "history",
     "LintIssue": "prompt_lint",
@@ -556,6 +558,7 @@ __all__ = [
     "FormatIssue",
     "FormatReport",
     "GateCheck",
+    "HISTORY_SCHEMA_VERSION",
     "HistoryEntry",
     "HistoryTrendCheck",
     "LintIssue",

@@ -428,6 +428,16 @@ def test_history_validation_malformed_ledger_and_branch_edge_cases(tmp_path: Pat
     rendered = export_history_html(pair, output_path=html_out)
     assert html_out.is_file() and html_out.read_text(encoding="utf-8") == rendered
 
+    # Schema versioning: legacy entries without schema_version default to 1; bad versions fail
+    from llm_drift_bench.history import HISTORY_SCHEMA_VERSION
+
+    assert HistoryEntry.from_dict(dict(valid)).schema_version == HISTORY_SCHEMA_VERSION
+    assert HistoryEntry.from_dict({**valid, "schema_version": 1}).to_dict()["schema_version"] == 1
+    for bad_ver in (0, 99, True, "1"):
+        with pytest.raises(ValueError, match="schema_version"):
+            HistoryEntry.from_dict({**valid, "schema_version": bad_ver})
+
+
 
 
 
