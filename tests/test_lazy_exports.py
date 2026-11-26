@@ -75,6 +75,8 @@ def test_all_exports_resolve_cleanly() -> None:
     assert "evaluate_consumer_rejection" in exported
     assert "compare_consumer_decisions" in exported
     assert "load_consumer_decisions" in exported
+    assert "analyze_rolling_distribution" in exported
+    assert "RollingWindowReport" in exported
 
     for name in llm_drift_bench.__all__:
         value = getattr(llm_drift_bench, name)
