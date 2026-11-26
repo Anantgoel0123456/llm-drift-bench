@@ -649,6 +649,83 @@ def register_extra_subcommands(
         help="Output format: text (default), json, or markdown.",
     )
 
+    roll_p = subparsers.add_parser(
+        "rolling-distribution",
+        help="Compare a candidate capture window against a rolling pool of prior baseline windows.",
+    )
+    roll_p.add_argument(
+        "-w",
+        "--window",
+        action="append",
+        required=True,
+        metavar="FILE",
+        help="Prior baseline capture file (.json/.jsonl); repeat for multi-window rolling pool.",
+    )
+    roll_p.add_argument(
+        "-c", "--candidate", required=True, help="Candidate capture window (.json/.jsonl)."
+    )
+    roll_p.add_argument(
+        "-s",
+        "--suite",
+        "-p",
+        "--prompts",
+        dest="suite",
+        default=None,
+        help="Optional prompt suite JSON/JSONL for category/metadata segment lookups.",
+    )
+    roll_p.add_argument(
+        "--config", default=None, help="Optional drift.toml/drift.json policy for ignored fields."
+    )
+    roll_p.add_argument(
+        "--group-by",
+        default=None,
+        metavar="SPEC",
+        help="Optional segment key: 'category' or 'metadata:<key>'.",
+    )
+    roll_p.add_argument(
+        "--shift-threshold",
+        type=float,
+        default=0.10,
+        help="Per-segment TVD/W1 threshold for localized vs widespread scope (default: 0.10).",
+    )
+    roll_p.add_argument(
+        "--fail-on-widespread",
+        action="store_true",
+        help="Exit 1 when segmented rolling shift_scope is 'widespread' (requires --group-by).",
+    )
+    roll_p.add_argument(
+        "--no-collapse-arrays",
+        action="store_true",
+        help="Keep concrete array indices ([0], [1]) separate instead of collapsing into [*].",
+    )
+    roll_p.add_argument(
+        "--max-tvd", type=float, default=None, help="Optional max TVD in [0, 1] (exits 1)."
+    )
+    roll_p.add_argument(
+        "--max-jsd", type=float, default=None, help="Optional max JSD in [0, 1] (exits 1)."
+    )
+    roll_p.add_argument(
+        "--max-wasserstein",
+        type=float,
+        default=None,
+        help="Optional max normalized 1D Wasserstein in [0, 1] (exits 1).",
+    )
+    roll_p.add_argument(
+        "--max-jitter-multiplier",
+        type=float,
+        default=None,
+        help="Optional max multiple of natural baseline window-to-window jitter (exits 1).",
+    )
+    roll_p.add_argument(
+        "--format",
+        choices=("text", "json", "markdown"),
+        default="text",
+        help="Output format: text (default), json, or markdown.",
+    )
+    roll_p.add_argument(
+        "-o", "--output", default=None, help="Optional output file path to write the report."
+    )
+
 
 def _serialize_prompt_case(case: PromptCase) -> dict[str, Any]:
     record: dict[str, Any] = {
@@ -1391,6 +1468,8 @@ def dispatch_extra_command(
         return _handle_audit(args, protect_inputs, atomic_write_text)
     if args.command == "check-consumer":
         return _handle_check_consumer(args)
+    if args.command == "rolling-distribution":
+        return _handle_rolling_distribution(args, protect_inputs, atomic_write_text)
     return None
 
 
@@ -1456,3 +1535,57 @@ def _handle_check_consumer(args: argparse.Namespace) -> int:
     else:
         print(format_consumer_text(comp), end="")
     return 0 if comp.passed else 1
+
+
+def _handle_rolling_distribution(
+    args: argparse.Namespace,
+    protect_inputs: ProtectFn,
+    atomic_write_text: AtomicWriteFn,
+) -> int:
+    protect_inputs(args.output, *args.window, args.candidate, args.config, args.suite)
+    from llm_drift_bench.engine import load_model_samples, load_prompt_cases
+    from llm_drift_bench.policy import load_policy
+    from llm_drift_bench.rolling import (
+        analyze_rolling_distribution,
+        format_rolling_markdown,
+        format_rolling_text,
+    )
+
+    windows = [load_model_samples(path) for path in args.window]
+    cand = load_model_samples(args.candidate)
+    policy = load_policy(args.config) if args.config else None
+    prompts = load_prompt_cases(args.suite) if args.suite else None
+
+    raw_stems = [Path(path).stem or f"window_{i}" for i, path in enumerate(args.window, start=1)]
+    seen: dict[str, int] = {}
+    labels: list[str] = []
+    for stem in raw_stems:
+        count = seen.get(stem, 0) + 1
+        seen[stem] = count
+        labels.append(stem if count == 1 else f"{stem}_{count}")
+
+    report = analyze_rolling_distribution(
+        windows,
+        cand,
+        window_labels=labels,
+        group_by=args.group_by,
+        prompt_cases=prompts,
+        policy=policy,
+        collapse_array_indices=not args.no_collapse_arrays,
+        shift_threshold=args.shift_threshold,
+        max_tvd=args.max_tvd,
+        max_jsd=args.max_jsd,
+        max_wasserstein=args.max_wasserstein,
+        fail_on_widespread_shift=args.fail_on_widespread,
+        max_jitter_multiplier=args.max_jitter_multiplier,
+    )
+    if args.format == "json":
+        rendered = json.dumps(report.to_dict(), indent=2) + "\n"
+    elif args.format == "markdown":
+        rendered = format_rolling_markdown(report)
+    else:
+        rendered = format_rolling_text(report)
+    if args.output:
+        atomic_write_text(Path(args.output), rendered)
+    print(rendered, end="")
+    return 0 if report.passed else 1

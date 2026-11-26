@@ -1701,6 +1701,109 @@ def test_cli_gate_with_consumer_decisions(
     assert "GO (APPROVED)" in out and "WARN" in out
 
 
+def test_cli_rolling_distribution_multi_window(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    w1 = tmp_path / "mon.jsonl"
+    w2 = tmp_path / "tue.jsonl"
+    cand_ok = tmp_path / "wed_ok.jsonl"
+    cand_bad = tmp_path / "wed_bad.jsonl"
+    w1.write_text(
+        json.dumps({"prompt_id": "m1", "model_name": "p", "output": '{"lbl": "a"}',
+                    "metadata": {"route": "r1"}}) + "\n"
+        + json.dumps({"prompt_id": "m2", "model_name": "p", "output": '{"lbl": "a"}',
+                      "metadata": {"route": "r2"}}) + "\n",
+        encoding="utf-8",
+    )
+    w2.write_text(
+        json.dumps({"prompt_id": "t1", "model_name": "p", "output": '{"lbl": "a"}',
+                    "metadata": {"route": "r1"}}) + "\n"
+        + json.dumps({"prompt_id": "t2", "model_name": "p", "output": '{"lbl": "b"}',
+                      "metadata": {"route": "r2"}}) + "\n",
+        encoding="utf-8",
+    )
+    cand_ok.write_text(
+        json.dumps({"prompt_id": "c1", "model_name": "p", "output": '{"lbl": "a"}',
+                    "metadata": {"route": "r1"}}) + "\n"
+        + json.dumps({"prompt_id": "c2", "model_name": "p", "output": '{"lbl": "a"}',
+                      "metadata": {"route": "r2"}}) + "\n",
+        encoding="utf-8",
+    )
+    cand_bad.write_text(
+        json.dumps({"prompt_id": "x1", "model_name": "p", "output": '{"lbl": "b"}',
+                    "metadata": {"route": "r1"}}) + "\n"
+        + json.dumps({"prompt_id": "x2", "model_name": "p", "output": '{"lbl": "b"}',
+                      "metadata": {"route": "r2"}}) + "\n",
+        encoding="utf-8",
+    )
+
+    md_out = tmp_path / "rolling.md"
+    assert (
+        main(
+            [
+                "rolling-distribution",
+                "-w",
+                str(w1),
+                "-w",
+                str(w2),
+                "-c",
+                str(cand_ok),
+                "--group-by",
+                "metadata:route",
+                "--format",
+                "markdown",
+                "-o",
+                str(md_out),
+            ]
+        )
+        == 0
+    )
+    _ = capsys.readouterr()
+    assert "# Rolling Baseline Distribution Drift: PASSED" in md_out.read_text(encoding="utf-8")
+
+    # Widespread shift fails cleanly with exit 1
+    assert (
+        main(
+            [
+                "rolling-distribution",
+                "-w",
+                str(w1),
+                "-w",
+                str(w2),
+                "-c",
+                str(cand_bad),
+                "--group-by",
+                "metadata:route",
+                "--fail-on-widespread",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["passed"] is False
+    assert payload["window_labels"] == ["mon", "tue"]
+    assert payload["segmented"]["shift_scope"] == "widespread"
+
+    # --fail-on-widespread without --group-by returns exit 2
+    assert (
+        main(
+            [
+                "rolling-distribution",
+                "-w",
+                str(w1),
+                "-c",
+                str(cand_bad),
+                "--fail-on-widespread",
+            ]
+        )
+        == 2
+    )
+    _ = capsys.readouterr()
+
+
+
 
 
 
