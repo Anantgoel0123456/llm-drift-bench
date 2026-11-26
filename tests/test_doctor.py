@@ -32,6 +32,8 @@ def test_doctor_validates_examples_config_suite_and_captures(
     assert rc_json == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
+    assert payload["report_schema_version"] == 1
+    assert payload["history_schema_version"] == 1
     assert "python_ast" in payload["scorers"]
 
 
@@ -190,5 +192,112 @@ def test_doctor_blank_outputs_consumer_decisions_and_error_paths(
     by_name2 = {c.name: c for c in rep2.checks}
     assert by_name2["suite"].status == "FAIL"
     assert by_name2["baseline"].status == "FAIL"
+
+
+def test_doctor_validates_conversation_files_and_id_alignment(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    base_conv = tmp_path / "base_conv.jsonl"
+    cand_conv = tmp_path / "cand_conv.jsonl"
+    mismatch_conv = tmp_path / "mismatch_conv.jsonl"
+    user_only_conv = tmp_path / "user_only.jsonl"
+    bad_conv = tmp_path / "bad_conv.jsonl"
+
+    base_conv.write_text(
+        json.dumps(
+            {
+                "conversation_id": "c1",
+                "model_name": "m1",
+                "turns": [
+                    {"role": "user", "content": "hi"},
+                    {"role": "assistant", "content": "hello"},
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    cand_conv.write_text(
+        json.dumps(
+            {
+                "conversation_id": "c1",
+                "model_name": "m2",
+                "turns": [
+                    {"role": "user", "content": "hi"},
+                    {"role": "assistant", "content": "hello!"},
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    mismatch_conv.write_text(
+        json.dumps(
+            {
+                "conversation_id": "c999",
+                "model_name": "m2",
+                "turns": [{"role": "assistant", "content": "hi"}],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    user_only_conv.write_text(
+        json.dumps(
+            {
+                "conversation_id": "c1",
+                "model_name": "m1",
+                "turns": [{"role": "user", "content": "hello"}],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    bad_conv.write_text('{"conversation_id": "c1", "turns": []}\n', encoding="utf-8")
+
+    rc = main(
+        [
+            "doctor",
+            "--baseline-conversations",
+            str(base_conv),
+            "--candidate-conversations",
+            str(cand_conv),
+            "--format",
+            "json",
+        ]
+    )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    checks = {c["name"]: c for c in payload["checks"]}
+    assert checks["baseline_conversations"]["status"] == "OK"
+    assert "1 assistant turn(s)" in checks["baseline_conversations"]["detail"]
+    assert checks["candidate_conversations"]["status"] == "OK"
+    assert checks["conversation_alignment"]["status"] == "OK"
+    assert "report_schema=v1" in checks["runtime"]["detail"]
+
+    # Mismatched conversation IDs fail alignment and exit 1
+    assert (
+        main(
+            [
+                "doctor",
+                "--baseline-conversations",
+                str(base_conv),
+                "--candidate-conversations",
+                str(mismatch_conv),
+            ]
+        )
+        == 1
+    )
+    capsys.readouterr()
+
+    # Zero assistant turns emits WARN (still ok=True); malformed file emits FAIL
+    rep_warn = run_doctor(baseline_conversations_path=user_only_conv)
+    assert rep_warn.ok is True
+    assert {c.name: c.status for c in rep_warn.checks}["baseline_conversations"] == "WARN"
+
+    rep_bad = run_doctor(baseline_conversations_path=bad_conv)
+    assert rep_bad.ok is False
+    assert {c.name: c.status for c in rep_bad.checks}["baseline_conversations"] == "FAIL"
+
 
 

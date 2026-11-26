@@ -12,7 +12,10 @@ from typing import Any, Literal
 from llm_drift_bench import __version__
 from llm_drift_bench._matching import require_same_ids
 from llm_drift_bench.consumer import load_consumer_decisions
+from llm_drift_bench.conversation import load_conversations
 from llm_drift_bench.engine import load_model_samples, load_prompt_cases
+from llm_drift_bench.history import HISTORY_SCHEMA_VERSION
+from llm_drift_bench.models import REPORT_SCHEMA_VERSION
 from llm_drift_bench.policy import load_policy
 from llm_drift_bench.prompt_lint import lint_prompt_suite
 from llm_drift_bench.redaction import redact_samples
@@ -41,12 +44,16 @@ class DoctorReport:
     scorers: tuple[str, ...]
     extras: dict[str, bool]
     checks: tuple[DoctorCheck, ...]
+    report_schema_version: int = REPORT_SCHEMA_VERSION
+    history_schema_version: int = HISTORY_SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "version": self.version,
             "python": self.python,
             "ok": self.ok,
+            "report_schema_version": self.report_schema_version,
+            "history_schema_version": self.history_schema_version,
             "scorers": list(self.scorers),
             "extras": dict(self.extras),
             "checks": [c.to_dict() for c in self.checks],
@@ -61,6 +68,8 @@ def run_doctor(
     candidate_path: str | Path | None = None,
     baseline_decisions_path: str | Path | None = None,
     candidate_decisions_path: str | Path | None = None,
+    baseline_conversations_path: str | Path | None = None,
+    candidate_conversations_path: str | Path | None = None,
 ) -> DoctorReport:
     """Run non-destructive pre-flight checks on environment, config, suite, and captures."""
     extras = {
@@ -74,7 +83,9 @@ def run_doctor(
         DoctorCheck(
             "runtime",
             "OK",
-            f"llm-drift-bench {__version__} on Python {platform.python_version()}",
+            f"llm-drift-bench {__version__} on Python {platform.python_version()} "
+            f"(report_schema=v{REPORT_SCHEMA_VERSION}, "
+            f"history_schema=v{HISTORY_SCHEMA_VERSION})",
         ),
         DoctorCheck(
             "scorers",
@@ -240,6 +251,46 @@ def run_doctor(
                 )
             )
 
+    conv_id_sets: dict[str, set[str]] = {}
+    for label, key, target in (
+        ("Baseline conversations", "baseline_conversations", baseline_conversations_path),
+        ("Candidate conversations", "candidate_conversations", candidate_conversations_path),
+    ):
+        if target is None:
+            continue
+        try:
+            records = load_conversations(target)
+            assistant_turns = sum(len(rec.assistant_turns()) for rec in records)
+            conv_id_sets[label] = {rec.conversation_id for rec in records}
+            conv_status: Literal["OK", "WARN"] = "WARN" if assistant_turns == 0 else "OK"
+            checks.append(
+                DoctorCheck(
+                    key,
+                    conv_status,
+                    f"{len(records)} conversation(s) loaded "
+                    f"({assistant_turns} assistant turn(s))",
+                )
+            )
+        except (OSError, ValueError) as exc:
+            checks.append(DoctorCheck(key, "FAIL", str(exc)))
+
+    if len(conv_id_sets) == 2:
+        conv_items = list(conv_id_sets.items())
+        ref_conv_label, ref_conv_ids = conv_items[0]
+        other_conv_label, other_conv_ids = conv_items[1]
+        try:
+            require_same_ids(ref_conv_ids, other_conv_ids, other_conv_label)
+            checks.append(
+                DoctorCheck(
+                    "conversation_alignment",
+                    "OK",
+                    f"Exact conversation_id alignment ({len(ref_conv_ids)} IDs) across "
+                    f"{ref_conv_label}, {other_conv_label}",
+                )
+            )
+        except ValueError as exc:
+            checks.append(DoctorCheck("conversation_alignment", "FAIL", str(exc)))
+
     overall_ok = all(check.status != "FAIL" for check in checks)
     return DoctorReport(
         version=__version__,
@@ -248,6 +299,8 @@ def run_doctor(
         scorers=scorers,
         extras=extras,
         checks=tuple(checks),
+        report_schema_version=REPORT_SCHEMA_VERSION,
+        history_schema_version=HISTORY_SCHEMA_VERSION,
     )
 
 

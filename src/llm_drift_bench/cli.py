@@ -2284,6 +2284,18 @@ def _add_doctor_subparser(
         help="Optional candidate consumer decisions file (.json/.jsonl) to validate.",
     )
     parser.add_argument(
+        "--baseline-conversations",
+        default=None,
+        metavar="FILE",
+        help="Optional baseline multi-turn conversations file (.json/.jsonl) to validate.",
+    )
+    parser.add_argument(
+        "--candidate-conversations",
+        default=None,
+        metavar="FILE",
+        help="Optional candidate multi-turn conversations file (.json/.jsonl) to validate.",
+    )
+    parser.add_argument(
         "--format",
         choices=("text", "json"),
         default="text",
@@ -2301,6 +2313,8 @@ def _handle_doctor(args: argparse.Namespace) -> int:
         candidate_path=args.candidate,
         baseline_decisions_path=args.baseline_decisions,
         candidate_decisions_path=args.candidate_decisions,
+        baseline_conversations_path=args.baseline_conversations,
+        candidate_conversations_path=args.candidate_conversations,
     )
     if args.format == "json":
         print(json.dumps(report.to_dict(), indent=2))
