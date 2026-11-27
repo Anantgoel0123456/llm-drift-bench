@@ -505,6 +505,32 @@ else:
             cwd=root, env=env, check=True, capture_output=True, text=True,
         )
         assert json.loads(ver_conv.stdout)["valid"] is True
+        diff_tools_out = subprocess.run(
+            [str(cli), "diff-tools", "-b", str(trace), "-c", str(trace), "--format", "json"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(diff_tools_out.stdout)["passed"] is True
+        agent_pack_dir = root / "pack_agent"
+        subprocess.run(
+            [str(cli), "init-sample", "--dir", str(agent_pack_dir), "--pack", "agent"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        subprocess.run(
+            [str(cli), "lint-suite", "-s", str(agent_pack_dir / "prompts.json"), "--strict"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        conv_diff_out = subprocess.run(
+            [
+                str(cli), "check-conversations",
+                "-b", str(examples / "conversations-baseline.jsonl"),
+                "-c", str(examples / "conversations-candidate-drift.jsonl"),
+                "--show-diffs", "--format", "json",
+            ],
+            cwd=root, env=env, check=False, capture_output=True, text=True,
+        )
+        if conv_diff_out.returncode != 1:
+            raise SystemExit(f"check-conversations --show-diffs: exit {conv_diff_out.returncode}")
+        assert len(json.loads(conv_diff_out.stdout)["turn_diffs"]) == 1
         case_dir = examples / "case-study"
         case_doc = subprocess.run(
             [
