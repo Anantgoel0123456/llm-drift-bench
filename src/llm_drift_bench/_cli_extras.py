@@ -1010,9 +1010,9 @@ def register_extra_subcommands(
     )
     emb_p.add_argument(
         "--format",
-        choices=("text", "json", "markdown", "html"),
+        choices=("text", "json", "markdown", "html", "csv"),
         default="text",
-        help="Output format: text (default), json, markdown, or html.",
+        help="Output format: text (default), json, markdown, html, or csv.",
     )
     emb_p.add_argument(
         "-o", "--output", default=None, help="Optional output file path to write the report."
@@ -2358,6 +2358,10 @@ def _handle_check_embeddings(
         rendered = format_embedding_drift_markdown(report)
     elif args.format == "html":
         rendered = export_embedding_drift_html(report)
+    elif args.format == "csv":
+        from llm_drift_bench.csv_export import export_embedding_csv_report
+
+        rendered = export_embedding_csv_report(report)
     else:
         rendered = format_embedding_drift_text(report)
     if args.output:

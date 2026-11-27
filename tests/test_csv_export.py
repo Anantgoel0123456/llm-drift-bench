@@ -161,3 +161,46 @@ def test_export_conversation_csv_report_and_cli(
     assert len(cli_rows) >= 4
     assert tuple(cli_rows[0].keys()) == CONVERSATION_CSV_COLUMNS
 
+
+def test_export_embedding_csv_report_and_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from llm_drift_bench.csv_export import EMBEDDING_CSV_COLUMNS, export_embedding_csv_report
+    from llm_drift_bench.embeddings import compare_embedding_vectors
+
+    rep = compare_embedding_vectors(
+        {"=p1": [1.0, 0.0], "p2": [1.0, 0.0]},
+        {"=p1": [-1.0, 0.0], "p2": [1.0, 0.0]},
+        model="+emb-model",
+    )
+    out_csv = tmp_path / "emb.csv"
+    text = export_embedding_csv_report(rep, output_path=out_csv)
+    assert out_csv.read_text(encoding="utf-8") == text
+    rows = list(csv.DictReader(io.StringIO(text)))
+    assert tuple(rows[0].keys()) == EMBEDDING_CSV_COLUMNS
+    by_id = {r["prompt_id"]: r for r in rows}
+    assert by_id["'=p1"]["model"] == "'+emb-model"
+    assert by_id["'=p1"]["cosine_similarity"] == "-1.000000"
+
+    with pytest.raises(ValueError, match="EmbeddingDriftReport"):
+        export_embedding_csv_report({})  # type: ignore[arg-type]
+
+    examples = Path(__file__).resolve().parents[1] / "examples"
+    assert (
+        main(
+            [
+                "check-embeddings",
+                "-b",
+                str(examples / "baseline.jsonl"),
+                "-c",
+                str(examples / "candidate-pass.jsonl"),
+                "--format",
+                "csv",
+            ]
+        )
+        == 0
+    )
+    cli_rows = list(csv.DictReader(io.StringIO(capsys.readouterr().out)))
+    assert len(cli_rows) == 2
+    assert tuple(cli_rows[0].keys()) == EMBEDDING_CSV_COLUMNS
+

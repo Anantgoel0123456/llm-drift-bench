@@ -7,6 +7,7 @@ import io
 from pathlib import Path
 
 from llm_drift_bench.conversation import ConversationDriftReport
+from llm_drift_bench.embeddings import EmbeddingDriftReport
 from llm_drift_bench.models import DriftBenchmarkReport
 
 CSV_COLUMNS = (
@@ -154,6 +155,47 @@ def export_conversation_csv_report(
                 slope_str,
                 str(conv.turn_count_delta),
             ])
+    serialized = buffer.getvalue()
+    if output_path is not None:
+        target = Path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(serialized, encoding="utf-8")
+    return serialized
+
+
+EMBEDDING_CSV_COLUMNS = (
+    "model",
+    "prompt_id",
+    "available",
+    "cosine_similarity",
+    "cosine_distance",
+    "passed",
+)
+
+
+def export_embedding_csv_report(
+    report: EmbeddingDriftReport,
+    output_path: str | Path | None = None,
+    *,
+    sanitize_formulas: bool = True,
+) -> str:
+    """Export per-prompt semantic embedding similarity metrics as RFC-4180 CSV."""
+    if not isinstance(report, EmbeddingDriftReport):
+        raise ValueError("Embedding CSV export requires an EmbeddingDriftReport.")
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(EMBEDDING_CSV_COLUMNS)
+    safe_model = _safe_csv_text(report.model, sanitize=sanitize_formulas)
+    passed_str = "true" if report.passed else "false"
+    for item in sorted(report.items, key=lambda row: row.prompt_id):
+        writer.writerow([
+            safe_model,
+            _safe_csv_text(item.prompt_id, sanitize=sanitize_formulas),
+            "true" if item.available else "false",
+            _fmt_opt(item.cosine_similarity, 6),
+            _fmt_opt(item.cosine_distance, 6),
+            passed_str,
+        ])
     serialized = buffer.getvalue()
     if output_path is not None:
         target = Path(output_path)
