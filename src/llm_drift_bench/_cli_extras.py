@@ -1015,6 +1015,42 @@ def register_extra_subcommands(
         help="Optional model_name override for all imported conversations.",
     )
 
+    diff_tools_p = subparsers.add_parser(
+        "diff-tools",
+        help="Compare baseline vs candidate agent tool traces for call, retry, and edit drift.",
+    )
+    diff_tools_p.add_argument("-b", "--baseline", required=True, help="Baseline trace file.")
+    diff_tools_p.add_argument("-c", "--candidate", required=True, help="Candidate trace file.")
+    diff_tools_p.add_argument(
+        "--adapter",
+        choices=("normalized", "openai", "anthropic", "gemini", "otel"),
+        default="normalized",
+        help="Trace format adapter: normalized (default), openai, anthropic, gemini, or otel.",
+    )
+    diff_tools_p.add_argument(
+        "--max-call-increase",
+        type=int,
+        default=None,
+        help="Optional max allowed increase in total tool invocations.",
+    )
+    diff_tools_p.add_argument(
+        "--max-failed-increase",
+        type=int,
+        default=None,
+        help="Optional max allowed increase in failed tool invocations.",
+    )
+    diff_tools_p.add_argument(
+        "--fail-on-new-edit-resources",
+        action="store_true",
+        help="Exit 1 if candidate edits any resource not edited in baseline.",
+    )
+    diff_tools_p.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format: text (default) or json.",
+    )
+
 
 def _serialize_prompt_case(case: PromptCase) -> dict[str, Any]:
     record: dict[str, Any] = {
@@ -1935,6 +1971,8 @@ def dispatch_extra_command(
         return _handle_check_conversations(args, protect_inputs, atomic_write_text)
     if args.command == "import-conversations":
         return _handle_import_conversations(args, protect_inputs, atomic_write_text)
+    if args.command == "diff-tools":
+        return _handle_diff_tools(args)
     return None
 
 
@@ -2206,3 +2244,29 @@ def _handle_import_conversations(
     atomic_write_text(Path(args.output), serialize_conversations_jsonl(records))
     print(f"Imported {len(records)} conversation(s) ({args.source_format}) -> {args.output}")
     return 0
+
+
+def _handle_diff_tools(args: argparse.Namespace) -> int:
+    from llm_drift_bench.adapters import load_adapted_tool_events
+    from llm_drift_bench.tool_events import compare_tool_traces, format_tool_trace_diff_text
+    from llm_drift_bench.tool_log import load_tool_events
+
+    if args.adapter == "normalized":
+        base_events = load_tool_events(args.baseline)
+        cand_events = load_tool_events(args.candidate)
+    else:
+        base_events = load_adapted_tool_events(args.baseline, adapter=args.adapter)
+        cand_events = load_adapted_tool_events(args.candidate, adapter=args.adapter)
+
+    diff = compare_tool_traces(
+        base_events,
+        cand_events,
+        max_call_increase=args.max_call_increase,
+        max_failed_increase=args.max_failed_increase,
+        fail_on_new_edit_resources=args.fail_on_new_edit_resources,
+    )
+    if args.format == "json":
+        print(json.dumps(diff.to_dict(), indent=2))
+    else:
+        print(format_tool_trace_diff_text(diff), end="")
+    return 0 if diff.passed else 1

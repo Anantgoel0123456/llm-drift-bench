@@ -2909,6 +2909,76 @@ def test_cli_extras_cost_budget_incomplete_wizard_interactive_and_logprobs_entro
     assert "abs(mean_entropy_delta_bits)" in capsys.readouterr().out
 
 
+def test_cli_diff_tools_normalized_and_openai_adapter(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    tb = tmp_path / "base_trace.jsonl"
+    tc = tmp_path / "cand_trace.jsonl"
+    tb.write_text(
+        '{"kind": "read", "resource": "src/a.py@1", "start": 0, "end": 10}\n'
+        '{"kind": "edit", "resource": "src/a.py@1"}\n',
+        encoding="utf-8",
+    )
+    tc.write_text(
+        '{"kind": "read", "resource": "src/a.py@1", "start": 0, "end": 10}\n'
+        '{"kind": "edit", "resource": "src/a.py@1"}\n'
+        '{"kind": "edit", "resource": "src/b.py@1"}\n',
+        encoding="utf-8",
+    )
+
+    assert main(["diff-tools", "-b", str(tb), "-c", str(tb)]) == 0
+    assert "PASSED" in capsys.readouterr().out
+
+    assert (
+        main(
+            [
+                "diff-tools",
+                "-b",
+                str(tb),
+                "-c",
+                str(tc),
+                "--max-call-increase",
+                "0",
+                "--fail-on-new-edit-resources",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    data = json.loads(capsys.readouterr().out)
+    assert data["passed"] is False and data["added_edit_resources"] == ["src/b.py@1"]
+
+    # OpenAI adapter path
+    oa_trace = tmp_path / "oa_trace.json"
+    oa_trace.write_text(
+        json.dumps(
+            [
+                {
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": '{"path": "src/a.py"}',
+                            },
+                        }
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        main(["diff-tools", "-b", str(oa_trace), "-c", str(oa_trace), "--adapter", "openai"]) == 0
+    )
+    assert "PASSED" in capsys.readouterr().out
+
+
+
 
 
 
