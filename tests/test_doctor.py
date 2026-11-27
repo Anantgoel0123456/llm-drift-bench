@@ -300,4 +300,101 @@ def test_doctor_validates_conversation_files_and_id_alignment(
     assert {c.name: c.status for c in rep_bad.checks}["baseline_conversations"] == "FAIL"
 
 
+def test_doctor_validates_tool_traces_adapters_and_secrets(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    b_trace = tmp_path / "base_trace.jsonl"
+    c_trace = tmp_path / "cand_trace.jsonl"
+    empty_trace = tmp_path / "empty_trace.jsonl"
+    secret_trace = tmp_path / "secret_trace.jsonl"
+    bad_trace = tmp_path / "bad_trace.jsonl"
+    oai_trace = tmp_path / "oai_trace.json"
+
+    b_trace.write_text(
+        '{"kind": "read", "resource": "src/a.py@1", "start": 0, "end": 10}\n'
+        '{"kind": "edit", "resource": "src/a.py@1"}\n',
+        encoding="utf-8",
+    )
+    c_trace.write_text(
+        '{"kind": "read", "resource": "src/a.py@1", "start": 0, "end": 10}\n',
+        encoding="utf-8",
+    )
+    empty_trace.write_text("", encoding="utf-8")
+    secret_trace.write_text(
+        '{"kind": "read", "resource": "sk-ant-api03-1234567890abcdefghij", "start": 0, "end": 5}\n',
+        encoding="utf-8",
+    )
+    bad_trace.write_text('{"kind": "bogus"}\n', encoding="utf-8")
+    oai_trace.write_text(
+        json.dumps(
+            [
+                {
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": '{"path": "app.py", "start": 0, "end": 20}',
+                            },
+                        }
+                    ],
+                },
+                {"role": "tool", "tool_call_id": "call_1", "content": "ok"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    rc = main(
+        [
+            "doctor",
+            "--baseline-trace",
+            str(b_trace),
+            "--candidate-trace",
+            str(c_trace),
+            "--format",
+            "json",
+        ]
+    )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    checks = {c["name"]: c for c in payload["checks"]}
+    assert checks["baseline_trace"]["status"] == "OK"
+    assert "2 tool event(s)" in checks["baseline_trace"]["detail"]
+    assert checks["candidate_trace"]["status"] == "OK"
+    assert checks["trace_secrets"]["status"] == "OK"
+
+    # Adapted OpenAI trace
+    rep_oai = run_doctor(baseline_trace_path=oai_trace, trace_adapter="openai")
+    assert rep_oai.ok is True
+    assert {c.name: c.status for c in rep_oai.checks}["baseline_trace"] == "OK"
+
+    # Adapted OpenAI trace with 0 tool calls emits WARN (still ok=True)
+    no_tools_oai = tmp_path / "no_tools_oai.json"
+    no_tools_oai.write_text(
+        json.dumps([{"role": "assistant", "content": "no tool calls"}]),
+        encoding="utf-8",
+    )
+    rep_warn = run_doctor(baseline_trace_path=no_tools_oai, trace_adapter="openai")
+    assert rep_warn.ok is True
+    assert {c.name: c.status for c in rep_warn.checks}["baseline_trace"] == "WARN"
+
+    # Empty normalized trace fails; secret trace warns without echoing secret; malformed fails
+    rep_empty = run_doctor(baseline_trace_path=empty_trace)
+    assert rep_empty.ok is False
+    assert {c.name: c.status for c in rep_empty.checks}["baseline_trace"] == "FAIL"
+
+    rep_sec = run_doctor(baseline_trace_path=secret_trace)
+    assert rep_sec.ok is True
+    sec_check = {c.name: c for c in rep_sec.checks}["trace_secrets"]
+    assert sec_check.status == "WARN" and "anthropic_key" in sec_check.detail
+    assert "1234567890abcdefghij" not in sec_check.detail
+
+    rep_bad = run_doctor(baseline_trace_path=bad_trace)
+    assert rep_bad.ok is False
+    assert {c.name: c.status for c in rep_bad.checks}["baseline_trace"] == "FAIL"
+
+
 

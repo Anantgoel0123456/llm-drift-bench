@@ -2296,6 +2296,24 @@ def _add_doctor_subparser(
         help="Optional candidate multi-turn conversations file (.json/.jsonl) to validate.",
     )
     parser.add_argument(
+        "--baseline-trace",
+        default=None,
+        metavar="FILE",
+        help="Optional baseline agent tool-trace file to validate.",
+    )
+    parser.add_argument(
+        "--candidate-trace",
+        default=None,
+        metavar="FILE",
+        help="Optional candidate agent tool-trace file to validate.",
+    )
+    parser.add_argument(
+        "--trace-adapter",
+        choices=("normalized", "openai", "anthropic", "gemini", "otel"),
+        default="normalized",
+        help="Adapter for optional tool-trace files (default: normalized).",
+    )
+    parser.add_argument(
         "--format",
         choices=("text", "json"),
         default="text",
@@ -2315,6 +2333,9 @@ def _handle_doctor(args: argparse.Namespace) -> int:
         candidate_decisions_path=args.candidate_decisions,
         baseline_conversations_path=args.baseline_conversations,
         candidate_conversations_path=args.candidate_conversations,
+        baseline_trace_path=args.baseline_trace,
+        candidate_trace_path=args.candidate_trace,
+        trace_adapter=args.trace_adapter,
     )
     if args.format == "json":
         print(json.dumps(report.to_dict(), indent=2))

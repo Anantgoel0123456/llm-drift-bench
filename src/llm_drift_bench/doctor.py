@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 from llm_drift_bench import __version__
+from llm_drift_bench._file_io import read_utf8
 from llm_drift_bench._matching import require_same_ids
+from llm_drift_bench.adapters import load_adapted_tool_events
 from llm_drift_bench.consumer import load_consumer_decisions
 from llm_drift_bench.conversation import load_conversations
 from llm_drift_bench.engine import load_model_samples, load_prompt_cases
@@ -20,6 +22,8 @@ from llm_drift_bench.policy import load_policy
 from llm_drift_bench.prompt_lint import lint_prompt_suite
 from llm_drift_bench.redaction import redact_samples
 from llm_drift_bench.scorers import list_scorers
+from llm_drift_bench.tool_events import check_no_secret_in_tool_args
+from llm_drift_bench.tool_log import load_tool_events
 
 
 @dataclass(frozen=True)
@@ -70,6 +74,9 @@ def run_doctor(
     candidate_decisions_path: str | Path | None = None,
     baseline_conversations_path: str | Path | None = None,
     candidate_conversations_path: str | Path | None = None,
+    baseline_trace_path: str | Path | None = None,
+    candidate_trace_path: str | Path | None = None,
+    trace_adapter: Literal["normalized", "openai", "anthropic", "gemini", "otel"] = "normalized",
 ) -> DoctorReport:
     """Run non-destructive pre-flight checks on environment, config, suite, and captures."""
     extras = {
@@ -290,6 +297,52 @@ def run_doctor(
             )
         except ValueError as exc:
             checks.append(DoctorCheck("conversation_alignment", "FAIL", str(exc)))
+
+    trace_texts: list[str] = []
+    for key, target in (
+        ("baseline_trace", baseline_trace_path),
+        ("candidate_trace", candidate_trace_path),
+    ):
+        if target is None:
+            continue
+        try:
+            events = (
+                load_tool_events(target)
+                if trace_adapter == "normalized"
+                else load_adapted_tool_events(target, adapter=trace_adapter)
+            )
+            reads = sum(1 for e in events if e.kind == "read")
+            edits = sum(1 for e in events if e.kind == "edit")
+            failed = sum(1 for e in events if not e.success)
+            trace_status: Literal["OK", "WARN"] = "WARN" if not events else "OK"
+            checks.append(
+                DoctorCheck(
+                    key,
+                    trace_status,
+                    f"{len(events)} tool event(s) ({trace_adapter}: "
+                    f"{reads} read, {edits} edit, {failed} failed)",
+                )
+            )
+            trace_texts.append(read_utf8(target))
+        except (OSError, ValueError) as exc:
+            checks.append(DoctorCheck(key, "FAIL", str(exc)))
+
+    if trace_texts:
+        sec_res = check_no_secret_in_tool_args(trace_texts, trace_complete=True)
+        if sec_res.status == "FAIL":
+            checks.append(
+                DoctorCheck(
+                    "trace_secrets",
+                    "WARN",
+                    f"{sec_res.reason} Scrub credentials before committing traces.",
+                )
+            )
+        else:
+            checks.append(
+                DoctorCheck(
+                    "trace_secrets", "OK", "No credentials detected in loaded tool traces."
+                )
+            )
 
     overall_ok = all(check.status != "FAIL" for check in checks)
     return DoctorReport(
