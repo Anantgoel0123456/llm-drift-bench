@@ -5,8 +5,10 @@ from __future__ import annotations
 import csv
 import io
 from pathlib import Path
+from typing import Any
 
 from llm_drift_bench.conversation import ConversationDriftReport
+from llm_drift_bench.distribution import DistributionReport, SegmentedDistributionReport
 from llm_drift_bench.embeddings import EmbeddingDriftReport
 from llm_drift_bench.models import DriftBenchmarkReport
 
@@ -196,6 +198,103 @@ def export_embedding_csv_report(
             _fmt_opt(item.cosine_distance, 6),
             passed_str,
         ])
+    serialized = buffer.getvalue()
+    if output_path is not None:
+        target = Path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(serialized, encoding="utf-8")
+    return serialized
+
+
+DISTRIBUTION_CSV_COLUMNS = (
+    "segment",
+    "field_type",
+    "path",
+    "baseline_count",
+    "candidate_count",
+    "tvd",
+    "jsd",
+    "baseline_mean",
+    "candidate_mean",
+    "mean_delta",
+    "baseline_p50",
+    "candidate_p50",
+    "median_delta",
+    "wasserstein_1d",
+    "normalized_wasserstein",
+)
+
+
+def _write_dist_rows(
+    writer: Any,
+    segment_name: str,
+    dist: DistributionReport,
+    *,
+    sanitize_formulas: bool,
+) -> None:
+    safe_seg = _safe_csv_text(segment_name, sanitize=sanitize_formulas)
+    for cat in sorted(dist.categorical_fields, key=lambda item: item.path):
+        writer.writerow([
+            safe_seg,
+            "categorical",
+            _safe_csv_text(cat.path, sanitize=sanitize_formulas),
+            str(cat.baseline_count),
+            str(cat.candidate_count),
+            f"{cat.tvd:.6f}",
+            f"{cat.jsd:.6f}",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+        ])
+    for num in sorted(dist.numeric_fields, key=lambda item: item.path):
+        writer.writerow([
+            safe_seg,
+            "numeric",
+            _safe_csv_text(num.path, sanitize=sanitize_formulas),
+            str(num.baseline_count),
+            str(num.candidate_count),
+            "",
+            "",
+            f"{num.baseline_mean:.6f}",
+            f"{num.candidate_mean:.6f}",
+            f"{num.mean_delta:.6f}",
+            f"{num.baseline_p50:.6f}",
+            f"{num.candidate_p50:.6f}",
+            f"{num.median_delta:.6f}",
+            f"{num.wasserstein_1d:.6f}",
+            f"{num.normalized_wasserstein:.6f}",
+        ])
+
+
+def export_distribution_csv_report(
+    report: DistributionReport | SegmentedDistributionReport,
+    output_path: str | Path | None = None,
+    *,
+    sanitize_formulas: bool = True,
+) -> str:
+    """Export field distribution drift (unsegmented or segmented) as RFC-4180 CSV."""
+    if not isinstance(report, (DistributionReport, SegmentedDistributionReport)):
+        raise ValueError(
+            "Distribution CSV export requires a DistributionReport or SegmentedDistributionReport."
+        )
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(DISTRIBUTION_CSV_COLUMNS)
+    if isinstance(report, SegmentedDistributionReport):
+        _write_dist_rows(
+            writer, "overall", report.overall, sanitize_formulas=sanitize_formulas
+        )
+        for seg_name, seg_dist in sorted(report.segments.items()):
+            _write_dist_rows(
+                writer, seg_name, seg_dist, sanitize_formulas=sanitize_formulas
+            )
+    else:
+        _write_dist_rows(writer, "overall", report, sanitize_formulas=sanitize_formulas)
     serialized = buffer.getvalue()
     if output_path is not None:
         target = Path(output_path)

@@ -578,9 +578,9 @@ def register_extra_subcommands(
     )
     dist_p.add_argument(
         "--format",
-        choices=("text", "json", "markdown", "html"),
+        choices=("text", "json", "markdown", "html", "csv"),
         default="text",
-        help="Output format: text (default), json, markdown, or html.",
+        help="Output format: text (default), json, markdown, html, or csv.",
     )
     dist_p.add_argument(
         "-o", "--output", default=None, help="Optional output file path to write the report."
@@ -1831,6 +1831,10 @@ def _handle_distribution(
             rendered = format_segmented_distribution_markdown(seg_report)
         elif args.format == "html":
             rendered = export_segmented_distribution_html(seg_report)
+        elif args.format == "csv":
+            from llm_drift_bench.csv_export import export_distribution_csv_report
+
+            rendered = export_distribution_csv_report(seg_report)
         else:
             rendered = format_segmented_distribution_text(seg_report)
             if failures:
@@ -1865,6 +1869,10 @@ def _handle_distribution(
             rendered = format_distribution_markdown(report)
         elif args.format == "html":
             rendered = export_distribution_html(report)
+        elif args.format == "csv":
+            from llm_drift_bench.csv_export import export_distribution_csv_report
+
+            rendered = export_distribution_csv_report(report)
         else:
             rendered = format_distribution_text(report)
             if failures:

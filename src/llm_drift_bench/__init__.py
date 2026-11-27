@@ -97,6 +97,7 @@ if TYPE_CHECKING:
     from llm_drift_bench.csv_export import (
         export_conversation_csv_report,
         export_csv_report,
+        export_distribution_csv_report,
         export_embedding_csv_report,
     )
     from llm_drift_bench.diagnostics import (
@@ -531,6 +532,7 @@ _EXPORTS: dict[str, str] = {
     "export_conversation_pr_comment": "conversation",
     "export_conversation_sarif_report": "sarif",
     "export_csv_report": "csv_export",
+    "export_distribution_csv_report": "csv_export",
     "export_distribution_html": "distribution",
     "export_drift_badge_svg": "badge",
     "export_drift_matrix_html": "matrix",
@@ -818,6 +820,7 @@ __all__ = [
     "export_conversation_pr_comment",
     "export_conversation_sarif_report",
     "export_csv_report",
+    "export_distribution_csv_report",
     "export_distribution_html",
     "export_drift_badge_svg",
     "export_drift_matrix_html",
