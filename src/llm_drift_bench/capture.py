@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from llm_drift_bench._file_io import MAX_INPUT_BYTES
+from llm_drift_bench.conversation import ConversationRecord, ConversationTurn
 from llm_drift_bench.models import ModelSample, PromptCase
 
 _RETRYABLE_STATUS = frozenset({408, 429, 500, 502, 503, 504})
@@ -505,6 +506,190 @@ def capture_suite(
     for sample in captured:
         completed[sample.prompt_id] = sample
     return [completed[prompt.prompt_id] for prompt in prompts]
+
+
+def _build_messages_request_body(
+    messages: Sequence[tuple[str, str]],
+    *,
+    system_prompt: str | None,
+    config: CaptureConfig,
+) -> dict[str, Any]:
+    if config.provider == "anthropic":
+        body: dict[str, Any] = {
+            "model": config.model,
+            "max_tokens": config.max_tokens if config.max_tokens is not None else 1024,
+            "messages": [{"role": role, "content": content} for role, content in messages],
+        }
+        if system_prompt:
+            body["system"] = system_prompt
+        if config.temperature is not None:
+            body["temperature"] = config.temperature
+        return body
+
+    if config.provider == "gemini":
+        body = {
+            "contents": [
+                {
+                    "role": "model" if role == "assistant" else "user",
+                    "parts": [{"text": content}],
+                }
+                for role, content in messages
+            ],
+        }
+        if system_prompt:
+            body["systemInstruction"] = {"parts": [{"text": system_prompt}]}
+        gen_cfg: dict[str, Any] = {}
+        if config.temperature is not None:
+            gen_cfg["temperature"] = config.temperature
+        if config.max_tokens is not None:
+            gen_cfg["maxOutputTokens"] = config.max_tokens
+        if config.seed is not None:
+            gen_cfg["seed"] = config.seed
+        if config.json_mode:
+            gen_cfg["responseMimeType"] = "application/json"
+        if gen_cfg:
+            body["generationConfig"] = gen_cfg
+        return body
+
+    oa_messages: list[dict[str, str]] = []
+    if system_prompt:
+        oa_messages.append({"role": "system", "content": system_prompt})
+    oa_messages.extend({"role": role, "content": content} for role, content in messages)
+    body = {"model": config.model, "messages": oa_messages}
+    if config.temperature is not None:
+        body["temperature"] = config.temperature
+    if config.seed is not None:
+        body["seed"] = config.seed
+    if config.max_tokens is not None:
+        body["max_tokens"] = config.max_tokens
+    if config.json_mode:
+        body["response_format"] = {"type": "json_object"}
+    if config.top_logprobs is not None:
+        body["logprobs"] = True
+        body["top_logprobs"] = config.top_logprobs
+    return body
+
+
+def _build_capture_headers(config: CaptureConfig) -> dict[str, str]:
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if config.provider == "anthropic":
+        headers["anthropic-version"] = "2023-06-01"
+    for h_name, h_val in config.extra_headers:
+        headers[h_name.strip()] = h_val
+    if config.api_key_env:
+        token = os.environ.get(config.api_key_env)
+        if not token:
+            raise ValueError(
+                f"Environment variable {config.api_key_env!r} is not set or empty."
+            )
+        if config.provider == "anthropic":
+            headers["x-api-key"] = token
+        elif config.provider == "gemini":
+            headers["x-goog-api-key"] = token
+        else:
+            headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def capture_conversations(
+    templates: Sequence[ConversationRecord],
+    config: CaptureConfig,
+    *,
+    transport: Transport | None = None,
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> list[ConversationRecord]:
+    """Replay scripted user turns turn-by-turn against an endpoint, capturing model replies."""
+    if not templates:
+        raise ValueError("Conversation templates cannot be empty.")
+    seen_ids: set[str] = set()
+    for rec in templates:
+        if rec.conversation_id in seen_ids:
+            raise ValueError(f"Duplicate conversation_id in templates: {rec.conversation_id!r}.")
+        seen_ids.add(rec.conversation_id)
+
+    headers = _build_capture_headers(config)
+    send = transport or _default_transport
+    url = config.chat_completions_url
+    captured_records: list[ConversationRecord] = []
+
+    for rec in templates:
+        sys_parts = [t.content for t in rec.turns if t.role == "system"]
+        system_prompt = "\n\n".join(sys_parts) if sys_parts else config.system_prompt
+        user_turns = [t for t in rec.turns if t.role == "user"]
+        if not user_turns:
+            raise ValueError(
+                f"Conversation template {rec.conversation_id!r} must contain at least one "
+                "'user' turn."
+            )
+
+        out_turns: list[ConversationTurn] = []
+        if system_prompt:
+            out_turns.append(ConversationTurn(role="system", content=system_prompt))
+        rolling_history: list[tuple[str, str]] = []
+
+        for turn_idx, user_turn in enumerate(user_turns, start=1):
+            rolling_history.append(("user", user_turn.content))
+            out_turns.append(ConversationTurn(role="user", content=user_turn.content))
+            body = _build_messages_request_body(
+                rolling_history, system_prompt=system_prompt, config=config
+            )
+
+            response: dict[str, Any] | None = None
+            latency_ms = 0.0
+            for attempt in range(config.max_retries + 1):
+                t0 = time.perf_counter()
+                try:
+                    response = send(url, body, headers, config.timeout_sec)
+                    latency_ms = round((time.perf_counter() - t0) * 1000.0, 2)
+                    break
+                except urllib.error.HTTPError as exc:
+                    if exc.code not in _RETRYABLE_STATUS or attempt == config.max_retries:
+                        raise RuntimeError(
+                            f"Capture failed for conversation {rec.conversation_id!r} "
+                            f"turn {turn_idx} on {config.endpoint_host}: HTTP {exc.code}."
+                        ) from None
+                    sleep_fn(_retry_after_delay(exc, min(8.0, 0.5 * (2**attempt))))
+                except (
+                    urllib.error.URLError,
+                    TimeoutError,
+                    ConnectionError,
+                    http.client.HTTPException,
+                ) as exc:
+                    if attempt == config.max_retries:
+                        reason = getattr(exc, "reason", type(exc).__name__)
+                        raise RuntimeError(
+                            f"Capture failed for conversation {rec.conversation_id!r} "
+                            f"turn {turn_idx} on {config.endpoint_host}: {reason}."
+                        ) from None
+                    sleep_fn(min(8.0, 0.5 * (2**attempt)))
+
+            assert response is not None
+            content, comp_tokens, finish_reason, _, _ = _extract_completion(
+                response, provider=config.provider
+            )
+            turn_meta: dict[str, Any] = {"latency_ms": latency_ms}
+            if comp_tokens is not None:
+                turn_meta["tokens_generated"] = comp_tokens
+            if finish_reason is not None:
+                turn_meta["finish_reason"] = finish_reason
+            rolling_history.append(("assistant", content))
+            out_turns.append(
+                ConversationTurn(role="assistant", content=content, metadata=turn_meta)
+            )
+
+        captured_records.append(
+            ConversationRecord(
+                conversation_id=rec.conversation_id,
+                turns=tuple(out_turns),
+                model_name=config.model,
+                metadata={
+                    **rec.metadata,
+                    "endpoint_host": config.endpoint_host,
+                    "captured_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                },
+            )
+        )
+    return captured_records
 
 
 def serialize_samples_jsonl(samples: Sequence[ModelSample]) -> str:

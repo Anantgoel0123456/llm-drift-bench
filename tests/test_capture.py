@@ -662,6 +662,184 @@ def test_default_transport_and_extract_completion_error_paths(
     assert parsed_lp is not None and len(parsed_lp) == 1
 
 
+def test_capture_conversations_multiturn_openai_anthropic_and_gemini(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from llm_drift_bench.capture import capture_conversations
+    from llm_drift_bench.conversation import ConversationRecord, ConversationTurn
+
+    templates = [
+        ConversationRecord(
+            conversation_id="conv-1",
+            turns=(
+                ConversationTurn("system", "Return concise JSON."),
+                ConversationTurn("user", "Turn one prompt"),
+                ConversationTurn("assistant", "old baseline reply ignored"),
+                ConversationTurn("user", "Turn two follow-up"),
+            ),
+            metadata={"route": "support"},
+        )
+    ]
+
+    # 1. OpenAI rolling history with transient retry
+    seen_oa: list[dict[str, Any]] = []
+    attempts = {"n": 0}
+
+    def oa_transport(
+        url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float
+    ) -> dict[str, Any]:
+        del url, headers, timeout
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise ConnectionResetError("reset")
+        seen_oa.append(payload)
+        idx = len(seen_oa)
+        return {
+            "choices": [
+                {"message": {"content": f'{{"turn": {idx}}}'}, "finish_reason": "stop"}
+            ],
+            "usage": {"completion_tokens": 5 + idx},
+        }
+
+    oa_cfg = CaptureConfig(
+        endpoint="http://localhost:11434/v1",
+        model="llama3-q8",
+        temperature=0.0,
+        seed=7,
+        max_tokens=64,
+        json_mode=True,
+        top_logprobs=2,
+        max_retries=1,
+    )
+    oa_out = capture_conversations(
+        templates, oa_cfg, transport=oa_transport, sleep_fn=lambda _: None
+    )
+    assert len(oa_out) == 1
+    assert [t.role for t in oa_out[0].turns] == ["system", "user", "assistant", "user", "assistant"]
+    assert [t.content for t in oa_out[0].assistant_turns()] == ['{"turn": 1}', '{"turn": 2}']
+    # Turn 2 payload must feed back the candidate's own Turn 1 assistant reply!
+    assert seen_oa[1]["messages"][-2] == {"role": "assistant", "content": '{"turn": 1}'}
+    assert oa_out[0].assistant_turns()[0].metadata["tokens_generated"] == 6
+
+    # 2. Anthropic provider
+    monkeypatch.setenv("ANT_CONV_KEY", "sk-ant-conv")
+    ant_seen: list[dict[str, Any]] = []
+
+    def ant_transport(
+        url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float
+    ) -> dict[str, Any]:
+        del url, headers, timeout
+        ant_seen.append(payload)
+        return {
+            "content": [{"type": "text", "text": f"reply-{len(ant_seen)}"}],
+            "stop_reason": "end_turn",
+            "usage": {"output_tokens": 4},
+        }
+
+    ant_cfg = CaptureConfig(
+        endpoint="https://api.anthropic.com",
+        model="claude-sonnet-4-5",
+        provider="anthropic",
+        api_key_env="ANT_CONV_KEY",
+    )
+    ant_out = capture_conversations(templates, ant_cfg, transport=ant_transport)
+    assert ant_seen[1]["system"] == "Return concise JSON."
+    assert ant_seen[1]["messages"][1] == {"role": "assistant", "content": "reply-1"}
+    assert len(ant_out[0].assistant_turns()) == 2
+
+    # 3. Gemini provider
+    monkeypatch.setenv("GEM_CONV_KEY", "AIza-conv")
+    gem_seen: list[dict[str, Any]] = []
+
+    def gem_transport(
+        url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float
+    ) -> dict[str, Any]:
+        del url, headers, timeout
+        gem_seen.append(payload)
+        return {
+            "candidates": [
+                {"content": {"parts": [{"text": f"gem-{len(gem_seen)}"}]}, "finishReason": "STOP"}
+            ],
+            "usageMetadata": {"candidatesTokenCount": 3},
+        }
+
+    gem_cfg = CaptureConfig(
+        endpoint="https://generativelanguage.googleapis.com",
+        model="gemini-2.5-flash",
+        provider="gemini",
+        api_key_env="GEM_CONV_KEY",
+        seed=1,
+        max_tokens=32,
+        json_mode=True,
+    )
+    gem_out = capture_conversations(templates, gem_cfg, transport=gem_transport)
+    assert gem_seen[1]["contents"][1]["role"] == "model"
+    assert len(gem_out[0].assistant_turns()) == 2
+
+    # Error guards
+    with pytest.raises(ValueError, match="empty"):
+        capture_conversations([], oa_cfg)
+    with pytest.raises(ValueError, match="Duplicate conversation_id"):
+        capture_conversations([templates[0], templates[0]], oa_cfg)
+    with pytest.raises(ValueError, match="at least one 'user' turn"):
+        capture_conversations(
+            [ConversationRecord("no-user", (ConversationTurn("assistant", "hi"),))], oa_cfg
+        )
+    with pytest.raises(ValueError, match="not set or empty"):
+        capture_conversations(
+            templates,
+            CaptureConfig(
+                endpoint="http://localhost:11434/v1", model="m", api_key_env="NO_SUCH_KEY_XYZ"
+            ),
+        )
+    with pytest.raises(RuntimeError, match="HTTP 400"):
+        capture_conversations(
+            templates,
+            CaptureConfig(endpoint="http://localhost:11434/v1", model="m", max_retries=0),
+            transport=lambda u, *_: (_ for _ in ()).throw(
+                urllib.error.HTTPError(
+                    u, 400, "Bad", hdrs=None, fp=io.BytesIO(b"")  # type: ignore[arg-type]
+                )
+            ),
+        )
+    with pytest.raises(RuntimeError, match="turn 1"):
+        capture_conversations(
+            templates,
+            CaptureConfig(endpoint="http://localhost:11434/v1", model="m", max_retries=0),
+            transport=lambda *_: (_ for _ in ()).throw(TimeoutError("timeout")),
+        )
+    # 429 Retry-After backoff
+    retry_attempts = {"n": 0}
+    sleeps: list[float] = []
+
+    def rate_limit_once(url: str, *_: Any) -> dict[str, Any]:
+        retry_attempts["n"] += 1
+        if retry_attempts["n"] == 1:
+            raise urllib.error.HTTPError(
+                url,
+                429,
+                "RL",
+                hdrs={"Retry-After": "1"},  # type: ignore[arg-type]
+                fp=io.BytesIO(b""),
+            )
+        return {"choices": [{"message": {"content": "ok"}}]}
+
+    capture_conversations(
+        [ConversationRecord("c-rl", (ConversationTurn("user", "hi"),))],
+        CaptureConfig(
+            endpoint="http://localhost:11434/v1",
+            model="m",
+            max_retries=1,
+            extra_headers=(("X-Test", "1"),),
+            api_key_env="ANT_CONV_KEY",
+        ),
+        transport=rate_limit_once,
+        sleep_fn=sleeps.append,
+    )
+    assert sleeps == [1.0]
+
+
+
 
 
 

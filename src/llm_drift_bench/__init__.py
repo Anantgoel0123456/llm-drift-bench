@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     )
     from llm_drift_bench.capture import (
         CaptureConfig,
+        capture_conversations,
         capture_suite,
         parse_header_spec,
         serialize_samples_jsonl,
@@ -448,6 +449,7 @@ _EXPORTS: dict[str, str] = {
     "build_drift_matrix": "matrix",
     "build_policy_from_answers": "wizard",
     "calibrate_from_reports": "calibrate",
+    "capture_conversations": "capture",
     "capture_suite": "capture",
     "char_ngram_cosine_similarity": "scorers",
     "check_allowed_resources": "tool_events",
@@ -715,6 +717,7 @@ __all__ = [
     "build_drift_matrix",
     "build_policy_from_answers",
     "calibrate_from_reports",
+    "capture_conversations",
     "capture_suite",
     "char_ngram_cosine_similarity",
     "check_allowed_resources",
