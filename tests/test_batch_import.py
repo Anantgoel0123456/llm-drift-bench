@@ -288,3 +288,144 @@ def test_batch_import_error_branches_and_edge_cases(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="zero data rows"):
         import_csv_captures(_write("csv_nodata.csv", "prompt_id,output\n"))
 
+
+def test_import_conversations_openai_anthropic_sharegpt_and_errors(tmp_path: Path) -> None:
+    from llm_drift_bench.batch_import import (
+        import_conversations_jsonl,
+        serialize_conversations_jsonl,
+    )
+    from llm_drift_bench.conversation import load_conversations
+
+    # 1. OpenAI chat format (with developer role, multipart blocks, and null tool-call content)
+    oa = tmp_path / "oa_conv.jsonl"
+    oa.write_text(
+        json.dumps(
+            {
+                "id": "conv-b",
+                "model": "gpt-4o-mini",
+                "messages": [
+                    {"role": "developer", "content": "Be brief."},
+                    {"role": "user", "content": ["Hello ", {"type": "text", "text": "world"}]},
+                    {"role": "assistant", "content": None},
+                    {"role": "function", "content": '{"ok": true}'},
+                    {"role": "assistant", "content": "Done!"},
+                ],
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "conversation_id": "conv-a",
+                "messages": [
+                    {"role": "user", "content": "Hi"},
+                    {"role": "assistant", "content": "Hello"},
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    oa_recs = import_conversations_jsonl(oa, source_format="openai-chat")
+    assert [r.conversation_id for r in oa_recs] == ["conv-a", "conv-b"]
+    assert oa_recs[1].turns[0].role == "system"
+    assert oa_recs[1].turns[1].content == "Hello world"
+    assert oa_recs[1].turns[2].content == ""
+    assert oa_recs[1].turns[3].role == "tool"
+    assert oa_recs[1].model_name == "gpt-4o-mini"
+
+    # Round-trip through serialize_conversations_jsonl -> load_conversations
+    rt = tmp_path / "rt.jsonl"
+    rt.write_text(serialize_conversations_jsonl(oa_recs), encoding="utf-8")
+    assert len(load_conversations(rt)) == 2
+
+    # 2. Anthropic messages format with top-level system prompt and content blocks
+    ant = tmp_path / "ant_conv.jsonl"
+    ant.write_text(
+        json.dumps(
+            {
+                "custom_id": "c1",
+                "model": "claude-sonnet-4-5",
+                "system": "Extract JSON.",
+                "messages": [
+                    {"role": "user", "content": "Order 1"},
+                    {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": '{"id": 1}'}],
+                    },
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    ant_recs = import_conversations_jsonl(ant, source_format="anthropic-messages")
+    assert ant_recs[0].turns[0].role == "system"
+    assert ant_recs[0].turns[0].content == "Extract JSON."
+    assert ant_recs[0].turns[2].content == '{"id": 1}'
+
+    # 3. ShareGPT format
+    sg = tmp_path / "sg.jsonl"
+    sg.write_text(
+        json.dumps(
+            {
+                "id": "sg-1",
+                "conversations": [
+                    {"from": "system", "value": "Helpful assistant"},
+                    {"from": "human", "value": "Hi"},
+                    {"from": "gpt", "value": "Hello!"},
+                    {"from": "observation", "value": "tool out"},
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    sg_recs = import_conversations_jsonl(sg, source_format="sharegpt", model_name="llama-q4")
+    assert [t.role for t in sg_recs[0].turns] == ["system", "user", "assistant", "tool"]
+    assert sg_recs[0].model_name == "llama-q4"
+
+    # Error branches
+    with pytest.raises(ValueError, match="source_format"):
+        import_conversations_jsonl(sg, source_format="unknown")  # type: ignore[arg-type]
+
+    def _w(name: str, obj: object) -> Path:
+        p = tmp_path / name
+        p.write_text(
+            obj if isinstance(obj, str) else (json.dumps(obj) + "\n"),
+            encoding="utf-8",
+        )
+        return p
+
+    bad_cases: list[tuple[str, object, str]] = [
+        ("openai-chat", {"messages": [{"role": "user", "content": "a"}]}, "conversation_id"),
+        ("openai-chat", {"id": "c1", "messages": []}, "messages"),
+        ("openai-chat", {"id": "c1", "messages": ["bad"]}, "JSON object"),
+        ("openai-chat", {"id": "c1", "messages": [{"role": "narrator", "content": "a"}]}, "role"),
+        ("openai-chat", {"id": "c1", "messages": [{"role": "user", "content": 123}]}, "content"),
+        ("sharegpt", {"id": "c1", "conversations": []}, "conversations"),
+        ("sharegpt", {"id": "c1", "conversations": [1]}, "JSON object"),
+        (
+            "sharegpt",
+            {"id": "c1", "conversations": [{"from": "bot", "value": "a"}]},
+            "ShareGPT role",
+        ),
+        ("sharegpt", {"id": "c1", "conversations": [{"from": "human", "value": 9}]}, "value"),
+    ]
+    for idx, (fmt, body, match) in enumerate(bad_cases):
+        with pytest.raises(ValueError, match=match):
+            import_conversations_jsonl(
+                _w(f"bad_conv_{idx}.jsonl", body),
+                source_format=fmt,  # type: ignore[arg-type]
+            )
+
+    dup = _w(
+        "dup_conv.jsonl",
+        json.dumps({"id": "c1", "messages": [{"role": "user", "content": "a"}]})
+        + "\n"
+        + json.dumps({"id": "c1", "messages": [{"role": "user", "content": "b"}]})
+        + "\n",
+    )
+    with pytest.raises(ValueError, match="duplicate conversation_id"):
+        import_conversations_jsonl(dup, source_format="openai-chat")
+
+

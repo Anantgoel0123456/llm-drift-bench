@@ -981,6 +981,30 @@ def register_extra_subcommands(
         "-o", "--output", default=None, help="Optional output file path to write the report."
     )
 
+    imp_conv_p = subparsers.add_parser(
+        "import-conversations",
+        help="Convert OpenAI chat, Anthropic messages, or ShareGPT JSONL into conversations JSONL.",
+    )
+    imp_conv_p.add_argument(
+        "--from",
+        dest="source_format",
+        choices=("openai-chat", "anthropic-messages", "sharegpt"),
+        required=True,
+        help="Source transcript format: openai-chat, anthropic-messages, or sharegpt.",
+    )
+    imp_conv_p.add_argument("-i", "--input", required=True, help="Input transcript JSONL file.")
+    imp_conv_p.add_argument(
+        "-o",
+        "--output",
+        required=True,
+        help="Output canonical ConversationRecord JSONL file.",
+    )
+    imp_conv_p.add_argument(
+        "--model",
+        default=None,
+        help="Optional model_name override for all imported conversations.",
+    )
+
 
 def _serialize_prompt_case(case: PromptCase) -> dict[str, Any]:
     record: dict[str, Any] = {
@@ -1887,6 +1911,8 @@ def dispatch_extra_command(
         return _handle_check_embeddings(args, protect_inputs, atomic_write_text)
     if args.command == "check-conversations":
         return _handle_check_conversations(args, protect_inputs, atomic_write_text)
+    if args.command == "import-conversations":
+        return _handle_import_conversations(args, protect_inputs, atomic_write_text)
     return None
 
 
@@ -2137,3 +2163,24 @@ def _handle_check_conversations(
     else:
         print(rendered, end="")
     return 0 if report.passed else 1
+
+
+def _handle_import_conversations(
+    args: argparse.Namespace,
+    protect_inputs: ProtectFn,
+    atomic_write_text: AtomicWriteFn,
+) -> int:
+    protect_inputs(args.output, args.input)
+    from llm_drift_bench.batch_import import (
+        import_conversations_jsonl,
+        serialize_conversations_jsonl,
+    )
+
+    records = import_conversations_jsonl(
+        args.input,
+        source_format=args.source_format,
+        model_name=args.model,
+    )
+    atomic_write_text(Path(args.output), serialize_conversations_jsonl(records))
+    print(f"Imported {len(records)} conversation(s) ({args.source_format}) -> {args.output}")
+    return 0

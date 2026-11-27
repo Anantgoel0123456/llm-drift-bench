@@ -2726,6 +2726,47 @@ def test_cli_audit_with_conversations_and_embeddings(
     capsys.readouterr()
 
 
+def test_cli_import_conversations_roundtrip(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    src = tmp_path / "sharegpt.jsonl"
+    out = tmp_path / "imported_conv.jsonl"
+    src.write_text(
+        json.dumps(
+            {
+                "id": "conv-1",
+                "conversations": [
+                    {"from": "human", "value": "Hi"},
+                    {"from": "gpt", "value": '{"status": "ok"}'},
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert (
+        main(
+            [
+                "import-conversations",
+                "--from",
+                "sharegpt",
+                "-i",
+                str(src),
+                "-o",
+                str(out),
+                "--model",
+                "q8",
+            ]
+        )
+        == 0
+    )
+    assert "Imported 1 conversation(s) (sharegpt)" in capsys.readouterr().out
+    assert main(["check-conversations", "-b", str(out), "-c", str(out), "--format", "json"]) == 0
+    assert json.loads(capsys.readouterr().out)["passed"] is True
+
+
+
 
 
 

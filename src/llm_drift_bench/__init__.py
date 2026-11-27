@@ -27,8 +27,10 @@ if TYPE_CHECKING:
     from llm_drift_bench.batch import evaluate_many
     from llm_drift_bench.batch_import import (
         import_anthropic_batch_jsonl,
+        import_conversations_jsonl,
         import_csv_captures,
         import_openai_batch_jsonl,
+        serialize_conversations_jsonl,
     )
     from llm_drift_bench.calibrate import (
         CalibrationResult,
@@ -510,6 +512,7 @@ _EXPORTS: dict[str, str] = {
     "get_scorer": "scorers",
     "holm_bonferroni_adjust": "stats",
     "import_anthropic_batch_jsonl": "batch_import",
+    "import_conversations_jsonl": "batch_import",
     "import_csv_captures": "batch_import",
     "import_openai_batch_jsonl": "batch_import",
     "infer_prompt_suite": "schema_infer",
@@ -566,6 +569,7 @@ _EXPORTS: dict[str, str] = {
     "sample_prompt_suite": "sampling",
     "scaffold_pack": "packs",
     "score_captures": "scorers",
+    "serialize_conversations_jsonl": "batch_import",
     "serialize_samples_jsonl": "capture",
     "slice_samples_for_suite": "sampling",
     "sparkline": "history",
@@ -761,6 +765,7 @@ __all__ = [
     "get_scorer",
     "holm_bonferroni_adjust",
     "import_anthropic_batch_jsonl",
+    "import_conversations_jsonl",
     "import_csv_captures",
     "import_openai_batch_jsonl",
     "infer_prompt_suite",
@@ -817,6 +822,7 @@ __all__ = [
     "sample_prompt_suite",
     "scaffold_pack",
     "score_captures",
+    "serialize_conversations_jsonl",
     "serialize_samples_jsonl",
     "slice_samples_for_suite",
     "sparkline",

@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import csv
 import io
+import json
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from llm_drift_bench._file_io import parse_source_json, read_utf8
+from llm_drift_bench.conversation import ConversationRecord, ConversationTurn, TurnRole
 from llm_drift_bench.models import ModelSample
 
 
@@ -280,3 +283,134 @@ def import_csv_captures(
     if not samples:
         raise ValueError(f"{source}: CSV contains zero data rows.")
     return sorted(samples, key=lambda s: s.prompt_id)
+
+
+ConversationImportFormat = Literal["openai-chat", "anthropic-messages", "sharegpt"]
+
+_OPENAI_ROLE_MAP: dict[str, TurnRole] = {
+    "system": "system",
+    "developer": "system",
+    "user": "user",
+    "assistant": "assistant",
+    "tool": "tool",
+    "function": "tool",
+}
+
+_SHAREGPT_ROLE_MAP: dict[str, TurnRole] = {
+    "system": "system",
+    "human": "user",
+    "user": "user",
+    "gpt": "assistant",
+    "assistant": "assistant",
+    "chatgpt": "assistant",
+    "bing": "assistant",
+    "tool": "tool",
+    "function_call": "tool",
+    "observation": "tool",
+}
+
+
+def _extract_message_text(raw_content: Any, *, where: str) -> str:
+    if isinstance(raw_content, str):
+        return raw_content
+    if raw_content is None:
+        return ""
+    if isinstance(raw_content, list):
+        parts: list[str] = []
+        for block in raw_content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and isinstance(block.get("text"), str):
+                parts.append(block["text"])
+        return "".join(parts)
+    raise ValueError(f"{where}: message 'content' must be a string, list of blocks, or null.")
+
+
+def serialize_conversations_jsonl(records: Sequence[ConversationRecord]) -> str:
+    """Serialize ConversationRecords as canonical UTF-8 JSONL (one JSON object per line)."""
+    return "".join(
+        json.dumps(rec.to_dict(), ensure_ascii=False) + "\n" for rec in records
+    )
+
+
+def import_conversations_jsonl(
+    path: str | Path,
+    *,
+    source_format: ConversationImportFormat = "openai-chat",
+    model_name: str | None = None,
+) -> list[ConversationRecord]:
+    """Import multi-turn transcripts from OpenAI chat, Anthropic messages, or ShareGPT JSONL."""
+    if source_format not in ("openai-chat", "anthropic-messages", "sharegpt"):
+        raise ValueError(
+            "source_format must be 'openai-chat', 'anthropic-messages', or 'sharegpt'."
+        )
+    source = Path(path)
+    records: list[ConversationRecord] = []
+    seen_ids: set[str] = set()
+
+    for lineno, row in _iter_jsonl_objects(source):
+        where = f"{source} (line {lineno})"
+        raw_cid = row.get("conversation_id") or row.get("id") or row.get("custom_id")
+        if not isinstance(raw_cid, str) or not raw_cid.strip():
+            raise ValueError(f"{where}: missing non-empty string 'conversation_id' or 'id'.")
+        cid = raw_cid.strip()
+        if cid in seen_ids:
+            raise ValueError(f"{where}: duplicate conversation_id {cid!r}.")
+        seen_ids.add(cid)
+
+        turns: list[ConversationTurn] = []
+        if source_format == "sharegpt":
+            raw_turns = row.get("conversations")
+            if not isinstance(raw_turns, list) or not raw_turns:
+                raise ValueError(f"{where}: ShareGPT row requires non-empty 'conversations' list.")
+            for idx, item in enumerate(raw_turns, start=1):
+                if not isinstance(item, dict):
+                    raise ValueError(f"{where}: turn #{idx} must be a JSON object.")
+                raw_role = item.get("from")
+                mapped = (
+                    _SHAREGPT_ROLE_MAP.get(raw_role.strip().lower())
+                    if isinstance(raw_role, str)
+                    else None
+                )
+                if mapped is None:
+                    raise ValueError(
+                        f"{where}: turn #{idx} unsupported ShareGPT role {raw_role!r}."
+                    )
+                val = item.get("value")
+                if not isinstance(val, str):
+                    raise ValueError(f"{where}: turn #{idx} ShareGPT 'value' must be a string.")
+                turns.append(ConversationTurn(role=mapped, content=val))
+        else:
+            if source_format == "anthropic-messages" and isinstance(row.get("system"), str):
+                turns.append(ConversationTurn(role="system", content=row["system"]))
+            raw_msgs = row.get("messages")
+            if not isinstance(raw_msgs, list) or not raw_msgs:
+                raise ValueError(f"{where}: missing non-empty 'messages' list.")
+            for idx, msg in enumerate(raw_msgs, start=1):
+                if not isinstance(msg, dict):
+                    raise ValueError(f"{where}: message #{idx} must be a JSON object.")
+                raw_role = msg.get("role")
+                mapped = (
+                    _OPENAI_ROLE_MAP.get(raw_role.strip().lower())
+                    if isinstance(raw_role, str)
+                    else None
+                )
+                if mapped is None:
+                    raise ValueError(f"{where}: message #{idx} unsupported role {raw_role!r}.")
+                text = _extract_message_text(msg.get("content"), where=f"{where}: message #{idx}")
+                turns.append(ConversationTurn(role=mapped, content=text))
+
+        row_model = row.get("model_name") or row.get("model")
+        cleaned_row_model = (
+            row_model.strip() if isinstance(row_model, str) and row_model.strip() else None
+        )
+        resolved_model = model_name or cleaned_row_model or source_format
+        records.append(
+            ConversationRecord(
+                conversation_id=cid,
+                turns=tuple(turns),
+                model_name=resolved_model,
+                metadata={"source_format": source_format},
+            )
+        )
+    return sorted(records, key=lambda rec: rec.conversation_id)
