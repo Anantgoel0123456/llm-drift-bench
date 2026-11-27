@@ -10,6 +10,7 @@ from typing import Any
 from llm_drift_bench import __version__
 from llm_drift_bench.conversation import ConversationDriftReport
 from llm_drift_bench.models import DriftBenchmarkReport
+from llm_drift_bench.tool_events import ToolTraceDiff
 
 _SARIF_SCHEMA = (
     "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/"
@@ -316,6 +317,131 @@ def export_conversation_sarif_report(
                     "total_conversations": report.total_conversations,
                     "drifted_conversations": report.drifted_conversations,
                     "mean_trajectory_drift": round(report.mean_trajectory_drift, 4),
+                },
+                "results": results,
+            }
+        ],
+    }
+    serialized = json.dumps(sarif_doc, indent=2) + "\n"
+    if output_path is not None:
+        target = Path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(serialized, encoding="utf-8")
+    return serialized
+
+
+_TOOL_SARIF_RULES: list[dict[str, Any]] = [
+    {
+        "id": "TOOL001",
+        "name": "ToolTraceUnexpectedEdit",
+        "shortDescription": {
+            "text": "Candidate agent edited a resource not edited in the baseline trace."
+        },
+        "defaultConfiguration": {"level": "error"},
+    },
+    {
+        "id": "TOOL002",
+        "name": "ToolTraceDriftGateFailure",
+        "shortDescription": {
+            "text": "Agent tool-trace comparison failed a configured drift gate."
+        },
+        "defaultConfiguration": {"level": "error"},
+    },
+]
+
+
+def export_tool_trace_sarif_report(
+    diff: ToolTraceDiff,
+    output_path: str | Path | None = None,
+    *,
+    artifact_uri: str = "candidate-trace.jsonl",
+) -> str:
+    """Export agent ToolTraceDiff findings as OASIS SARIF 2.1.0 JSON."""
+    if not isinstance(diff, ToolTraceDiff):
+        raise ValueError("Tool-trace SARIF export requires a ToolTraceDiff.")
+    if not isinstance(artifact_uri, str) or not artifact_uri.strip():
+        raise ValueError("artifact_uri must be a non-empty string.")
+
+    results: list[dict[str, Any]] = []
+    if not diff.passed:
+        edit_failed = any("edited new resource" in r for r in diff.failure_reasons)
+        if edit_failed:
+            for resource in diff.added_edit_resources:
+                results.append(
+                    {
+                        "ruleId": "TOOL001",
+                        "level": "error",
+                        "message": {
+                            "text": (
+                                f"Candidate agent edited new resource {resource!r} "
+                                "not edited in baseline trace."
+                            )
+                        },
+                        "locations": [
+                            {
+                                "physicalLocation": {"artifactLocation": {"uri": artifact_uri}},
+                                "logicalLocations": [{"name": resource, "kind": "resource"}],
+                            }
+                        ],
+                        "partialFingerprints": {
+                            "primaryLocationLineHash": _partial_fingerprint(
+                                "TOOL001", resource, "tool-trace", artifact_uri
+                            )
+                        },
+                        "properties": {
+                            "resource": resource,
+                            "action_jaccard": round(diff.action_jaccard, 4),
+                        },
+                    }
+                )
+        for reason in diff.failure_reasons or ("Agent tool-trace drift check failed.",):
+            results.append(
+                {
+                    "ruleId": "TOOL002",
+                    "level": "error",
+                    "message": {"text": reason},
+                    "locations": [
+                        {
+                            "physicalLocation": {"artifactLocation": {"uri": artifact_uri}},
+                            "logicalLocations": [{"name": "tool_trace_gate", "kind": "suite"}],
+                        }
+                    ],
+                    "partialFingerprints": {
+                        "primaryLocationLineHash": _partial_fingerprint(
+                            "TOOL002", reason, "tool-trace", artifact_uri
+                        )
+                    },
+                    "properties": {
+                        "baseline_calls": diff.baseline_calls,
+                        "candidate_calls": diff.candidate_calls,
+                        "call_delta": diff.call_delta,
+                        "failed_delta": diff.failed_delta,
+                        "action_jaccard": round(diff.action_jaccard, 4),
+                    },
+                }
+            )
+
+    sarif_doc: dict[str, Any] = {
+        "$schema": _SARIF_SCHEMA,
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "llm-drift-bench",
+                        "version": __version__,
+                        "informationUri": "https://github.com/Anantgoel0123456/llm-drift-bench",
+                        "rules": _TOOL_SARIF_RULES,
+                    }
+                },
+                "invocations": [{"executionSuccessful": True}],
+                "properties": {
+                    "passed": diff.passed,
+                    "baseline_calls": diff.baseline_calls,
+                    "candidate_calls": diff.candidate_calls,
+                    "call_delta": diff.call_delta,
+                    "failed_delta": diff.failed_delta,
+                    "action_jaccard": round(diff.action_jaccard, 4),
                 },
                 "results": results,
             }

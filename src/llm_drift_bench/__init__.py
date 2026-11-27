@@ -274,7 +274,11 @@ if TYPE_CHECKING:
         sample_prompt_suite,
         slice_samples_for_suite,
     )
-    from llm_drift_bench.sarif import export_conversation_sarif_report, export_sarif_report
+    from llm_drift_bench.sarif import (
+        export_conversation_sarif_report,
+        export_sarif_report,
+        export_tool_trace_sarif_report,
+    )
     from llm_drift_bench.schema_infer import (
         infer_prompt_suite,
         infer_schema_from_value,
@@ -522,6 +526,7 @@ _EXPORTS: dict[str, str] = {
     "export_sarif_report": "sarif",
     "export_segmented_distribution_html": "distribution",
     "export_tool_trace_diff_html": "tool_events",
+    "export_tool_trace_sarif_report": "sarif",
     "extract_json_payload": "validator",
     "fetch_embeddings": "embeddings",
     "filter_prompt_suite": "sampling",
@@ -799,6 +804,7 @@ __all__ = [
     "export_sarif_report",
     "export_segmented_distribution_html",
     "export_tool_trace_diff_html",
+    "export_tool_trace_sarif_report",
     "extract_json_payload",
     "fetch_embeddings",
     "filter_prompt_suite",

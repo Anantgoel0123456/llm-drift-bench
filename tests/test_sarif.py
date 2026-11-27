@@ -156,3 +156,64 @@ def test_export_conversation_sarif_report_and_cli(
     assert cli_doc["version"] == "2.1.0"
     assert any(r["ruleId"] == "CONV001" for r in cli_doc["runs"][0]["results"])
 
+
+def test_export_tool_trace_sarif_report_and_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from llm_drift_bench.sarif import export_tool_trace_sarif_report
+    from llm_drift_bench.tool_events import ToolEvent, compare_tool_traces
+
+    base = [ToolEvent(0, "read", "src/a.py@1", start=0, end=10)]
+    cand = [
+        ToolEvent(0, "read", "src/a.py@1", start=0, end=10),
+        ToolEvent(1, "edit", "src/secret.py@1", success=False),
+    ]
+    pass_doc = json.loads(export_tool_trace_sarif_report(compare_tool_traces(base, base)))
+    assert pass_doc["runs"][0]["results"] == []
+
+    fail_diff = compare_tool_traces(
+        base, cand, max_failed_increase=0, fail_on_new_edit_resources=True
+    )
+    sarif_file = tmp_path / "trace.sarif"
+    raw = export_tool_trace_sarif_report(
+        fail_diff, output_path=sarif_file, artifact_uri="cand.jsonl"
+    )
+    assert sarif_file.read_text(encoding="utf-8") == raw
+    doc = json.loads(raw)
+    rule_ids = {r["ruleId"] for r in doc["runs"][0]["results"]}
+    assert rule_ids == {"TOOL001", "TOOL002"}
+
+    with pytest.raises(ValueError, match="ToolTraceDiff"):
+        export_tool_trace_sarif_report({})  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="artifact_uri"):
+        export_tool_trace_sarif_report(fail_diff, artifact_uri=" ")
+
+    b_file = tmp_path / "b.jsonl"
+    c_file = tmp_path / "c.jsonl"
+    b_file.write_text(
+        '{"kind": "read", "resource": "src/a.py@1", "start": 0, "end": 10}\n', encoding="utf-8"
+    )
+    c_file.write_text(
+        '{"kind": "read", "resource": "src/a.py@1", "start": 0, "end": 10}\n'
+        '{"kind": "edit", "resource": "src/secret.py@1"}\n',
+        encoding="utf-8",
+    )
+    assert (
+        main(
+            [
+                "diff-tools",
+                "-b",
+                str(b_file),
+                "-c",
+                str(c_file),
+                "--fail-on-new-edit-resources",
+                "--format",
+                "sarif",
+            ]
+        )
+        == 1
+    )
+    cli_doc = json.loads(capsys.readouterr().out)
+    assert cli_doc["version"] == "2.1.0"
+    assert any(r["ruleId"] == "TOOL001" for r in cli_doc["runs"][0]["results"])
+
