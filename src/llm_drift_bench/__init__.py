@@ -180,7 +180,7 @@ if TYPE_CHECKING:
         sparkline,
         summarize_history,
     )
-    from llm_drift_bench.junit import export_junit_report
+    from llm_drift_bench.junit import export_conversation_junit_report, export_junit_report
     from llm_drift_bench.logprobs import (
         LogprobDriftSummary,
         PromptLogprobDrift,
@@ -496,6 +496,7 @@ _EXPORTS: dict[str, str] = {
     "export_consumer_html": "consumer",
     "export_conversation_badge_svg": "badge",
     "export_conversation_html": "conversation",
+    "export_conversation_junit_report": "junit",
     "export_conversation_sarif_report": "sarif",
     "export_csv_report": "csv_export",
     "export_distribution_html": "distribution",
@@ -765,6 +766,7 @@ __all__ = [
     "export_consumer_html",
     "export_conversation_badge_svg",
     "export_conversation_html",
+    "export_conversation_junit_report",
     "export_conversation_sarif_report",
     "export_csv_report",
     "export_distribution_html",

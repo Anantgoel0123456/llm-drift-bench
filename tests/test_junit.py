@@ -83,4 +83,48 @@ def test_junit_includes_sanitized_model_properties() -> None:
     assert props["baseline_model"] == "base\ufffdm"
     assert props["candidate_model"] == "cand-q4"
     assert props["mean_composite_drift"] == "0.0000"
+    with pytest.raises(ValueError, match="canonical engine report"):
+        export_junit_report({})  # type: ignore[arg-type]
+
+
+def test_export_conversation_junit_report_and_cli(capsys: pytest.CaptureFixture[str]) -> None:
+    from llm_drift_bench.conversation import analyze_conversation_drift, load_conversations
+    from llm_drift_bench.junit import export_conversation_junit_report
+
+    examples = Path(__file__).resolve().parents[1] / "examples"
+    base = load_conversations(examples / "conversations-baseline.jsonl")
+    drift = load_conversations(examples / "conversations-candidate-drift.jsonl")
+
+    pass_root = ET.fromstring(
+        export_conversation_junit_report(analyze_conversation_drift(base, base))
+    )
+    assert pass_root.attrib["tests"] == "3"
+    assert pass_root.attrib["failures"] == "0"
+
+    fail_xml = export_conversation_junit_report(analyze_conversation_drift(base, drift))
+    fail_root = ET.fromstring(fail_xml)
+    assert fail_root.attrib["failures"] == "2"
+    assert "ORD-1042" not in fail_xml  # Never leaks raw turn bodies
+
+    with pytest.raises(ValueError, match="ConversationDriftReport"):
+        export_conversation_junit_report({})  # type: ignore[arg-type]
+
+    assert (
+        main(
+            [
+                "check-conversations",
+                "-b",
+                str(examples / "conversations-baseline.jsonl"),
+                "-c",
+                str(examples / "conversations-candidate-drift.jsonl"),
+                "--format",
+                "junit",
+            ]
+        )
+        == 1
+    )
+    cli_root = ET.fromstring(capsys.readouterr().out)
+    assert cli_root.attrib["name"] == "llm-drift-bench-conversations"
+    assert cli_root.attrib["failures"] == "2"
+
 

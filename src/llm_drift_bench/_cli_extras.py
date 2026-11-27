@@ -1029,9 +1029,9 @@ def register_extra_subcommands(
     )
     conv_p.add_argument(
         "--format",
-        choices=("text", "json", "markdown", "html", "sarif"),
+        choices=("text", "json", "markdown", "html", "sarif", "junit"),
         default="text",
-        help="Output format: text (default), json, markdown, html, or sarif.",
+        help="Output format: text (default), json, markdown, html, sarif, or junit.",
     )
     conv_p.add_argument(
         "-o", "--output", default=None, help="Optional output file path to write the report."
@@ -2345,6 +2345,10 @@ def _handle_check_conversations(
         rendered = export_conversation_sarif_report(
             report, artifact_uri=Path(args.candidate).name
         )
+    elif args.format == "junit":
+        from llm_drift_bench.junit import export_conversation_junit_report
+
+        rendered = export_conversation_junit_report(report)
     else:
         rendered = format_conversation_text(report)
         if turn_diffs is not None:
