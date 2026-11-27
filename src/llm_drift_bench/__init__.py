@@ -95,6 +95,7 @@ if TYPE_CHECKING:
         Finding,
         diagnose_conversation_report,
         diagnose_report,
+        format_findings_text,
     )
     from llm_drift_bench.diffing import (
         FieldChange,
@@ -535,6 +536,7 @@ _EXPORTS: dict[str, str] = {
     "format_drift_matrix_text": "matrix",
     "format_embedding_drift_markdown": "embeddings",
     "format_embedding_drift_text": "embeddings",
+    "format_findings_text": "diagnostics",
     "format_history_text": "history",
     "format_lint_issues_text": "prompt_lint",
     "format_logprobs_text": "logprobs",
@@ -808,6 +810,7 @@ __all__ = [
     "format_drift_matrix_text",
     "format_embedding_drift_markdown",
     "format_embedding_drift_text",
+    "format_findings_text",
     "format_history_text",
     "format_lint_issues_text",
     "format_logprobs_text",

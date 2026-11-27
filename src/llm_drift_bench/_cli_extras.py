@@ -1063,6 +1063,11 @@ def register_extra_subcommands(
         help="Include per-turn semantic JSON/text diffs for changed turns (text/json formats).",
     )
     conv_p.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="Include actionable root-cause diagnostics (text/json formats).",
+    )
+    conv_p.add_argument(
         "--format",
         choices=("text", "json", "markdown", "html", "sarif", "junit", "csv"),
         default="text",
@@ -2394,10 +2399,25 @@ def _handle_check_conversations(
         if getattr(args, "show_diffs", False)
         else None
     )
+    findings = None
+    if getattr(args, "diagnose", False):
+        from llm_drift_bench.diagnostics import diagnose_conversation_report
+
+        findings = diagnose_conversation_report(report)
     if args.format == "json":
         payload = report.to_dict()
         if turn_diffs is not None:
             payload["turn_diffs"] = [d.to_dict() for d in turn_diffs]
+        if findings is not None:
+            payload["diagnostics"] = [
+                {
+                    "code": f.code,
+                    "conversation_id": f.prompt_id,
+                    "evidence": f.evidence,
+                    "suggestion": f.suggestion,
+                }
+                for f in findings
+            ]
         rendered = json.dumps(payload, indent=2) + "\n"
     elif args.format == "markdown":
         rendered = format_conversation_markdown(report)
@@ -2421,6 +2441,10 @@ def _handle_check_conversations(
         rendered = format_conversation_text(report)
         if turn_diffs is not None:
             rendered += "\n" + format_conversation_diffs_text(turn_diffs)
+        if findings is not None:
+            from llm_drift_bench.diagnostics import format_findings_text
+
+            rendered += "\n" + format_findings_text(findings)
     if args.output:
         atomic_write_text(Path(args.output), rendered)
         if args.format == "html":

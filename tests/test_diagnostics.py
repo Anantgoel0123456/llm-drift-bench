@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from llm_drift_bench import diagnose_report
 from llm_drift_bench.models import DriftBenchmarkReport
 from llm_drift_bench.report_io import load_report
@@ -146,5 +148,58 @@ def test_diagnose_conversation_report_root_causes() -> None:
     assert by_cid["c_turn_only"] == {"turn_drift"}
     assert "c_ok" not in by_cid
     assert "suite" in by_cid[None]
+
+
+def test_format_findings_text_and_check_conversations_diagnose_cli(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import json
+    from pathlib import Path
+
+    from llm_drift_bench.cli import main
+    from llm_drift_bench.diagnostics import Finding, format_findings_text
+
+    assert "no actionable findings" in format_findings_text([])
+    formatted = format_findings_text([
+        Finding("refusal_flip", "conv-1", "Refused at turn 2.", "Check framing."),
+        Finding("suite", None, "Gate failed.", "Review gates."),
+    ])
+    assert "[refusal_flip] (conv-1)" in formatted
+    assert "[suite] (suite)" in formatted
+
+    examples = Path(__file__).resolve().parents[1] / "examples"
+    assert (
+        main(
+            [
+                "check-conversations",
+                "-b",
+                str(examples / "conversations-baseline.jsonl"),
+                "-c",
+                str(examples / "conversations-candidate-drift.jsonl"),
+                "--diagnose",
+            ]
+        )
+        == 1
+    )
+    text_out = capsys.readouterr().out
+    assert "Diagnostics (" in text_out and "[refusal_flip]" in text_out
+
+    assert (
+        main(
+            [
+                "check-conversations",
+                "-b",
+                str(examples / "conversations-baseline.jsonl"),
+                "-c",
+                str(examples / "conversations-candidate-drift.jsonl"),
+                "--diagnose",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    doc = json.loads(capsys.readouterr().out)
+    assert any(item["code"] == "refusal_flip" for item in doc["diagnostics"])
 
 

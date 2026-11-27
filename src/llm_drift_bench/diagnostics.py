@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from llm_drift_bench.conversation import ConversationDriftReport
@@ -201,3 +202,15 @@ def diagnose_conversation_report(report: ConversationDriftReport) -> list[Findin
                 Finding("suite", None, reason, "Review conversation gates and transcripts.")
             )
     return findings
+
+
+def format_findings_text(findings: Sequence[Finding]) -> str:
+    """Format diagnostic findings as a concise plain-text action summary."""
+    if not findings:
+        return "Diagnostics: no actionable findings.\n"
+    lines = [f"Diagnostics ({len(findings)} finding(s)):"]
+    for item in findings:
+        scope = item.prompt_id if item.prompt_id is not None else "suite"
+        lines.append(f"  - [{item.code}] ({scope}): {item.evidence}")
+        lines.append(f"      -> {item.suggestion}")
+    return "\n".join(lines) + "\n"
