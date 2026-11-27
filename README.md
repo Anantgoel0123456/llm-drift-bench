@@ -288,7 +288,7 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | `rolling-distribution` | Compare an unpaired candidate capture window against a pooled rolling baseline of prior windows (`-w FILE` repeatable), measuring natural window-to-window baseline jitter (`--max-jitter-multiplier`), segmented blast radius (`--group-by`, `--fail-on-widespread`), and exporting `text\|json\|markdown\|html` |
 | `logprobs` | Compare optional `top_logprobs` token entropy (bits) and position-aligned top-k JSD (`--max-entropy-delta`, `--max-jsd`) |
 | `check-embeddings` | Opt-in semantic embedding cosine similarity drift offline (`metadata.embedding`) or via any OpenAI-compatible `/v1/embeddings` endpoint (`--endpoint`, `--model`, `--min-mean-similarity`, `--min-prompt-similarity`, `--format text\|json\|markdown\|html`, `-o`) |
-| `check-conversations` | Compare multi-turn assistant trajectories turn-by-turn for earliest divergence, snowballing escalation slope, turn-count mismatches, JSON adherence drops, and refusal flips (`--format text\|json\|markdown\|html`, `-o`) |
+| `check-conversations` | Compare multi-turn assistant trajectories turn-by-turn for earliest divergence, snowballing escalation slope, turn-count mismatches, JSON adherence drops, refusal flips, and optional `--show-diffs` (`--format text\|json\|markdown\|html`, `-o`) |
 | `check-quality` | Detect quantization/upgrade failure modes: repetition loops, refusal flips, length truncation, and verbosity blowups |
 | `check-formats` | Validate semantic JSON field formats (`date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, `iso-currency`) on exact or `[*]` wildcard paths (`--rule JSONPATH=FORMAT`) |
 | `check-consumer` | Compare downstream consumer validation rejection rates from decision logs (`--baseline-decisions`/`--candidate-decisions`) or a Python callable (`--validator-module pkg.mod:fn`; `--format text\|json\|markdown\|html`, `-o`) |
@@ -307,6 +307,7 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | `import-conversations` | Convert OpenAI chat, Anthropic messages, or ShareGPT JSONL transcripts into canonical `ConversationRecord` JSONL (`--from`) |
 | `snapshot` | Create or verify offline SHA-256 integrity manifests (`create`, `verify`) for golden baseline fixtures, policies, and optional `--conversations` transcripts |
 | `check-tools` | Offline read-before-edit, `--max-failed-calls`, `--max-tool-calls`, & `--allow-resource` checks on normalized/OpenAI/Anthropic/Gemini/OTel traces |
+| `diff-tools` | Compare baseline vs candidate agent tool traces for call-count spikes, retry increases, action Jaccard shifts, and newly edited resources (`--adapter`) |
 | `stats` | Multi-run bootstrap CIs, flaky-prompt detection, paired permutation (with Cohen's `d`), and exact two-sided McNemar tests |
 | `history` | Record reports (`record`, with optional `--distribution-tvd`/`--distribution-wasserstein`), inspect sparklines/SVG trends (`show`), gate on persistent regressions (`check --persist-windows`), view summaries (`summary`), and compact ledgers (`prune`) |
 | `capture` | Capture reproducible JSONL outputs from OpenAI-compatible, Anthropic (`--provider anthropic`), or Gemini (`--provider gemini`) endpoints (`--top-logprobs`, `--resume`, `--runs`) |
@@ -315,7 +316,7 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | `infer-schema` | Auto-infer a supported-subset JSON Schema prompt suite from baseline captures |
 | `lint-suite` | Audit prompt suites for duplicate IDs/prompts, unsatisfiable schemas, permissive objects, and unsupported keywords (`--strict`) |
 | `calibrate` | Auto-calibrate `drift.toml` thresholds, detect/collapse volatile JSON fields, and suggest `--numeric-tolerances` |
-| `init-sample` | Scaffold starter datasets (`--with-policy` adds `drift.toml`, or `--pack extraction\|classification\|coding\|rag` scaffolds a full curated pack) |
+| `init-sample` | Scaffold starter datasets (`--with-policy` adds `drift.toml`, or `--pack extraction\|classification\|coding\|rag\|agent` scaffolds a full curated pack) |
 | `doctor` | Pre-flight check for environment, schema versions, `drift.toml` policies, suite schemas/regex safety, blank capture outputs, consumer decision logs, conversation transcripts (`--baseline-conversations`/`--candidate-conversations`), and ID alignment |
 | `ai-devices` | List devices visible to the optional local OpenVINO runtime |
 

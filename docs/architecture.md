@@ -155,7 +155,7 @@ Commands are:
 - `rolling-distribution` (unpaired rolling-baseline cross-window JSON field distribution analyzer pooling prior traffic windows `-w`, measuring consecutive-window baseline jitter, classifying segmented blast radius, and exporting `text`, `json`, `markdown`, or offline `html`)
 - `logprobs` (optional `top_logprobs` token entropy and position-aligned top-k JSD analyzer)
 - `check-embeddings` (opt-in semantic embedding cosine similarity drift analyzer working offline on `metadata.embedding` or via any OpenAI-compatible `/v1/embeddings` endpoint, exporting `text`, `json`, `markdown`, or offline `html`)
-- `check-conversations` (multi-turn assistant conversation trajectory drift analyzer detecting per-turn divergence, earliest divergence turn, escalation slope, turn-count mismatches, JSON adherence drops, and refusal flips in `text`, `json`, `markdown`, or offline `html`)
+- `check-conversations` (multi-turn assistant conversation trajectory drift analyzer detecting per-turn divergence, earliest divergence turn, escalation slope, turn-count mismatches, JSON adherence drops, refusal flips, and optional `--show-diffs` in `text`, `json`, `markdown`, or offline `html` with inline SVG sparklines)
 - `check-quality` (deterministic repetition-loop, refusal-flip, length-truncation, and length-blowup regression checks)
 - `check-formats` (standalone semantic format validator for `date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, and `iso-currency` on exact or `[*]` wildcard JSONPaths)
 - `check-consumer` (downstream consumer validation rejection-rate comparator from pre-recorded decision logs or `--validator-module pkg.mod:fn`, exporting `text`, `json`, `markdown`, or offline `html`)
@@ -174,6 +174,7 @@ Commands are:
 - `import-conversations` (offline importers converting OpenAI chat, Anthropic messages, and ShareGPT JSONL transcripts into canonical `ConversationRecord` JSONL)
 - `snapshot` (`create` and `verify` offline SHA-256 baseline fixture integrity manifests, with optional `--conversations` pinning)
 - `check-tools` (supports `--adapter normalized|openai|anthropic|gemini|otel`, `--max-failed-calls`, `--max-tool-calls`, and `--allow-resource`)
+- `diff-tools` (offline baseline vs candidate agent tool-trace drift comparator across normalized, OpenAI, Anthropic, Gemini, and OTel transcripts)
 - `stats` (bootstrap confidence intervals, multi-run flakiness, paired permutation with Cohen's `d`, and overflow-safe exact two-sided McNemar tests)
 - `history` (`record`, `show` with `--candidate`/`--tag` filters, sparklines & SVG tooltips, `check` moving-window gate, `summary`, and atomic `prune`)
 - `capture` (zero-dependency OpenAI-compatible, Anthropic `--provider anthropic`, and Gemini `--provider gemini` endpoint collector with `--concurrency`, `--runs`, `--json-mode`, `--resume`, `--header`, `Retry-After` backoff, and connection-drop retries)
@@ -182,7 +183,7 @@ Commands are:
 - `infer-schema` (automatic supported-subset JSON Schema suite inference from captured baseline JSON outputs)
 - `lint-suite` (prompt suite quality and JSON Schema hygiene auditor)
 - `calibrate` (automatic `drift.toml` threshold calibration, volatile JSON field detection with `[*]` wildcard collapse, and `--numeric-tolerances`)
-- `init-sample` (optional `--with-policy` to scaffold `drift.toml`, or `--pack extraction|classification|coding|rag` for curated starter suites)
+- `init-sample` (optional `--with-policy` to scaffold `drift.toml`, or `--pack extraction|classification|coding|rag|agent` for curated starter suites)
 - `doctor` (pre-flight validation of environment, report/history schema versions, policies, suite schemas/regex safety, blank capture outputs, consumer decision logs, multi-turn conversation transcripts, and ID alignment)
 - `ai-devices`
 

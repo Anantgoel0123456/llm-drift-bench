@@ -152,3 +152,21 @@ Google Gemini `functionCall`/`functionResponse`, and OpenTelemetry GenAI `resour
 logs into `ToolEvent` records. Line ranges alone do not establish exact character
 coverage without the corresponding file content and revision; adapters keep unknown
 coverage as `UNKNOWN` rather than estimating it as a successful read.
+
+## Baseline vs candidate tool-trace drift (`diff-tools`)
+
+Use `compare_tool_traces` or `llm-drift-bench diff-tools` to compare two offline
+agent traces across a model swap or prompt update without executing tools:
+
+```bash
+llm-drift-bench diff-tools \
+  -b baseline-trace.json -c candidate-trace.json \
+  --adapter openai \
+  --max-call-increase 2 \
+  --max-failed-increase 0 \
+  --fail-on-new-edit-resources
+```
+
+This reports call-count deltas, failed-call deltas, `(kind, resource)` action
+Jaccard similarity, added/removed resources, and newly edited resources not
+touched by the baseline trace.
