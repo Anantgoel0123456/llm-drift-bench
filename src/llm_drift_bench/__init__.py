@@ -102,6 +102,7 @@ if TYPE_CHECKING:
         Finding,
         diagnose_conversation_report,
         diagnose_report,
+        diagnose_tool_trace_diff,
         format_findings_text,
     )
     from llm_drift_bench.diffing import (
@@ -503,6 +504,7 @@ _EXPORTS: dict[str, str] = {
     "detect_volatile_fields": "calibrate",
     "diagnose_conversation_report": "diagnostics",
     "diagnose_report": "diagnostics",
+    "diagnose_tool_trace_diff": "diagnostics",
     "diff_captures": "diffing",
     "diff_conversations": "conversation",
     "diff_sample_pair": "diffing",
@@ -787,6 +789,7 @@ __all__ = [
     "detect_volatile_fields",
     "diagnose_conversation_report",
     "diagnose_report",
+    "diagnose_tool_trace_diff",
     "diff_captures",
     "diff_conversations",
     "diff_sample_pair",

@@ -1160,6 +1160,11 @@ def register_extra_subcommands(
         help="Exit 1 if candidate edits any resource not edited in baseline.",
     )
     diff_tools_p.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="Include actionable root-cause diagnostics (text/json formats).",
+    )
+    diff_tools_p.add_argument(
         "--format",
         choices=("text", "json", "markdown", "html", "sarif", "junit"),
         default="text",
@@ -2567,8 +2572,24 @@ def _handle_diff_tools(
         max_failed_increase=args.max_failed_increase,
         fail_on_new_edit_resources=args.fail_on_new_edit_resources,
     )
+    findings = None
+    if getattr(args, "diagnose", False):
+        from llm_drift_bench.diagnostics import diagnose_tool_trace_diff
+
+        findings = diagnose_tool_trace_diff(diff)
     if args.format == "json":
-        rendered = json.dumps(diff.to_dict(), indent=2) + "\n"
+        payload = diff.to_dict()
+        if findings is not None:
+            payload["diagnostics"] = [
+                {
+                    "code": f.code,
+                    "resource": f.prompt_id,
+                    "evidence": f.evidence,
+                    "suggestion": f.suggestion,
+                }
+                for f in findings
+            ]
+        rendered = json.dumps(payload, indent=2) + "\n"
     elif args.format == "markdown":
         rendered = format_tool_trace_diff_markdown(diff)
     elif args.format == "html":
@@ -2585,6 +2606,10 @@ def _handle_diff_tools(
         rendered = export_tool_trace_junit_report(diff)
     else:
         rendered = format_tool_trace_diff_text(diff)
+        if findings is not None:
+            from llm_drift_bench.diagnostics import format_findings_text
+
+            rendered += "\n" + format_findings_text(findings)
     if args.output:
         atomic_write_text(Path(args.output), rendered)
         if args.format == "html":

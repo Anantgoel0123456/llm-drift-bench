@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from llm_drift_bench.conversation import ConversationDriftReport
 from llm_drift_bench.models import DriftBenchmarkReport
+from llm_drift_bench.tool_events import ToolTraceDiff
 
 
 @dataclass(frozen=True)
@@ -214,3 +215,69 @@ def format_findings_text(findings: Sequence[Finding]) -> str:
         lines.append(f"  - [{item.code}] ({scope}): {item.evidence}")
         lines.append(f"      -> {item.suggestion}")
     return "\n".join(lines) + "\n"
+
+
+def diagnose_tool_trace_diff(diff: ToolTraceDiff) -> list[Finding]:
+    """Explain an agent ToolTraceDiff with actionable root-cause findings."""
+    if not isinstance(diff, ToolTraceDiff):
+        raise ValueError("diagnose_tool_trace_diff requires a ToolTraceDiff.")
+    findings: list[Finding] = []
+    if diff.added_edit_resources:
+        preview = ", ".join(diff.added_edit_resources[:3])
+        extra = (
+            f" (+{len(diff.added_edit_resources) - 3} more)"
+            if len(diff.added_edit_resources) > 3
+            else ""
+        )
+        findings.append(
+            Finding(
+                "unexpected_edit_scope",
+                diff.added_edit_resources[0],
+                f"Candidate edited new resource(s) absent from baseline edits: {preview}{extra}.",
+                "Constrain allowed file prefixes with 'check-tools --allow-resource' "
+                "or review agent tool permissions.",
+            )
+        )
+    if diff.failed_delta > 0:
+        findings.append(
+            Finding(
+                "retry_spike",
+                None,
+                f"Failed tool invocations increased ({diff.baseline_failed} -> "
+                f"{diff.candidate_failed}, {diff.failed_delta:+d}).",
+                "Inspect failed tool arguments/schemas and tighten system instructions "
+                "for parameter formatting.",
+            )
+        )
+    if diff.call_delta > 0:
+        findings.append(
+            Finding(
+                "call_volume_spike",
+                None,
+                f"Total tool invocations increased ({diff.baseline_calls} -> "
+                f"{diff.candidate_calls}, {diff.call_delta:+d}).",
+                "Check for redundant read/search loops and enforce a step cap with "
+                "'check-tools --max-tool-calls'.",
+            )
+        )
+    if diff.action_jaccard < 0.75:
+        findings.append(
+            Finding(
+                "action_shift",
+                None,
+                f"Low (kind, resource) action overlap (Jaccard {diff.action_jaccard:.4f}).",
+                "Compare added and removed resource targets to verify the agent followed "
+                "the intended workflow.",
+            )
+        )
+    if not diff.passed:
+        for reason in diff.failure_reasons or ("Agent tool-trace gate failed.",):
+            findings.append(
+                Finding(
+                    "tool_gate",
+                    None,
+                    reason,
+                    "Review agent tool-trace thresholds and inspect the candidate transcript.",
+                )
+            )
+    return findings

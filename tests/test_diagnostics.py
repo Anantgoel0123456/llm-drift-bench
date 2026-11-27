@@ -203,3 +203,71 @@ def test_format_findings_text_and_check_conversations_diagnose_cli(
     assert any(item["code"] == "refusal_flip" for item in doc["diagnostics"])
 
 
+def test_diagnose_tool_trace_diff_and_cli(capsys: pytest.CaptureFixture[str]) -> None:
+    import json
+
+    from llm_drift_bench.cli import main
+    from llm_drift_bench.diagnostics import diagnose_tool_trace_diff
+    from llm_drift_bench.tool_events import ToolEvent, compare_tool_traces
+
+    base = [ToolEvent(0, "read", "a@1", start=0, end=10)]
+    cand = [
+        ToolEvent(0, "read", "b@1", start=0, end=10, success=False),
+        ToolEvent(1, "edit", "c@1"),
+        ToolEvent(2, "edit", "d@1"),
+        ToolEvent(3, "edit", "e@1"),
+        ToolEvent(4, "edit", "f@1"),
+    ]
+    assert diagnose_tool_trace_diff(compare_tool_traces(base, base)) == []
+
+    diff = compare_tool_traces(base, cand, max_failed_increase=0, fail_on_new_edit_resources=True)
+    findings = diagnose_tool_trace_diff(diff)
+    codes = {f.code for f in findings}
+    assert {
+        "unexpected_edit_scope",
+        "retry_spike",
+        "call_volume_spike",
+        "action_shift",
+        "tool_gate",
+    } <= codes
+
+    with pytest.raises(ValueError, match="ToolTraceDiff"):
+        diagnose_tool_trace_diff({})  # type: ignore[arg-type]
+
+    assert (
+        main(
+            [
+                "diff-tools",
+                "-b",
+                str(EXAMPLES / "trace-baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "trace-candidate-drift.jsonl"),
+                "--fail-on-new-edit-resources",
+                "--diagnose",
+            ]
+        )
+        == 1
+    )
+    txt = capsys.readouterr().out
+    assert "[unexpected_edit_scope]" in txt and "[retry_spike]" in txt
+
+    assert (
+        main(
+            [
+                "diff-tools",
+                "-b",
+                str(EXAMPLES / "trace-baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "trace-candidate-drift.jsonl"),
+                "--fail-on-new-edit-resources",
+                "--diagnose",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    cli_doc = json.loads(capsys.readouterr().out)
+    assert any(item["code"] == "unexpected_edit_scope" for item in cli_doc["diagnostics"])
+
+
