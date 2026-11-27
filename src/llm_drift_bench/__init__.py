@@ -182,7 +182,11 @@ if TYPE_CHECKING:
         sparkline,
         summarize_history,
     )
-    from llm_drift_bench.junit import export_conversation_junit_report, export_junit_report
+    from llm_drift_bench.junit import (
+        export_conversation_junit_report,
+        export_junit_report,
+        export_tool_trace_junit_report,
+    )
     from llm_drift_bench.logprobs import (
         LogprobDriftSummary,
         PromptLogprobDrift,
@@ -526,6 +530,7 @@ _EXPORTS: dict[str, str] = {
     "export_sarif_report": "sarif",
     "export_segmented_distribution_html": "distribution",
     "export_tool_trace_diff_html": "tool_events",
+    "export_tool_trace_junit_report": "junit",
     "export_tool_trace_sarif_report": "sarif",
     "extract_json_payload": "validator",
     "fetch_embeddings": "embeddings",
@@ -804,6 +809,7 @@ __all__ = [
     "export_sarif_report",
     "export_segmented_distribution_html",
     "export_tool_trace_diff_html",
+    "export_tool_trace_junit_report",
     "export_tool_trace_sarif_report",
     "extract_json_payload",
     "fetch_embeddings",

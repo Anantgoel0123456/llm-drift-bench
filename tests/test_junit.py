@@ -128,3 +128,56 @@ def test_export_conversation_junit_report_and_cli(capsys: pytest.CaptureFixture[
     assert cli_root.attrib["failures"] == "2"
 
 
+def test_export_tool_trace_junit_report_and_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from llm_drift_bench.junit import export_tool_trace_junit_report
+    from llm_drift_bench.tool_events import ToolEvent, compare_tool_traces
+
+    base = [ToolEvent(0, "read", "src/a.py@1", start=0, end=10)]
+    cand = [
+        ToolEvent(0, "read", "src/a.py@1", start=0, end=10),
+        ToolEvent(1, "edit", "src/b.py@1", success=False),
+    ]
+    pass_root = ET.fromstring(export_tool_trace_junit_report(compare_tool_traces(base, base)))
+    assert pass_root.attrib["tests"] == "4" and pass_root.attrib["failures"] == "0"
+
+    fail_diff = compare_tool_traces(
+        base, cand, max_call_increase=0, max_failed_increase=0, fail_on_new_edit_resources=True
+    )
+    fail_root = ET.fromstring(export_tool_trace_junit_report(fail_diff))
+    assert fail_root.attrib["failures"] == "4"
+
+    with pytest.raises(ValueError, match="ToolTraceDiff"):
+        export_tool_trace_junit_report({})  # type: ignore[arg-type]
+
+    b_file = tmp_path / "b.jsonl"
+    c_file = tmp_path / "c.jsonl"
+    b_file.write_text(
+        '{"kind": "read", "resource": "src/a.py@1", "start": 0, "end": 10}\n', encoding="utf-8"
+    )
+    c_file.write_text(
+        '{"kind": "read", "resource": "src/a.py@1", "start": 0, "end": 10}\n'
+        '{"kind": "edit", "resource": "src/b.py@1"}\n',
+        encoding="utf-8",
+    )
+    assert (
+        main(
+            [
+                "diff-tools",
+                "-b",
+                str(b_file),
+                "-c",
+                str(c_file),
+                "--fail-on-new-edit-resources",
+                "--format",
+                "junit",
+            ]
+        )
+        == 1
+    )
+    cli_root = ET.fromstring(capsys.readouterr().out)
+    assert cli_root.attrib["name"] == "llm-drift-bench-tool-traces"
+    assert cli_root.attrib["failures"] == "2"
+
+

@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 
 from llm_drift_bench.conversation import ConversationDriftReport
 from llm_drift_bench.models import DriftBenchmarkReport
+from llm_drift_bench.tool_events import ToolTraceDiff
 
 
 def _xml_text(value: str) -> str:
@@ -120,6 +121,59 @@ def export_conversation_junit_report(report: ConversationDriftReport) -> str:
         ("drifted_conversations", str(report.drifted_conversations)),
         ("mean_trajectory_drift", f"{report.mean_trajectory_drift:.4f}"),
         ("total_refusal_flip_turns", str(report.total_refusal_flip_turns)),
+    ):
+        ET.SubElement(props, "property", {"name": prop_name, "value": prop_value})
+    ET.indent(root, space="  ")
+    serialized: bytes = ET.tostring(root, encoding="us-ascii", xml_declaration=True)
+    return serialized.decode("ascii") + "\n"
+
+
+def export_tool_trace_junit_report(diff: ToolTraceDiff) -> str:
+    """Export an agent ToolTraceDiff as JUnit XML for CI test reporting."""
+    if not isinstance(diff, ToolTraceDiff):
+        raise ValueError("Tool-trace JUnit export requires a ToolTraceDiff.")
+    edit_failures = [r for r in diff.failure_reasons if "edited new resource" in r]
+    call_failures = [r for r in diff.failure_reasons if r.startswith("Tool call increase")]
+    fail_failures = [r for r in diff.failure_reasons if r.startswith("Failed tool call increase")]
+    cases = (
+        ("call_volume", call_failures),
+        ("failed_calls", fail_failures),
+        ("edit_scope", edit_failures),
+        ("tool_trace_gate", [] if diff.passed else list(diff.failure_reasons or ("Failed.",))),
+    )
+    failure_count = sum(1 for _, errs in cases if errs)
+    root = ET.Element(
+        "testsuite",
+        {
+            "name": "llm-drift-bench-tool-traces",
+            "tests": str(len(cases)),
+            "failures": str(failure_count),
+            "errors": "0",
+            "skipped": "0",
+        },
+    )
+    for case_name, errs in cases:
+        case = ET.SubElement(
+            root,
+            "testcase",
+            {"classname": "llm_drift_bench.tool_traces", "name": case_name},
+        )
+        if errs:
+            ET.SubElement(
+                case,
+                "failure",
+                {
+                    "type": "ToolTraceDriftDetected",
+                    "message": f"Tool-trace check {case_name!r} failed",
+                },
+            ).text = _xml_text("\n".join(errs))
+    props = ET.SubElement(root, "properties")
+    for prop_name, prop_value in (
+        ("baseline_calls", str(diff.baseline_calls)),
+        ("candidate_calls", str(diff.candidate_calls)),
+        ("call_delta", str(diff.call_delta)),
+        ("failed_delta", str(diff.failed_delta)),
+        ("action_jaccard", f"{diff.action_jaccard:.4f}"),
     ):
         ET.SubElement(props, "property", {"name": prop_name, "value": prop_value})
     ET.indent(root, space="  ")

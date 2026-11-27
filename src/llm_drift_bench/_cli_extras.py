@@ -1139,9 +1139,9 @@ def register_extra_subcommands(
     )
     diff_tools_p.add_argument(
         "--format",
-        choices=("text", "json", "markdown", "html", "sarif"),
+        choices=("text", "json", "markdown", "html", "sarif", "junit"),
         default="text",
-        help="Output format: text (default), json, markdown, html, or sarif.",
+        help="Output format: text (default), json, markdown, html, sarif, or junit.",
     )
     diff_tools_p.add_argument(
         "-o", "--output", default=None, help="Optional output file path to write the report."
@@ -2523,6 +2523,10 @@ def _handle_diff_tools(
         rendered = export_tool_trace_sarif_report(
             diff, artifact_uri=Path(args.candidate).name
         )
+    elif args.format == "junit":
+        from llm_drift_bench.junit import export_tool_trace_junit_report
+
+        rendered = export_tool_trace_junit_report(diff)
     else:
         rendered = format_tool_trace_diff_text(diff)
     if args.output:
