@@ -323,6 +323,47 @@ def register_extra_subcommands(
         help="Block release when attached conversation trajectory check fails (default: enabled).",
     )
     gate_p.add_argument(
+        "--baseline-trace",
+        default=None,
+        metavar="FILE",
+        help="Optional baseline agent tool trace file for tool-usage drift gating.",
+    )
+    gate_p.add_argument(
+        "--candidate-trace",
+        default=None,
+        metavar="FILE",
+        help="Optional candidate agent tool trace file for tool-usage drift gating.",
+    )
+    gate_p.add_argument(
+        "--trace-adapter",
+        choices=("normalized", "openai", "anthropic", "gemini", "otel"),
+        default="normalized",
+        help="Adapter for --baseline-trace/--candidate-trace (default: normalized).",
+    )
+    gate_p.add_argument(
+        "--max-tool-call-increase",
+        type=int,
+        default=None,
+        help="Optional max allowed tool call increase vs baseline trace.",
+    )
+    gate_p.add_argument(
+        "--max-tool-failed-increase",
+        type=int,
+        default=None,
+        help="Optional max allowed failed tool call increase vs baseline trace.",
+    )
+    gate_p.add_argument(
+        "--fail-on-new-edit-resources",
+        action="store_true",
+        help="Fail tool-trace check when candidate edits resources not edited in baseline.",
+    )
+    gate_p.add_argument(
+        "--fail-on-tool-trace",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Block release when attached tool-trace drift check fails (default: enabled).",
+    )
+    gate_p.add_argument(
         "--format",
         choices=("text", "json"),
         default="text",
@@ -1390,6 +1431,28 @@ def _handle_gate(args: argparse.Namespace) -> int:
             max_mean_drift=args.max_mean_trajectory_drift,
         )
 
+    trace_diff = None
+    if args.baseline_trace is not None or args.candidate_trace is not None:
+        if not (args.baseline_trace and args.candidate_trace):
+            raise ValueError("Both --baseline-trace and --candidate-trace are required.")
+        from llm_drift_bench.adapters import load_adapted_tool_events
+        from llm_drift_bench.tool_events import compare_tool_traces
+        from llm_drift_bench.tool_log import load_tool_events
+
+        if args.trace_adapter == "normalized":
+            b_ev = load_tool_events(args.baseline_trace)
+            c_ev = load_tool_events(args.candidate_trace)
+        else:
+            b_ev = load_adapted_tool_events(args.baseline_trace, adapter=args.trace_adapter)
+            c_ev = load_adapted_tool_events(args.candidate_trace, adapter=args.trace_adapter)
+        trace_diff = compare_tool_traces(
+            b_ev,
+            c_ev,
+            max_call_increase=args.max_tool_call_increase,
+            max_failed_increase=args.max_tool_failed_increase,
+            fail_on_new_edit_resources=args.fail_on_new_edit_resources,
+        )
+
     verdict = evaluate_release_gates(
         report,
         history_check=history_check,
@@ -1400,6 +1463,7 @@ def _handle_gate(args: argparse.Namespace) -> int:
         consumer_comparison=consumer_comp,
         embedding_report=embedding_rep,
         conversation_report=conversation_rep,
+        tool_trace_diff=trace_diff,
         fail_on_history_regression=args.fail_on_history,
         fail_on_significant_degradation=args.fail_on_significant,
         require_tool_checks_pass=args.require_tool_pass,
@@ -1407,6 +1471,7 @@ def _handle_gate(args: argparse.Namespace) -> int:
         fail_on_consumer_rejection=args.fail_on_consumer,
         fail_on_embedding_drift=args.fail_on_embeddings,
         fail_on_conversation_drift=args.fail_on_conversations,
+        fail_on_tool_trace_drift=args.fail_on_tool_trace,
     )
     if args.format == "json":
         print(json.dumps(verdict.to_dict(), indent=2))

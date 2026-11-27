@@ -202,4 +202,17 @@ def test_evaluate_release_gates_with_embeddings_and_conversations() -> None:
     )
     assert approved.approved is True and approved.warnings == ()
 
+    # Tool-trace drift gate check (blocking vs passing)
+    from llm_drift_bench.tool_events import ToolEvent, compare_tool_traces
+
+    base_ev = [ToolEvent(0, "edit", "src/a.py@1")]
+    cand_ev = [ToolEvent(0, "edit", "src/a.py@1"), ToolEvent(1, "edit", "src/b.py@1")]
+    td_fail = compare_tool_traces(base_ev, cand_ev, fail_on_new_edit_resources=True)
+    td_ok = compare_tool_traces(base_ev, base_ev, fail_on_new_edit_resources=True)
+    v_td_block = evaluate_release_gates(pass_rep, tool_trace_diff=td_fail)
+    assert v_td_block.approved is False
+    assert any("tool_trace_drift:" in msg for msg in v_td_block.blocking_failures)
+    assert evaluate_release_gates(pass_rep, tool_trace_diff=td_ok).approved is True
+
+
 

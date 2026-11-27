@@ -13,6 +13,7 @@ from llm_drift_bench.embeddings import EmbeddingDriftReport
 from llm_drift_bench.history import HistoryTrendCheck
 from llm_drift_bench.models import DriftBenchmarkReport
 from llm_drift_bench.stats import McNemarResult, PairedSignificance
+from llm_drift_bench.tool_events import ToolTraceDiff
 from llm_drift_bench.tool_log import ToolCheckRecord
 
 
@@ -58,6 +59,7 @@ def evaluate_release_gates(
     consumer_comparison: ConsumerComparison | None = None,
     embedding_report: EmbeddingDriftReport | None = None,
     conversation_report: ConversationDriftReport | None = None,
+    tool_trace_diff: ToolTraceDiff | None = None,
     fail_on_history_regression: bool = True,
     fail_on_significant_degradation: bool = False,
     require_tool_checks_pass: bool = False,
@@ -65,6 +67,7 @@ def evaluate_release_gates(
     fail_on_consumer_rejection: bool = True,
     fail_on_embedding_drift: bool = True,
     fail_on_conversation_drift: bool = True,
+    fail_on_tool_trace_drift: bool = True,
 ) -> ReleaseVerdict:
     """Aggregate canonical drift, trend, statistical, and tool evidence into one verdict.
 
@@ -205,6 +208,23 @@ def evaluate_release_gates(
                     if conversation_report.passed
                     else "; ".join(conversation_report.failure_reasons)
                     or "Multi-turn conversation trajectory gate failed."
+                ),
+            )
+        )
+
+    if tool_trace_diff is not None:
+        checks.append(
+            GateCheck(
+                name="tool_trace_drift",
+                passed=tool_trace_diff.passed,
+                blocking=fail_on_tool_trace_drift,
+                detail=(
+                    f"Passed (calls {tool_trace_diff.baseline_calls}->"
+                    f"{tool_trace_diff.candidate_calls}, "
+                    f"jaccard={tool_trace_diff.action_jaccard:.4f})"
+                    if tool_trace_diff.passed
+                    else "; ".join(tool_trace_diff.failure_reasons)
+                    or "Agent tool-trace drift check failed."
                 ),
             )
         )

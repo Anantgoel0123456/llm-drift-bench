@@ -3046,6 +3046,49 @@ def test_cli_capture_conversations_roundtrip(
     assert main(["check-conversations", "-b", str(out_file), "-c", str(out_file)]) == 0
     assert "PASSED" in capsys.readouterr().out
 
+    # gate with --baseline-trace / --candidate-trace
+    tb = tmp_path / "gate_tb.jsonl"
+    tc = tmp_path / "gate_tc.jsonl"
+    tb.write_text('{"kind": "edit", "resource": "src/a.py@1"}\n', encoding="utf-8")
+    tc.write_text(
+        '{"kind": "edit", "resource": "src/a.py@1"}\n'
+        '{"kind": "edit", "resource": "src/b.py@1"}\n',
+        encoding="utf-8",
+    )
+    assert (
+        main(
+            [
+                "gate",
+                "-i",
+                str(EXAMPLES / "expected-pass.json"),
+                "--baseline-trace",
+                str(tb),
+                "--candidate-trace",
+                str(tc),
+                "--fail-on-new-edit-resources",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    g_data = json.loads(capsys.readouterr().out)
+    assert any(m.startswith("tool_trace_drift:") for m in g_data["blocking_failures"])
+    assert (
+        main(
+            [
+                "gate",
+                "-i",
+                str(EXAMPLES / "expected-pass.json"),
+                "--baseline-trace",
+                str(tb),
+            ]
+        )
+        == 2
+    )
+    capsys.readouterr()
+
+
 
 
 
