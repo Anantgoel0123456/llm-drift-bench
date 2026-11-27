@@ -327,4 +327,36 @@ def test_shipped_example_tool_traces_detect_expected_drift() -> None:
     assert diff.added_edit_resources == ("config/production.env@v1",)
 
 
+def test_export_tool_trace_pr_comment_and_cli(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from llm_drift_bench.cli import main
+    from llm_drift_bench.tool_events import compare_tool_traces, export_tool_trace_pr_comment
+    from llm_drift_bench.tool_log import load_tool_events
+
+    examples = Path(__file__).resolve().parents[1] / "examples"
+    base = load_tool_events(examples / "trace-baseline.jsonl")
+    pass_md = export_tool_trace_pr_comment(compare_tool_traces(base, base))
+    assert "<!-- llm-drift-bench:tool-trace -->" in pass_md
+    assert "**PASS**" in pass_md and "<details>" not in pass_md
+
+    assert (
+        main(
+            [
+                "diff-tools",
+                "-b",
+                str(examples / "trace-baseline.jsonl"),
+                "-c",
+                str(examples / "trace-candidate-drift.jsonl"),
+                "--fail-on-new-edit-resources",
+                "--format",
+                "pr-comment",
+            ]
+        )
+        == 1
+    )
+    fail_md = capsys.readouterr().out
+    assert "**FAIL**" in fail_md and "config/production.env@v1" in fail_md
+
+
 

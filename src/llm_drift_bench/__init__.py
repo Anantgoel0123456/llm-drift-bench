@@ -353,6 +353,7 @@ if TYPE_CHECKING:
         check_read_before_edit,
         compare_tool_traces,
         export_tool_trace_diff_html,
+        export_tool_trace_pr_comment,
         format_tool_trace_diff_markdown,
         format_tool_trace_diff_text,
     )
@@ -544,6 +545,7 @@ _EXPORTS: dict[str, str] = {
     "export_segmented_distribution_html": "distribution",
     "export_tool_trace_diff_html": "tool_events",
     "export_tool_trace_junit_report": "junit",
+    "export_tool_trace_pr_comment": "tool_events",
     "export_tool_trace_sarif_report": "sarif",
     "extract_json_payload": "validator",
     "fetch_embeddings": "embeddings",
@@ -829,6 +831,7 @@ __all__ = [
     "export_segmented_distribution_html",
     "export_tool_trace_diff_html",
     "export_tool_trace_junit_report",
+    "export_tool_trace_pr_comment",
     "export_tool_trace_sarif_report",
     "extract_json_payload",
     "fetch_embeddings",

@@ -544,3 +544,33 @@ def export_tool_trace_diff_html(diff: ToolTraceDiff) -> str:
         f"<th>Delta</th></tr></thead><tbody>{row_html}</tbody></table>"
         f"{extra_html}</body></html>\n"
     )
+
+
+def export_tool_trace_pr_comment(diff: ToolTraceDiff) -> str:
+    """Render a compact GitHub PR comment summarizing an agent ToolTraceDiff."""
+    verdict = "PASS" if diff.passed else "FAIL"
+    lines = [
+        "<!-- llm-drift-bench:tool-trace -->",
+        f"### Agent Tool-Trace Drift: **{verdict}**",
+        "",
+        "| Calls | Reads | Edits | Failed | Action Jaccard | New Edit Targets |",
+        "| :---: | :---: | :---: | :---: | ---: | ---: |",
+        f"| `{diff.baseline_calls}->{diff.candidate_calls}` ({diff.call_delta:+d}) | "
+        f"`{diff.baseline_reads}->{diff.candidate_reads}` | "
+        f"`{diff.baseline_edits}->{diff.candidate_edits}` | "
+        f"`{diff.baseline_failed}->{diff.candidate_failed}` ({diff.failed_delta:+d}) | "
+        f"`{diff.action_jaccard:.4f}` | {len(diff.added_edit_resources)} |",
+    ]
+    if diff.added_edit_resources or diff.failure_reasons:
+        lines += [
+            "",
+            "<details><summary>Details &amp; failure reasons</summary>",
+            "",
+        ]
+        if diff.added_edit_resources:
+            joined = ", ".join(f"`{_md_escape(r)}`" for r in diff.added_edit_resources)
+            lines.append(f"- **New edit targets:** {joined}")
+        for reason in diff.failure_reasons:
+            lines.append(f"- {_md_escape(reason)}")
+        lines += ["", "</details>"]
+    return "\n".join(lines) + "\n"

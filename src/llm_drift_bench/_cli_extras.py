@@ -1166,9 +1166,9 @@ def register_extra_subcommands(
     )
     diff_tools_p.add_argument(
         "--format",
-        choices=("text", "json", "markdown", "html", "sarif", "junit"),
+        choices=("text", "json", "markdown", "html", "sarif", "junit", "pr-comment"),
         default="text",
-        help="Output format: text (default), json, markdown, html, sarif, or junit.",
+        help="Format: text (default), json, markdown, html, sarif, junit, or pr-comment.",
     )
     diff_tools_p.add_argument(
         "-o", "--output", default=None, help="Optional output file path to write the report."
@@ -2553,6 +2553,7 @@ def _handle_diff_tools(
     from llm_drift_bench.tool_events import (
         compare_tool_traces,
         export_tool_trace_diff_html,
+        export_tool_trace_pr_comment,
         format_tool_trace_diff_markdown,
         format_tool_trace_diff_text,
     )
@@ -2604,6 +2605,8 @@ def _handle_diff_tools(
         from llm_drift_bench.junit import export_tool_trace_junit_report
 
         rendered = export_tool_trace_junit_report(diff)
+    elif args.format == "pr-comment":
+        rendered = export_tool_trace_pr_comment(diff)
     else:
         rendered = format_tool_trace_diff_text(diff)
         if findings is not None:
