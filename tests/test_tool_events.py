@@ -157,3 +157,56 @@ def test_max_tool_calls_allowed_resources_and_jwt_db_secrets() -> None:
     assert score.value == 1.0 and score.scoring_failed is False
 
 
+def test_compare_tool_traces_detects_call_retry_and_edit_scope_drift() -> None:
+    from llm_drift_bench.tool_events import compare_tool_traces, format_tool_trace_diff_text
+
+    base = [
+        ToolEvent(0, "read", "src/a.py@1", start=0, end=20),
+        ToolEvent(1, "edit", "src/a.py@1"),
+    ]
+    cand = [
+        ToolEvent(0, "read", "src/a.py@1", start=0, end=20),
+        ToolEvent(1, "read", "src/b.py@1", start=0, end=10, success=False),
+        ToolEvent(2, "edit", "src/a.py@1"),
+        ToolEvent(3, "edit", "src/b.py@1"),
+        ToolEvent(4, "edit", "src/c.py@1"),
+        ToolEvent(5, "edit", "src/d.py@1"),
+        ToolEvent(6, "edit", "src/e.py@1"),
+    ]
+    diff = compare_tool_traces(
+        base,
+        cand,
+        max_call_increase=2,
+        max_failed_increase=0,
+        fail_on_new_edit_resources=True,
+    )
+    assert diff.passed is False
+    assert diff.call_delta == 5 and diff.failed_delta == 1
+    assert len(diff.added_edit_resources) == 4
+    assert len(diff.failure_reasons) == 3
+    assert "+1 more" in diff.failure_reasons[2]
+    assert diff.to_dict()["passed"] is False
+
+    txt = format_tool_trace_diff_text(diff)
+    assert "[FAILED]" in txt and "New edit targets:" in txt
+
+    # Identical traces & removed resource coverage
+    same_diff = compare_tool_traces(base, base)
+    assert same_diff.passed is True and same_diff.action_jaccard == 1.0
+    assert "[PASSED]" in format_tool_trace_diff_text(same_diff)
+
+    removed_diff = compare_tool_traces(base, [base[0]])
+    assert removed_diff.removed_resources == ()  # still read src/a.py@1
+    removed_other = compare_tool_traces(base, [ToolEvent(0, "read", "src/z.py@1")])
+    assert "Removed         :" in format_tool_trace_diff_text(removed_other)
+
+    # Validation errors
+    with pytest.raises(ValueError, match="max_call_increase"):
+        compare_tool_traces(base, base, max_call_increase=-1)
+    with pytest.raises(ValueError, match="max_failed_increase"):
+        compare_tool_traces(base, base, max_failed_increase=True)
+    with pytest.raises(ValueError, match="fail_on_new_edit_resources"):
+        compare_tool_traces(base, base, fail_on_new_edit_resources="yes")  # type: ignore[arg-type]
+
+
+

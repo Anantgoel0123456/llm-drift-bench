@@ -282,3 +282,158 @@ def check_allowed_resources(
         0,
         None,
     )
+
+
+@dataclass(frozen=True)
+class ToolTraceDiff:
+    """Comparison of agent tool-usage behavior between baseline and candidate traces."""
+
+    baseline_calls: int
+    candidate_calls: int
+    call_delta: int
+    baseline_reads: int
+    candidate_reads: int
+    baseline_edits: int
+    candidate_edits: int
+    baseline_failed: int
+    candidate_failed: int
+    failed_delta: int
+    added_resources: tuple[str, ...]
+    removed_resources: tuple[str, ...]
+    added_edit_resources: tuple[str, ...]
+    action_jaccard: float
+    passed: bool
+    failure_reasons: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "passed": self.passed,
+            "failure_reasons": list(self.failure_reasons),
+            "baseline_calls": self.baseline_calls,
+            "candidate_calls": self.candidate_calls,
+            "call_delta": self.call_delta,
+            "baseline_reads": self.baseline_reads,
+            "candidate_reads": self.candidate_reads,
+            "baseline_edits": self.baseline_edits,
+            "candidate_edits": self.candidate_edits,
+            "baseline_failed": self.baseline_failed,
+            "candidate_failed": self.candidate_failed,
+            "failed_delta": self.failed_delta,
+            "added_resources": list(self.added_resources),
+            "removed_resources": list(self.removed_resources),
+            "added_edit_resources": list(self.added_edit_resources),
+            "action_jaccard": round(self.action_jaccard, 6),
+        }
+
+
+def compare_tool_traces(
+    baseline_events: Sequence[ToolEvent],
+    candidate_events: Sequence[ToolEvent],
+    *,
+    max_call_increase: int | None = None,
+    max_failed_increase: int | None = None,
+    fail_on_new_edit_resources: bool = False,
+) -> ToolTraceDiff:
+    """Compare two normalized agent tool traces for call-count, retry, and scope drift."""
+    if max_call_increase is not None and (
+        type(max_call_increase) is not int or max_call_increase < 0
+    ):
+        raise ValueError("max_call_increase must be a non-negative integer.")
+    if max_failed_increase is not None and (
+        type(max_failed_increase) is not int or max_failed_increase < 0
+    ):
+        raise ValueError("max_failed_increase must be a non-negative integer.")
+    if type(fail_on_new_edit_resources) is not bool:
+        raise ValueError("fail_on_new_edit_resources must be boolean.")
+
+    b_calls = len(baseline_events)
+    c_calls = len(candidate_events)
+    b_reads = sum(1 for e in baseline_events if e.kind == "read")
+    c_reads = sum(1 for e in candidate_events if e.kind == "read")
+    b_edits = sum(1 for e in baseline_events if e.kind == "edit")
+    c_edits = sum(1 for e in candidate_events if e.kind == "edit")
+    b_failed = sum(1 for e in baseline_events if not e.success)
+    c_failed = sum(1 for e in candidate_events if not e.success)
+
+    call_delta = c_calls - b_calls
+    failed_delta = c_failed - b_failed
+
+    b_resources = {e.resource for e in baseline_events}
+    c_resources = {e.resource for e in candidate_events}
+    added_resources = tuple(sorted(c_resources - b_resources))
+    removed_resources = tuple(sorted(b_resources - c_resources))
+
+    b_edit_res = {e.resource for e in baseline_events if e.kind == "edit"}
+    c_edit_res = {e.resource for e in candidate_events if e.kind == "edit"}
+    added_edit_resources = tuple(sorted(c_edit_res - b_edit_res))
+
+    b_actions = {(e.kind, e.resource) for e in baseline_events}
+    c_actions = {(e.kind, e.resource) for e in candidate_events}
+    union = b_actions | c_actions
+    action_jaccard = (len(b_actions & c_actions) / len(union)) if union else 1.0
+
+    failures: list[str] = []
+    if max_call_increase is not None and call_delta > max_call_increase:
+        failures.append(
+            f"Tool call increase ({call_delta:+d}) exceeded limit (+{max_call_increase})."
+        )
+    if max_failed_increase is not None and failed_delta > max_failed_increase:
+        failures.append(
+            f"Failed tool call increase ({failed_delta:+d}) exceeded limit "
+            f"(+{max_failed_increase})."
+        )
+    if fail_on_new_edit_resources and added_edit_resources:
+        preview = ", ".join(added_edit_resources[:3])
+        extra = (
+            f" (+{len(added_edit_resources) - 3} more)"
+            if len(added_edit_resources) > 3
+            else ""
+        )
+        failures.append(
+            f"Candidate edited new resource(s) not edited in baseline: {preview}{extra}."
+        )
+
+    return ToolTraceDiff(
+        baseline_calls=b_calls,
+        candidate_calls=c_calls,
+        call_delta=call_delta,
+        baseline_reads=b_reads,
+        candidate_reads=c_reads,
+        baseline_edits=b_edits,
+        candidate_edits=c_edits,
+        baseline_failed=b_failed,
+        candidate_failed=c_failed,
+        failed_delta=failed_delta,
+        added_resources=added_resources,
+        removed_resources=removed_resources,
+        added_edit_resources=added_edit_resources,
+        action_jaccard=action_jaccard,
+        passed=len(failures) == 0,
+        failure_reasons=tuple(failures),
+    )
+
+
+def format_tool_trace_diff_text(diff: ToolTraceDiff) -> str:
+    """Render a ToolTraceDiff as a concise terminal report."""
+    verdict = "PASSED" if diff.passed else "FAILED"
+    lines = [
+        f"Agent Tool-Trace Drift Comparison [{verdict}]",
+        f"  Total calls     : {diff.baseline_calls} -> {diff.candidate_calls} "
+        f"({diff.call_delta:+d})",
+        f"  Reads / Edits   : {diff.baseline_reads}/{diff.baseline_edits} -> "
+        f"{diff.candidate_reads}/{diff.candidate_edits}",
+        f"  Failed calls    : {diff.baseline_failed} -> {diff.candidate_failed} "
+        f"({diff.failed_delta:+d})",
+        f"  Action Jaccard  : {diff.action_jaccard:.4f}",
+    ]
+    if diff.added_resources:
+        lines.append(f"  Added resources : {', '.join(diff.added_resources)}")
+    if diff.removed_resources:
+        lines.append(f"  Removed         : {', '.join(diff.removed_resources)}")
+    if diff.added_edit_resources:
+        lines.append(f"  New edit targets: {', '.join(diff.added_edit_resources)}")
+    if diff.failure_reasons:
+        lines.append("Failure reasons:")
+        for reason in diff.failure_reasons:
+            lines.append(f"  - {reason}")
+    return "\n".join(lines) + "\n"
