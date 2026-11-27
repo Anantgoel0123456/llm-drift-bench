@@ -29,6 +29,7 @@ if TYPE_CHECKING:
         export_badge_from_json,
         export_conversation_badge_svg,
         export_drift_badge_svg,
+        export_tool_trace_badge_svg,
     )
     from llm_drift_bench.batch import evaluate_many
     from llm_drift_bench.batch_import import (
@@ -543,6 +544,7 @@ _EXPORTS: dict[str, str] = {
     "export_rolling_html": "rolling",
     "export_sarif_report": "sarif",
     "export_segmented_distribution_html": "distribution",
+    "export_tool_trace_badge_svg": "badge",
     "export_tool_trace_diff_html": "tool_events",
     "export_tool_trace_junit_report": "junit",
     "export_tool_trace_pr_comment": "tool_events",
@@ -829,6 +831,7 @@ __all__ = [
     "export_rolling_html",
     "export_sarif_report",
     "export_segmented_distribution_html",
+    "export_tool_trace_badge_svg",
     "export_tool_trace_diff_html",
     "export_tool_trace_junit_report",
     "export_tool_trace_pr_comment",

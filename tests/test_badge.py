@@ -145,3 +145,47 @@ def test_export_badge_from_json_and_cli_auto_detects_report_types(
     with pytest.raises(ValueError, match="ConversationDriftReport"):
         export_badge_from_json(bad_conv)
 
+
+def test_export_tool_trace_badge_svg_and_cli_auto_detect(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+
+    from llm_drift_bench.badge import export_badge_from_json, export_tool_trace_badge_svg
+    from llm_drift_bench.cli import main
+    from llm_drift_bench.tool_events import compare_tool_traces
+    from llm_drift_bench.tool_log import load_tool_events
+
+    base = load_tool_events(EXAMPLES / "trace-baseline.jsonl")
+    drift = load_tool_events(EXAMPLES / "trace-candidate-drift.jsonl")
+
+    pass_svg = export_tool_trace_badge_svg(compare_tool_traces(base, base))
+    assert "tool-trace: PASS 1.00" in pass_svg and "#2ea44f" in pass_svg
+
+    fail_diff = compare_tool_traces(base, drift, fail_on_new_edit_resources=True)
+    fail_svg = export_tool_trace_badge_svg(fail_diff, output_path=tmp_path / "tt.svg")
+    assert "tool-trace: FAIL" in fail_svg and "#d73a49" in fail_svg
+
+    with pytest.raises(TypeError, match="ToolTraceDiff"):
+        export_tool_trace_badge_svg({})  # type: ignore[arg-type]
+
+    tt_json = tmp_path / "trace-diff.json"
+    tt_json.write_text(json.dumps(fail_diff.to_dict()), encoding="utf-8")
+    assert main(["badge", "-i", str(tt_json)]) == 0
+    assert "tool-trace: FAIL" in capsys.readouterr().out
+
+    bad_tt = tmp_path / "bad_tt.json"
+    bad_tt.write_text(
+        json.dumps(
+            {
+                "baseline_calls": 1,
+                "candidate_calls": 1,
+                "action_jaccard": 1.0,
+                "passed": "nope",
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="ToolTraceDiff"):
+        export_badge_from_json(bad_tt)
+

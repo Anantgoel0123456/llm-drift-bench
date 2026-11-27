@@ -11,6 +11,7 @@ from llm_drift_bench.audit import AuditReport
 from llm_drift_bench.conversation import ConversationDriftReport
 from llm_drift_bench.models import DriftBenchmarkReport
 from llm_drift_bench.report_io import load_engine_report
+from llm_drift_bench.tool_events import ToolTraceDiff
 
 
 def _text_width(text: str) -> int:
@@ -129,6 +130,24 @@ def export_conversation_badge_svg(
     )
 
 
+def export_tool_trace_badge_svg(
+    diff: ToolTraceDiff,
+    output_path: str | Path | None = None,
+    *,
+    label: str = "tool-trace",
+) -> str:
+    """Render an offline static SVG status badge summarizing an agent ToolTraceDiff."""
+    if not isinstance(diff, ToolTraceDiff):
+        raise TypeError("export_tool_trace_badge_svg requires a ToolTraceDiff instance.")
+    state = "PASS" if diff.passed else "FAIL"
+    return _render_badge_svg(
+        label=label,
+        value=f"{state} {diff.action_jaccard:.2f}",
+        passed=diff.passed,
+        output_path=output_path,
+    )
+
+
 def _require_finite_metric(value: object, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         raise ValueError(f"Saved report field {field!r} must be a finite number.")
@@ -178,6 +197,24 @@ def export_badge_from_json(
         return _render_badge_svg(
             label="conversations" if label is None else label,
             value=f"{state} {mean_traj:.2f}",
+            passed=passed,
+            output_path=output_path,
+        )
+
+    if (
+        "baseline_calls" in payload
+        and "candidate_calls" in payload
+        and "action_jaccard" in payload
+        and "passed" in payload
+    ):
+        passed = payload["passed"]
+        if not isinstance(passed, bool):
+            raise ValueError(f"{source}: malformed saved ToolTraceDiff JSON.")
+        jaccard = _require_finite_metric(payload.get("action_jaccard"), "action_jaccard")
+        state = "PASS" if passed else "FAIL"
+        return _render_badge_svg(
+            label="tool-trace" if label is None else label,
+            value=f"{state} {jaccard:.2f}",
             passed=passed,
             output_path=output_path,
         )
