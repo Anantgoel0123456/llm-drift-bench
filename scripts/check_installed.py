@@ -632,6 +632,79 @@ else:
             cwd=root, env=env, check=True, capture_output=True, text=True,
         )
         assert json.loads(doc_trace.stdout)["ok"] is True
+        ex_trace_sarif = subprocess.run(
+            [
+                str(cli), "diff-tools",
+                "-b", str(examples / "trace-baseline.jsonl"),
+                "-c", str(examples / "trace-candidate-drift.jsonl"),
+                "--fail-on-new-edit-resources",
+                "--format", "sarif",
+            ],
+            cwd=root, env=env, check=False, capture_output=True, text=True,
+        )
+        if ex_trace_sarif.returncode != 1:
+            raise SystemExit(f"diff-tools --format sarif: exit {ex_trace_sarif.returncode}")
+        assert json.loads(ex_trace_sarif.stdout)["version"] == "2.1.0"
+        ex_trace_junit = subprocess.run(
+            [
+                str(cli), "diff-tools",
+                "-b", str(examples / "trace-baseline.jsonl"),
+                "-c", str(examples / "trace-candidate-drift.jsonl"),
+                "--fail-on-new-edit-resources",
+                "--format", "junit",
+            ],
+            cwd=root, env=env, check=False, capture_output=True, text=True,
+        )
+        if ex_trace_junit.returncode != 1:
+            raise SystemExit(f"diff-tools --format junit: exit {ex_trace_junit.returncode}")
+        assert "llm-drift-bench-tool-traces" in ex_trace_junit.stdout
+        emb_csv = subprocess.run(
+            [
+                str(cli), "check-embeddings",
+                "-b", str(examples / "baseline.jsonl"),
+                "-c", str(examples / "candidate-pass.jsonl"),
+                "--format", "csv",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "model,prompt_id,available,cosine_similarity" in emb_csv.stdout
+        audit_pr = subprocess.run(
+            [
+                str(cli), "audit",
+                "-s", str(examples / "extraction-suite.json"),
+                "-b", str(examples / "baseline.jsonl"),
+                "-c", str(examples / "candidate-pass.jsonl"),
+                "--format", "pr-comment",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "<!-- llm-drift-bench:audit -->" in audit_pr.stdout
+        conv_pr = subprocess.run(
+            [
+                str(cli), "check-conversations",
+                "-b", str(examples / "conversations-baseline.jsonl"),
+                "-c", str(examples / "conversations-baseline.jsonl"),
+                "--format", "pr-comment",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "<!-- llm-drift-bench:conversations -->" in conv_pr.stdout
+        shutil.copy2(examples / "trace-baseline.jsonl", snap_dir / "trace.jsonl")
+        snap_trace_manifest = snap_dir / "snapshot-trace.manifest.json"
+        subprocess.run(
+            [
+                str(cli), "snapshot", "create",
+                "-b", str(snap_dir / "baseline.jsonl"),
+                "--trace", str(snap_dir / "trace.jsonl"),
+                "-o", str(snap_trace_manifest),
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        ver_trace = subprocess.run(
+            [str(cli), "snapshot", "verify", "-i", str(snap_trace_manifest), "--format", "json"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(ver_trace.stdout)["valid"] is True
         case_dir = examples / "case-study"
         case_doc = subprocess.run(
             [

@@ -1,0 +1,4 @@
+{"kind": "read", "resource": "src/billing/invoice.py@v1", "start": 0, "end": 400, "success": true}
+{"kind": "edit", "resource": "src/billing/invoice.py@v1", "success": true}
+{"kind": "read", "resource": "tests/test_invoice.py@v1", "start": 0, "end": 250, "success": true}
+{"kind": "edit", "resource": "tests/test_invoice.py@v1", "success": true}

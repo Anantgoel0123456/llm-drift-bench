@@ -305,4 +305,26 @@ def test_tool_trace_diff_markdown_html_and_cli(
     assert "<!DOCTYPE html>" in html_out.read_text(encoding="utf-8")
 
 
+def test_shipped_example_tool_traces_detect_expected_drift() -> None:
+    from llm_drift_bench.tool_events import compare_tool_traces
+    from llm_drift_bench.tool_log import load_tool_events
+
+    examples = Path(__file__).resolve().parents[1] / "examples"
+    base = load_tool_events(examples / "trace-baseline.jsonl")
+    drift = load_tool_events(examples / "trace-candidate-drift.jsonl")
+
+    same = compare_tool_traces(base, base, fail_on_new_edit_resources=True)
+    assert same.passed is True and same.action_jaccard == 1.0
+
+    diff = compare_tool_traces(
+        base,
+        drift,
+        max_failed_increase=0,
+        fail_on_new_edit_resources=True,
+    )
+    assert diff.passed is False
+    assert diff.call_delta == 2 and diff.failed_delta == 1
+    assert diff.added_edit_resources == ("config/production.env@v1",)
+
+
 
