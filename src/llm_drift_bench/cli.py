@@ -1487,6 +1487,12 @@ def _add_history_subparser(
         default=None,
         help="Optional cross-prompt max normalized 1D Wasserstein in [0, 1] to track in ledger.",
     )
+    rec.add_argument(
+        "--conversation-drift",
+        type=float,
+        default=None,
+        help="Optional multi-turn mean trajectory drift in [0, 1] to track in ledger.",
+    )
 
     show = hist_sub.add_parser("show", help="Display sparklines or export trend HTML from ledger.")
     show.add_argument("--ledger", required=True, metavar="FILE", help="Path to JSONL ledger file.")
@@ -1543,6 +1549,12 @@ def _add_history_subparser(
         type=float,
         default=None,
         help="Optional max allowed distribution normalized Wasserstein increase vs window.",
+    )
+    chk.add_argument(
+        "--max-conversation-drift-increase",
+        type=float,
+        default=None,
+        help="Optional max allowed multi-turn conversation drift increase vs window.",
     )
     chk.add_argument(
         "--format",
@@ -1602,6 +1614,7 @@ def _handle_history(args: argparse.Namespace) -> int:
             git_sha=args.git_sha,
             max_distribution_tvd=args.distribution_tvd,
             max_distribution_wasserstein=args.distribution_wasserstein,
+            mean_conversation_drift=args.conversation_drift,
         )
         print(
             f"Recorded {entry.candidate_model} ({'PASS' if entry.passed else 'FAIL'}, "
@@ -1647,6 +1660,7 @@ def _handle_history(args: argparse.Namespace) -> int:
             persist_windows=args.persist_windows,
             max_tvd_increase=args.max_tvd_increase,
             max_wasserstein_increase=args.max_wasserstein_increase,
+            max_conversation_drift_increase=args.max_conversation_drift_increase,
         )
         if args.format == "json":
             print(json.dumps(check.to_dict(), indent=2))

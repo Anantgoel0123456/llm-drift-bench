@@ -39,6 +39,7 @@ class HistoryEntry:
     git_sha: str | None = None
     max_distribution_tvd: float | None = None
     max_distribution_wasserstein: float | None = None
+    mean_conversation_drift: float | None = None
     schema_version: int = HISTORY_SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
@@ -54,11 +55,13 @@ class HistoryEntry:
         recorded_at: str | None = None,
         max_distribution_tvd: float | None = None,
         max_distribution_wasserstein: float | None = None,
+        mean_conversation_drift: float | None = None,
     ) -> HistoryEntry:
         stamp = recorded_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         for key, val in (
             ("max_distribution_tvd", max_distribution_tvd),
             ("max_distribution_wasserstein", max_distribution_wasserstein),
+            ("mean_conversation_drift", mean_conversation_drift),
         ):
             if val is not None:
                 if isinstance(val, bool) or not isinstance(val, (int, float)):
@@ -91,6 +94,11 @@ class HistoryEntry:
             max_distribution_wasserstein=(
                 round(float(max_distribution_wasserstein), 4)
                 if max_distribution_wasserstein is not None
+                else None
+            ),
+            mean_conversation_drift=(
+                round(float(mean_conversation_drift), 4)
+                if mean_conversation_drift is not None
                 else None
             ),
         )
@@ -151,7 +159,11 @@ class HistoryEntry:
                 raise ValueError(f"History entry {opt!r} must be a string or null.")
 
         dist_vals: dict[str, float | None] = {}
-        for key in ("max_distribution_tvd", "max_distribution_wasserstein"):
+        for key in (
+            "max_distribution_tvd",
+            "max_distribution_wasserstein",
+            "mean_conversation_drift",
+        ):
             raw_dist = data.get(key)
             if raw_dist is None:
                 dist_vals[key] = None
@@ -178,6 +190,7 @@ class HistoryEntry:
             git_sha=data.get("git_sha"),
             max_distribution_tvd=dist_vals["max_distribution_tvd"],
             max_distribution_wasserstein=dist_vals["max_distribution_wasserstein"],
+            mean_conversation_drift=dist_vals["mean_conversation_drift"],
             schema_version=raw_ver,
         )
 
@@ -191,6 +204,7 @@ def record_report(
     recorded_at: str | None = None,
     max_distribution_tvd: float | None = None,
     max_distribution_wasserstein: float | None = None,
+    mean_conversation_drift: float | None = None,
 ) -> HistoryEntry:
     """Append one HistoryEntry for a validated DriftBenchmarkReport to a JSONL ledger."""
     if not isinstance(report, DriftBenchmarkReport):
@@ -202,6 +216,7 @@ def record_report(
         recorded_at=recorded_at,
         max_distribution_tvd=max_distribution_tvd,
         max_distribution_wasserstein=max_distribution_wasserstein,
+        mean_conversation_drift=mean_conversation_drift,
     )
     target = Path(ledger_path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -366,6 +381,7 @@ def detect_history_regression(
     persist_windows: int = 1,
     max_tvd_increase: float | None = None,
     max_wasserstein_increase: float | None = None,
+    max_conversation_drift_increase: float | None = None,
 ) -> HistoryTrendCheck:
     """Detect gradual drift, conformity, or distribution shifts vs a rolling baseline window.
 
@@ -392,6 +408,7 @@ def detect_history_regression(
         ("max_conformity_drop", max_conformity_drop),
         ("max_tvd_increase", max_tvd_increase),
         ("max_wasserstein_increase", max_wasserstein_increase),
+        ("max_conversation_drift_increase", max_conversation_drift_increase),
     ):
         if val is None:
             continue
@@ -425,6 +442,14 @@ def detect_history_regression(
     ]
     win_w1 = (sum(prior_w1s) / len(prior_w1s)) if prior_w1s else None
 
+    prior_convs = [
+        e.mean_conversation_drift for e in prior if e.mean_conversation_drift is not None
+    ]
+    recent_convs = [
+        e.mean_conversation_drift for e in recent if e.mean_conversation_drift is not None
+    ]
+    win_conv = (sum(prior_convs) / len(prior_convs)) if prior_convs else None
+
     def _entry_breached(entry: HistoryEntry) -> bool:
         if entry.mean_composite_drift - win_drift > max_drift_increase:
             return True
@@ -437,11 +462,18 @@ def detect_history_regression(
             and entry.max_distribution_tvd - win_tvd > max_tvd_increase
         ):
             return True
-        return (
+        if (
             max_wasserstein_increase is not None
             and win_w1 is not None
             and entry.max_distribution_wasserstein is not None
             and entry.max_distribution_wasserstein - win_w1 > max_wasserstein_increase
+        ):
+            return True
+        return (
+            max_conversation_drift_increase is not None
+            and win_conv is not None
+            and entry.mean_conversation_drift is not None
+            and entry.mean_conversation_drift - win_conv > max_conversation_drift_increase
         )
 
     tail_streak = 0
@@ -494,6 +526,18 @@ def detect_history_regression(
             f"Distribution max norm W1 increased by +{w1_delta:.4f} across {persist_windows} "
             f"run(s) vs prior mean ({win_w1:.4f} -> {recent_w1s[-1]:.4f}, "
             f"limit +{max_wasserstein_increase:.4f})."
+        )
+    if (
+        max_conversation_drift_increase is not None
+        and win_conv is not None
+        and len(recent_convs) == persist_windows
+        and all(v - win_conv > max_conversation_drift_increase for v in recent_convs)
+    ):
+        conv_delta = recent_convs[-1] - win_conv
+        reasons.append(
+            f"Conversation mean drift increased by +{conv_delta:.4f} across {persist_windows} "
+            f"run(s) vs prior mean ({win_conv:.4f} -> {recent_convs[-1]:.4f}, "
+            f"limit +{max_conversation_drift_increase:.4f})."
         )
 
     regressed = bool(reasons)

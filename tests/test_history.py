@@ -438,6 +438,51 @@ def test_history_validation_malformed_ledger_and_branch_edge_cases(tmp_path: Pat
             HistoryEntry.from_dict({**valid, "schema_version": bad_ver})
 
 
+def test_history_conversation_drift_tracking_and_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ledger = tmp_path / "conv_hist.jsonl"
+    for conv_val in (0.04, 0.05, 0.30):
+        assert (
+            main(
+                [
+                    "history",
+                    "record",
+                    "--ledger",
+                    str(ledger),
+                    "-i",
+                    str(EXAMPLES / "expected-pass.json"),
+                    "--conversation-drift",
+                    str(conv_val),
+                ]
+            )
+            == 0
+        )
+    capsys.readouterr()
+    entries = load_history(ledger)
+    assert [e.mean_conversation_drift for e in entries] == [0.04, 0.05, 0.30]
+
+    assert (
+        main(
+            [
+                "history",
+                "check",
+                "--ledger",
+                str(ledger),
+                "--window",
+                "2",
+                "--max-conversation-drift-increase",
+                "0.10",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    out = json.loads(capsys.readouterr().out)
+    assert out["regressed"] is True and "Conversation mean drift increased" in out["reason"]
+
+
 
 
 
