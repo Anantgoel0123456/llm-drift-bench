@@ -442,6 +442,69 @@ else:
             cwd=root, env=env, check=True, capture_output=True, text=True,
         )
         assert json.loads(conv_doc.stdout)["ok"] is True
+        sg_in = root / "sharegpt.jsonl"
+        sg_in.write_text(
+            json.dumps(
+                {
+                    "id": "conv-1",
+                    "conversations": [
+                        {"from": "human", "value": "Email dev@example.com"},
+                        {"from": "gpt", "value": '{"ok": true}'},
+                    ],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        sg_imp = root / "imported_conv.jsonl"
+        subprocess.run(
+            [
+                str(cli), "import-conversations",
+                "--from", "sharegpt",
+                "-i", str(sg_in),
+                "-o", str(sg_imp),
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        sg_red = root / "redacted_conv.jsonl"
+        subprocess.run(
+            [
+                str(cli), "redact", "--conversations",
+                "-i", str(sg_imp), "-o", str(sg_red),
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "[REDACTED:EMAIL]" in sg_red.read_text(encoding="utf-8")
+        audit_conv_html = root / "audit_conv.html"
+        subprocess.run(
+            [
+                str(cli), "audit",
+                "-s", str(examples / "extraction-suite.json"),
+                "-b", str(examples / "baseline.jsonl"),
+                "-c", str(examples / "candidate-pass.jsonl"),
+                "--baseline-conversations", str(examples / "conversations-baseline.jsonl"),
+                "--candidate-conversations", str(examples / "conversations-baseline.jsonl"),
+                "--format", "html", "-o", str(audit_conv_html),
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "Multi-Turn Conversations" in audit_conv_html.read_text(encoding="utf-8")
+        shutil.copy2(examples / "conversations-baseline.jsonl", snap_dir / "conversations.jsonl")
+        snap_conv_manifest = snap_dir / "snapshot-conv.manifest.json"
+        subprocess.run(
+            [
+                str(cli), "snapshot", "create",
+                "-b", str(snap_dir / "baseline.jsonl"),
+                "--conversations", str(snap_dir / "conversations.jsonl"),
+                "-o", str(snap_conv_manifest),
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        ver_conv = subprocess.run(
+            [str(cli), "snapshot", "verify", "-i", str(snap_conv_manifest), "--format", "json"],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(ver_conv.stdout)["valid"] is True
         case_dir = examples / "case-study"
         case_doc = subprocess.run(
             [
