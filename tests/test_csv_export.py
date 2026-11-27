@@ -100,3 +100,64 @@ def test_csv_formula_injection_sanitization_preserves_negative_latency() -> None
     raw_rows = list(csv.DictReader(io.StringIO(export_csv_report(report, sanitize_formulas=False))))
     assert raw_rows[0]["prompt_id"] == "=SUM(A1:A2)"
 
+
+def test_export_conversation_csv_report_and_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from llm_drift_bench.conversation import (
+        ConversationRecord,
+        ConversationTurn,
+        analyze_conversation_drift,
+        load_conversations,
+    )
+    from llm_drift_bench.csv_export import (
+        CONVERSATION_CSV_COLUMNS,
+        export_conversation_csv_report,
+    )
+
+    examples = Path(__file__).resolve().parents[1] / "examples"
+    base = load_conversations(examples / "conversations-baseline.jsonl")
+    drift = load_conversations(examples / "conversations-candidate-drift.jsonl")
+
+    # Include a formula-like conversation ID and a zero-assistant-turn conversation
+    extra_b = [
+        *base,
+        ConversationRecord("=CMD()", (ConversationTurn("user", "only user"),)),
+    ]
+    extra_c = [
+        *drift,
+        ConversationRecord("=CMD()", (ConversationTurn("user", "only user"),)),
+    ]
+    csv_file = tmp_path / "conv.csv"
+    text = export_conversation_csv_report(
+        analyze_conversation_drift(extra_b, extra_c),
+        output_path=csv_file,
+    )
+    assert csv_file.read_text(encoding="utf-8") == text
+    assert "ORD-1042" not in text
+    rows = list(csv.DictReader(io.StringIO(text)))
+    assert tuple(rows[0].keys()) == CONVERSATION_CSV_COLUMNS
+    assert any(r["conversation_id"] == "'=CMD()" and r["turn_index"] == "" for r in rows)
+    assert any(r["refusal_flip"] == "true" for r in rows)
+
+    with pytest.raises(ValueError, match="ConversationDriftReport"):
+        export_conversation_csv_report({})  # type: ignore[arg-type]
+
+    assert (
+        main(
+            [
+                "check-conversations",
+                "-b",
+                str(examples / "conversations-baseline.jsonl"),
+                "-c",
+                str(examples / "conversations-candidate-drift.jsonl"),
+                "--format",
+                "csv",
+            ]
+        )
+        == 1
+    )
+    cli_rows = list(csv.DictReader(io.StringIO(capsys.readouterr().out)))
+    assert len(cli_rows) >= 4
+    assert tuple(cli_rows[0].keys()) == CONVERSATION_CSV_COLUMNS
+

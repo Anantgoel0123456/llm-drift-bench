@@ -1064,9 +1064,9 @@ def register_extra_subcommands(
     )
     conv_p.add_argument(
         "--format",
-        choices=("text", "json", "markdown", "html", "sarif", "junit"),
+        choices=("text", "json", "markdown", "html", "sarif", "junit", "csv"),
         default="text",
-        help="Output format: text (default), json, markdown, html, sarif, or junit.",
+        help="Output format: text (default), json, markdown, html, sarif, junit, or csv.",
     )
     conv_p.add_argument(
         "-o", "--output", default=None, help="Optional output file path to write the report."
@@ -2413,6 +2413,10 @@ def _handle_check_conversations(
         from llm_drift_bench.junit import export_conversation_junit_report
 
         rendered = export_conversation_junit_report(report)
+    elif args.format == "csv":
+        from llm_drift_bench.csv_export import export_conversation_csv_report
+
+        rendered = export_conversation_csv_report(report)
     else:
         rendered = format_conversation_text(report)
         if turn_diffs is not None:

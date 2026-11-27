@@ -90,7 +90,7 @@ if TYPE_CHECKING:
         estimate_cost_drift,
         rank_candidate_costs,
     )
-    from llm_drift_bench.csv_export import export_csv_report
+    from llm_drift_bench.csv_export import export_conversation_csv_report, export_csv_report
     from llm_drift_bench.diagnostics import (
         Finding,
         diagnose_conversation_report,
@@ -497,6 +497,7 @@ _EXPORTS: dict[str, str] = {
     "export_comparison_markdown": "_comparison_md",
     "export_consumer_html": "consumer",
     "export_conversation_badge_svg": "badge",
+    "export_conversation_csv_report": "csv_export",
     "export_conversation_html": "conversation",
     "export_conversation_junit_report": "junit",
     "export_conversation_sarif_report": "sarif",
@@ -769,6 +770,7 @@ __all__ = [
     "export_comparison_markdown",
     "export_consumer_html",
     "export_conversation_badge_svg",
+    "export_conversation_csv_report",
     "export_conversation_html",
     "export_conversation_junit_report",
     "export_conversation_sarif_report",
