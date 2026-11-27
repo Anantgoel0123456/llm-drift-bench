@@ -5,6 +5,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from llm_drift_bench.comparison import prompt_changes
+from llm_drift_bench.conversation import ConversationDriftReport
+from llm_drift_bench.embeddings import EmbeddingDriftReport
+from llm_drift_bench.gates import ReleaseVerdict
 from llm_drift_bench.models import DriftBenchmarkReport
 
 
@@ -66,4 +69,62 @@ def assert_no_regression(
         )
     if len(regressions) > 5:
         lines.append(f"- {len(regressions) - 5} additional regressions.")
+    raise AssertionError("\n".join(lines))
+
+
+def assert_no_conversation_drift(report: ConversationDriftReport) -> None:
+    """Raise AssertionError if a multi-turn ConversationDriftReport fails its gates."""
+    if not isinstance(report, ConversationDriftReport):
+        raise TypeError(
+            "assert_no_conversation_drift requires a ConversationDriftReport, "
+            f"got {type(report).__name__}."
+        )
+    if report.passed:
+        return
+    lines = [
+        f"LLM conversation trajectory drift failed: "
+        f"{report.drifted_conversations}/{report.total_conversations} conversation(s) drifted.",
+        *[f"- {reason}" for reason in report.failure_reasons],
+    ]
+    failed = [c for c in report.conversations if c.drifted]
+    for item in failed[:5]:
+        lines.append(
+            f"- Conversation {item.conversation_id!r}: max_drift={item.max_turn_drift:.4f}, "
+            f"first_div={item.first_divergence_turn}, refusal_flips={len(item.refusal_flip_turns)}."
+        )
+    if len(failed) > 5:
+        lines.append(f"- {len(failed) - 5} additional drifted conversation(s).")
+    raise AssertionError("\n".join(lines))
+
+
+def assert_no_embedding_drift(report: EmbeddingDriftReport) -> None:
+    """Raise AssertionError if an EmbeddingDriftReport fails its similarity thresholds."""
+    if not isinstance(report, EmbeddingDriftReport):
+        raise TypeError(
+            "assert_no_embedding_drift requires an EmbeddingDriftReport, "
+            f"got {type(report).__name__}."
+        )
+    if report.passed:
+        return
+    lines = [
+        f"LLM embedding similarity check failed (model={report.model!r}, "
+        f"comparable={report.comparable_samples}/{report.total_samples}).",
+        *[f"- {reason}" for reason in report.failure_reasons],
+    ]
+    raise AssertionError("\n".join(lines))
+
+
+def assert_release_approved(verdict: ReleaseVerdict) -> None:
+    """Raise AssertionError if a composite ReleaseVerdict is blocked (NO-GO)."""
+    if not isinstance(verdict, ReleaseVerdict):
+        raise TypeError(
+            "assert_release_approved requires a ReleaseVerdict, "
+            f"got {type(verdict).__name__}."
+        )
+    if verdict.approved:
+        return
+    lines = [
+        f"LLM release gate NO-GO: {len(verdict.blocking_failures)} blocking failure(s).",
+        *[f"- {reason}" for reason in verdict.blocking_failures],
+    ]
     raise AssertionError("\n".join(lines))
