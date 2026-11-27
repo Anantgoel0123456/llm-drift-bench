@@ -568,6 +568,70 @@ else:
         gate_trace_data = json.loads(gate_trace.stdout)
         assert gate_trace_data["approved"] is True
         assert any(c["name"] == "tool_trace_drift" for c in gate_trace_data["checks"])
+        trace_html = root / "trace-diff.html"
+        subprocess.run(
+            [
+                str(cli), "diff-tools",
+                "-b", str(trace), "-c", str(trace),
+                "--format", "html", "-o", str(trace_html),
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "<!DOCTYPE html>" in trace_html.read_text(encoding="utf-8")
+        audit_trace_json = root / "audit-trace.json"
+        subprocess.run(
+            [
+                str(cli), "audit",
+                "-s", str(examples / "extraction-suite.json"),
+                "-b", str(examples / "baseline.jsonl"),
+                "-c", str(examples / "candidate-pass.jsonl"),
+                "--baseline-trace", str(trace),
+                "--candidate-trace", str(trace),
+                "--format", "json", "-o", str(audit_trace_json),
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        audit_trace_data = json.loads(audit_trace_json.read_text(encoding="utf-8"))
+        assert audit_trace_data["passed"] is True and "tool_trace" in audit_trace_data
+        audit_badge = subprocess.run(
+            [str(cli), "badge", "-i", str(audit_trace_json)],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "llm-audit: PASS" in audit_badge.stdout
+        conv_csv = subprocess.run(
+            [
+                str(cli), "check-conversations",
+                "-b", str(examples / "conversations-baseline.jsonl"),
+                "-c", str(examples / "conversations-candidate-drift.jsonl"),
+                "--format", "csv",
+            ],
+            cwd=root, env=env, check=False, capture_output=True, text=True,
+        )
+        if conv_csv.returncode != 1:
+            raise SystemExit(f"check-conversations --format csv: exit {conv_csv.returncode}")
+        assert "conversation_id,conversation_drifted,turn_index" in conv_csv.stdout
+        conv_diag = subprocess.run(
+            [
+                str(cli), "check-conversations",
+                "-b", str(examples / "conversations-baseline.jsonl"),
+                "-c", str(examples / "conversations-candidate-drift.jsonl"),
+                "--diagnose", "--format", "json",
+            ],
+            cwd=root, env=env, check=False, capture_output=True, text=True,
+        )
+        if conv_diag.returncode != 1:
+            raise SystemExit(f"check-conversations --diagnose: exit {conv_diag.returncode}")
+        assert len(json.loads(conv_diag.stdout)["diagnostics"]) >= 1
+        doc_trace = subprocess.run(
+            [
+                str(cli), "doctor",
+                "--baseline-trace", str(trace),
+                "--candidate-trace", str(trace),
+                "--format", "json",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(doc_trace.stdout)["ok"] is True
         case_dir = examples / "case-study"
         case_doc = subprocess.run(
             [
