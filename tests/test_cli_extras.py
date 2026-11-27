@@ -3013,6 +3013,41 @@ def test_cli_diff_tools_normalized_and_openai_adapter(
     assert json_diff["turn_diffs"][0]["conversation_id"] == "conv-support-01"
 
 
+def test_cli_capture_conversations_roundtrip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    out_file = tmp_path / "captured_convs.jsonl"
+
+    def fake_send(
+        url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float
+    ) -> dict[str, Any]:
+        del url, headers, timeout
+        turn_no = sum(1 for m in payload["messages"] if m["role"] == "user")
+        return {"choices": [{"message": {"content": f'{{"turn": {turn_no}}}'}}]}
+
+    monkeypatch.setattr("llm_drift_bench.capture._default_transport", fake_send)
+    rc = main(
+        [
+            "capture-conversations",
+            "-i",
+            str(EXAMPLES / "conversations-baseline.jsonl"),
+            "--endpoint",
+            "http://localhost:11434/v1",
+            "--model",
+            "llama3-q8",
+            "-o",
+            str(out_file),
+        ]
+    )
+    assert rc == 0
+    assert "Captured 2 conversation(s) (6 assistant turn(s))" in capsys.readouterr().out
+    assert main(["check-conversations", "-b", str(out_file), "-c", str(out_file)]) == 0
+    assert "PASSED" in capsys.readouterr().out
+
+
+
 
 
 

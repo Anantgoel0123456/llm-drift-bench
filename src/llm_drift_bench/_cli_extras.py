@@ -1056,6 +1056,51 @@ def register_extra_subcommands(
         help="Output format: text (default) or json.",
     )
 
+    cap_conv_p = subparsers.add_parser(
+        "capture-conversations",
+        help="Replay multi-turn conversation templates against an endpoint and save JSONL.",
+    )
+    cap_conv_p.add_argument(
+        "-i",
+        "--input",
+        required=True,
+        help="Template conversations file (.json/.jsonl) containing scripted user turns.",
+    )
+    cap_conv_p.add_argument("--endpoint", required=True, help="Endpoint base URL.")
+    cap_conv_p.add_argument("--model", required=True, help="Model identifier to query.")
+    cap_conv_p.add_argument(
+        "--provider",
+        choices=("openai", "anthropic", "gemini"),
+        default="openai",
+        help="Wire protocol: openai (default), anthropic, or gemini.",
+    )
+    cap_conv_p.add_argument("--api-key-env", default=None, help="Env var holding API key.")
+    cap_conv_p.add_argument(
+        "--temperature", type=float, default=0.0, help="Sampling temperature (default: 0.0)."
+    )
+    cap_conv_p.add_argument("--seed", type=int, default=None, help="Optional deterministic seed.")
+    cap_conv_p.add_argument("--max-tokens", type=int, default=None, help="Optional max_tokens.")
+    cap_conv_p.add_argument("--system", default=None, help="Optional default system prompt.")
+    cap_conv_p.add_argument(
+        "--timeout", type=float, default=60.0, help="Per-turn timeout in seconds (default: 60.0)."
+    )
+    cap_conv_p.add_argument(
+        "--retries", type=int, default=2, help="Bounded transient retries 0..5 (default: 2)."
+    )
+    cap_conv_p.add_argument(
+        "--json-mode", action="store_true", help="Request structured JSON output mode."
+    )
+    cap_conv_p.add_argument(
+        "--header",
+        action="append",
+        default=[],
+        metavar="KEY:VALUE",
+        help="Optional custom HTTP header (repeatable).",
+    )
+    cap_conv_p.add_argument(
+        "-o", "--output", required=True, help="Output canonical ConversationRecord JSONL path."
+    )
+
 
 def _serialize_prompt_case(case: PromptCase) -> dict[str, Any]:
     record: dict[str, Any] = {
@@ -1978,6 +2023,8 @@ def dispatch_extra_command(
         return _handle_import_conversations(args, protect_inputs, atomic_write_text)
     if args.command == "diff-tools":
         return _handle_diff_tools(args)
+    if args.command == "capture-conversations":
+        return _handle_capture_conversations(args, protect_inputs, atomic_write_text)
     return None
 
 
@@ -2287,3 +2334,42 @@ def _handle_diff_tools(args: argparse.Namespace) -> int:
     else:
         print(format_tool_trace_diff_text(diff), end="")
     return 0 if diff.passed else 1
+
+
+def _handle_capture_conversations(
+    args: argparse.Namespace,
+    protect_inputs: ProtectFn,
+    atomic_write_text: AtomicWriteFn,
+) -> int:
+    protect_inputs(args.output, args.input)
+    from llm_drift_bench.batch_import import serialize_conversations_jsonl
+    from llm_drift_bench.capture import (
+        CaptureConfig,
+        capture_conversations,
+        parse_header_spec,
+    )
+    from llm_drift_bench.conversation import load_conversations
+
+    templates = load_conversations(args.input)
+    cfg = CaptureConfig(
+        endpoint=args.endpoint,
+        model=args.model,
+        api_key_env=args.api_key_env,
+        timeout_sec=args.timeout,
+        max_retries=args.retries,
+        temperature=args.temperature,
+        seed=args.seed,
+        max_tokens=args.max_tokens,
+        system_prompt=args.system,
+        json_mode=args.json_mode,
+        extra_headers=tuple(parse_header_spec(raw) for raw in args.header),
+        provider=args.provider,
+    )
+    captured = capture_conversations(templates, cfg)
+    atomic_write_text(Path(args.output), serialize_conversations_jsonl(captured))
+    total_turns = sum(len(rec.assistant_turns()) for rec in captured)
+    print(
+        f"Captured {len(captured)} conversation(s) ({total_turns} assistant turn(s)) "
+        f"for model {cfg.model!r} -> {args.output}"
+    )
+    return 0
