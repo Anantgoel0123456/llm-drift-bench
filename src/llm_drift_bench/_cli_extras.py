@@ -479,12 +479,19 @@ def register_extra_subcommands(
         "badge",
         help="Generate an offline shields-style static SVG status badge from a saved report.",
     )
-    badge_p.add_argument("-i", "--input", required=True, help="Saved engine report JSON file.")
+    badge_p.add_argument(
+        "-i",
+        "--input",
+        required=True,
+        help="Saved engine, audit, or conversation report JSON file.",
+    )
     badge_p.add_argument(
         "-o", "--output", default=None, help="Optional output .svg path (stdout if omitted)."
     )
     badge_p.add_argument(
-        "--label", default="llm-drift", help="Left-side badge label (default: llm-drift)."
+        "--label",
+        default=None,
+        help="Optional left-side badge label (defaults by report type).",
     )
 
     dist_p = subparsers.add_parser(
@@ -1678,11 +1685,9 @@ def _handle_badge(
     atomic_write_text: AtomicWriteFn,
 ) -> int:
     protect_inputs(args.output, args.input)
-    from llm_drift_bench.badge import export_drift_badge_svg
-    from llm_drift_bench.report_io import load_engine_report
+    from llm_drift_bench.badge import export_badge_from_json
 
-    report = load_engine_report(args.input)
-    svg = export_drift_badge_svg(report, label=args.label)
+    svg = export_badge_from_json(args.input, label=args.label)
     if args.output:
         atomic_write_text(Path(args.output), svg)
         print(f"Wrote drift status badge -> {args.output}")

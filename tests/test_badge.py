@@ -68,3 +68,80 @@ def test_export_audit_and_conversation_badge_svg(tmp_path: Path) -> None:
     with pytest.raises(TypeError, match="ConversationDriftReport"):
         export_conversation_badge_svg({})  # type: ignore[arg-type]
 
+
+def test_export_badge_from_json_and_cli_auto_detects_report_types(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+
+    from llm_drift_bench.audit import run_full_audit
+    from llm_drift_bench.badge import export_badge_from_json
+    from llm_drift_bench.cli import main
+    from llm_drift_bench.conversation import analyze_conversation_drift, load_conversations
+    from llm_drift_bench.models import ModelSample
+
+    # Canonical report via CLI
+    assert main(["badge", "-i", str(EXAMPLES / "expected-pass.json")]) == 0
+    out_canon = capsys.readouterr().out
+    assert "llm-drift: PASS 0.00" in out_canon
+
+    # Audit report JSON (pass & fail)
+    same = [ModelSample(prompt_id="p1", output='{"x": 1}')]
+    diff = [ModelSample(prompt_id="p1", output="bad")]
+    audit_pass_file = tmp_path / "audit-pass.json"
+    audit_fail_file = tmp_path / "audit-fail.json"
+    audit_pass_file.write_text(
+        json.dumps(run_full_audit(same, same).to_dict()), encoding="utf-8"
+    )
+    audit_fail_file.write_text(
+        json.dumps(run_full_audit(same, diff).to_dict()), encoding="utf-8"
+    )
+    assert main(["badge", "-i", str(audit_pass_file)]) == 0
+    assert "llm-audit: PASS 0.00" in capsys.readouterr().out
+    assert "FAIL (" in export_badge_from_json(audit_fail_file, label="release-audit")
+
+    # Conversation report JSON
+    base_c = load_conversations(EXAMPLES / "conversations-baseline.jsonl")
+    drift_c = load_conversations(EXAMPLES / "conversations-candidate-drift.jsonl")
+    conv_file = tmp_path / "conv-drift.json"
+    conv_file.write_text(
+        json.dumps(analyze_conversation_drift(base_c, drift_c).to_dict()),
+        encoding="utf-8",
+    )
+    badge_out = tmp_path / "conv.svg"
+    assert main(["badge", "-i", str(conv_file), "-o", str(badge_out)]) == 0
+    assert "Wrote drift status badge" in capsys.readouterr().out
+    svg_text = badge_out.read_text(encoding="utf-8")
+    assert "conversations: FAIL" in svg_text and "#d73a49" in svg_text
+
+    # Validation guards
+    not_obj = tmp_path / "list.json"
+    not_obj.write_text("[]", encoding="utf-8")
+    with pytest.raises(ValueError, match="object"):
+        export_badge_from_json(not_obj)
+
+    bad_audit = tmp_path / "bad_audit.json"
+    bad_audit.write_text(
+        json.dumps({"benchmark": {}, "distribution": {}, "passed": "yes"}), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="AuditReport"):
+        export_badge_from_json(bad_audit)
+
+    bad_metric = tmp_path / "bad_metric.json"
+    bad_metric.write_text(
+        json.dumps(
+            {"benchmark": {"mean_composite_drift": True}, "distribution": {}, "passed": True}
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="finite number"):
+        export_badge_from_json(bad_metric)
+
+    bad_conv = tmp_path / "bad_conv.json"
+    bad_conv.write_text(
+        json.dumps({"conversations": [], "mean_trajectory_drift": 0.1, "passed": "no"}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="ConversationDriftReport"):
+        export_badge_from_json(bad_conv)
+

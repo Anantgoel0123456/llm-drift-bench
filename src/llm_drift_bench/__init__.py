@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     )
     from llm_drift_bench.badge import (
         export_audit_badge_svg,
+        export_badge_from_json,
         export_conversation_badge_svg,
         export_drift_badge_svg,
     )
@@ -494,6 +495,7 @@ _EXPORTS: dict[str, str] = {
     "evaluate_suite": "evaluator",
     "export_audit_badge_svg": "badge",
     "export_audit_html": "audit",
+    "export_badge_from_json": "badge",
     "export_comparison_html": "reporter",
     "export_comparison_markdown": "_comparison_md",
     "export_consumer_html": "consumer",
@@ -768,6 +770,7 @@ __all__ = [
     "evaluate_suite",
     "export_audit_badge_svg",
     "export_audit_html",
+    "export_badge_from_json",
     "export_comparison_html",
     "export_comparison_markdown",
     "export_consumer_html",

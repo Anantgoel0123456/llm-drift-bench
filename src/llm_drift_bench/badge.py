@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import math
 from html import escape
 from pathlib import Path
 
+from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench.audit import AuditReport
 from llm_drift_bench.conversation import ConversationDriftReport
 from llm_drift_bench.models import DriftBenchmarkReport
+from llm_drift_bench.report_io import load_engine_report
 
 
 def _text_width(text: str) -> int:
@@ -123,4 +126,65 @@ def export_conversation_badge_svg(
         value=f"{state} {report.mean_trajectory_drift:.2f}",
         passed=report.passed,
         output_path=output_path,
+    )
+
+
+def _require_finite_metric(value: object, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError(f"Saved report field {field!r} must be a finite number.")
+    return float(value)
+
+
+def export_badge_from_json(
+    path: str | Path,
+    output_path: str | Path | None = None,
+    *,
+    label: str | None = None,
+) -> str:
+    """Render an SVG status badge from a saved engine, audit, or conversation JSON report."""
+    source = Path(path)
+    payload = parse_source_json(read_utf8(source), source)
+    if not isinstance(payload, dict):
+        raise ValueError(f"{source}: report JSON must be an object.")
+
+    if "benchmark" in payload and "distribution" in payload and "passed" in payload:
+        passed = payload["passed"]
+        bench = payload["benchmark"]
+        reasons = payload.get("failure_reasons", [])
+        if not isinstance(passed, bool) or not isinstance(bench, dict) or not isinstance(
+            reasons, list
+        ):
+            raise ValueError(f"{source}: malformed saved AuditReport JSON.")
+        mean_drift = _require_finite_metric(
+            bench.get("mean_composite_drift"), "benchmark.mean_composite_drift"
+        )
+        state = "PASS" if passed else "FAIL"
+        value = f"{state} {mean_drift:.2f}" if passed else f"{state} ({len(reasons)} issue(s))"
+        return _render_badge_svg(
+            label="llm-audit" if label is None else label,
+            value=value,
+            passed=passed,
+            output_path=output_path,
+        )
+
+    if "conversations" in payload and "mean_trajectory_drift" in payload and "passed" in payload:
+        passed = payload["passed"]
+        if not isinstance(passed, bool):
+            raise ValueError(f"{source}: malformed saved ConversationDriftReport JSON.")
+        mean_traj = _require_finite_metric(
+            payload.get("mean_trajectory_drift"), "mean_trajectory_drift"
+        )
+        state = "PASS" if passed else "FAIL"
+        return _render_badge_svg(
+            label="conversations" if label is None else label,
+            value=f"{state} {mean_traj:.2f}",
+            passed=passed,
+            output_path=output_path,
+        )
+
+    report = load_engine_report(source)
+    return export_drift_badge_svg(
+        report,
+        output_path=output_path,
+        label="llm-drift" if label is None else label,
     )
