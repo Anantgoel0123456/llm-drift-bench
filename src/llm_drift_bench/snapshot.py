@@ -9,16 +9,19 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from tempfile import NamedTemporaryFile
-from typing import Any
+from typing import Any, Literal
 
 from llm_drift_bench import __version__
 from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench._matching import require_same_ids
+from llm_drift_bench.adapters import load_adapted_tool_events
 from llm_drift_bench.conversation import load_conversations
 from llm_drift_bench.engine import load_model_samples, load_prompt_cases
 from llm_drift_bench.policy import load_policy
+from llm_drift_bench.tool_log import load_tool_events
 
 MANIFEST_VERSION = 1
+_TRACE_ADAPTERS = ("normalized", "openai", "anthropic", "gemini", "otel")
 
 
 def _sha256_file(path: Path) -> tuple[str, int]:
@@ -90,6 +93,8 @@ class SnapshotManifest:
     artifacts: tuple[SnapshotArtifact, ...]
     conversation_count: int | None = None
     conversation_ids_sha256: str | None = None
+    trace_event_count: int | None = None
+    trace_adapter: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -105,6 +110,10 @@ class SnapshotManifest:
             payload["conversation_count"] = self.conversation_count
         if self.conversation_ids_sha256 is not None:
             payload["conversation_ids_sha256"] = self.conversation_ids_sha256
+        if self.trace_event_count is not None:
+            payload["trace_event_count"] = self.trace_event_count
+        if self.trace_adapter is not None:
+            payload["trace_adapter"] = self.trace_adapter
         return payload
 
     def to_json(self, *, indent: int = 2) -> str:
@@ -132,6 +141,20 @@ class SnapshotManifest:
             raise ValueError(
                 "Snapshot manifest 'conversation_ids_sha256' must be a non-empty string."
             )
+        raw_trace_count = data.get("trace_event_count")
+        if raw_trace_count is not None and (
+            type(raw_trace_count) is not int or raw_trace_count < 0
+        ):
+            raise ValueError(
+                "Snapshot manifest 'trace_event_count' must be a non-negative integer."
+            )
+        raw_trace_adapter = data.get("trace_adapter")
+        if raw_trace_adapter is not None and (
+            not isinstance(raw_trace_adapter, str) or raw_trace_adapter not in _TRACE_ADAPTERS
+        ):
+            raise ValueError(
+                f"Snapshot manifest 'trace_adapter' must be one of {_TRACE_ADAPTERS}."
+            )
         raw_artifacts = data.get("artifacts")
         if not isinstance(raw_artifacts, list) or not raw_artifacts:
             raise ValueError("Snapshot manifest requires a non-empty 'artifacts' list.")
@@ -151,6 +174,8 @@ class SnapshotManifest:
             artifacts=artifacts,
             conversation_count=raw_conv_count,
             conversation_ids_sha256=raw_conv_sha,
+            trace_event_count=raw_trace_count,
+            trace_adapter=raw_trace_adapter,
         )
 
 
@@ -201,6 +226,8 @@ def create_snapshot_manifest(
     suite_path: str | Path | None = None,
     config_path: str | Path | None = None,
     conversations_path: str | Path | None = None,
+    trace_path: str | Path | None = None,
+    trace_adapter: Literal["normalized", "openai", "anthropic", "gemini", "otel"] = "normalized",
     base_dir: str | Path | None = None,
     output_path: str | Path | None = None,
     created_at: str | None = None,
@@ -237,6 +264,21 @@ def create_snapshot_manifest(
         conv_ids_sha = _sha256_prompt_ids({r.conversation_id for r in conv_records})
         tagged_files.append(("conversations", conv_file))
 
+    trace_count: int | None = None
+    pinned_adapter: str | None = None
+    if trace_path is not None:
+        if trace_adapter not in _TRACE_ADAPTERS:
+            raise ValueError(f"Unsupported trace_adapter {trace_adapter!r}.")
+        trace_file = Path(trace_path).resolve()
+        events = (
+            load_tool_events(trace_file)
+            if trace_adapter == "normalized"
+            else load_adapted_tool_events(trace_file, adapter=trace_adapter)
+        )
+        trace_count = len(events)
+        pinned_adapter = trace_adapter
+        tagged_files.append(("trace", trace_file))
+
     root = _resolve_root([p for _, p in tagged_files], base_dir, output_path)
     artifacts: list[SnapshotArtifact] = []
     for role, path in tagged_files:
@@ -261,6 +303,8 @@ def create_snapshot_manifest(
         artifacts=tuple(artifacts),
         conversation_count=conv_count,
         conversation_ids_sha256=conv_ids_sha,
+        trace_event_count=trace_count,
+        trace_adapter=pinned_adapter,
     )
     if output_path is not None:
         _atomic_write(Path(output_path), manifest.to_json(indent=2))
@@ -322,6 +366,18 @@ def verify_snapshot_manifest(
                 mismatches.append(
                     f"conversations ({artifact.path}): "
                     "conversation ID digest or count mismatch"
+                )
+        elif artifact.role == "trace" and manifest.trace_event_count is not None:
+            adapter = manifest.trace_adapter or "normalized"
+            trace_events = (
+                load_tool_events(target)
+                if adapter == "normalized"
+                else load_adapted_tool_events(target, adapter=adapter)  # type: ignore[arg-type]
+            )
+            if len(trace_events) != manifest.trace_event_count:
+                mismatches.append(
+                    f"trace ({artifact.path}): tool event count mismatch "
+                    f"(expected {manifest.trace_event_count}, got {len(trace_events)})"
                 )
 
     return SnapshotVerification(

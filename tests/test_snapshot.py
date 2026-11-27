@@ -201,4 +201,70 @@ def test_snapshot_conversations_pinning_and_verification(tmp_path: Path) -> None
         SnapshotManifest.from_dict({**manifest.to_dict(), "conversation_ids_sha256": ""})
 
 
+def test_snapshot_trace_pinning_cli_and_verification(tmp_path: Path) -> None:
+    from llm_drift_bench.cli import main
+
+    shutil.copy2(EXAMPLES / "baseline.jsonl", tmp_path / "baseline.jsonl")
+    trace_file = tmp_path / "trace.jsonl"
+    trace_file.write_text(
+        '{"kind": "read", "resource": "src/a.py@1", "start": 0, "end": 10}\n'
+        '{"kind": "edit", "resource": "src/a.py@1"}\n',
+        encoding="utf-8",
+    )
+    manifest_file = tmp_path / "snap_trace.json"
+    assert (
+        main(
+            [
+                "snapshot",
+                "create",
+                "-b",
+                str(tmp_path / "baseline.jsonl"),
+                "--trace",
+                str(trace_file),
+                "-o",
+                str(manifest_file),
+            ]
+        )
+        == 0
+    )
+    assert main(["snapshot", "verify", "-i", str(manifest_file)]) == 0
+    loaded = SnapshotManifest.from_dict(json.loads(manifest_file.read_text(encoding="utf-8")))
+    assert loaded.trace_event_count == 2 and loaded.trace_adapter == "normalized"
+
+    # Adapted OpenAI trace pinning & verification
+    oai_trace = tmp_path / "oai.json"
+    oai_trace.write_text(
+        json.dumps([{"role": "assistant", "content": "ok"}]), encoding="utf-8"
+    )
+    oai_manifest = tmp_path / "snap_oai.json"
+    m_oai = create_snapshot_manifest(
+        tmp_path / "baseline.jsonl",
+        trace_path=oai_trace,
+        trace_adapter="openai",
+        output_path=oai_manifest,
+    )
+    assert m_oai.trace_event_count == 0 and m_oai.trace_adapter == "openai"
+    assert verify_snapshot_manifest(oai_manifest).valid is True
+
+    # Tampered trace_event_count detected cleanly
+    bad_meta = loaded.to_dict()
+    bad_meta["trace_event_count"] = 99
+    bad_file = tmp_path / "bad_trace_meta.json"
+    bad_file.write_text(json.dumps(bad_meta), encoding="utf-8")
+    ver = verify_snapshot_manifest(bad_file)
+    assert ver.valid is False and "tool event count mismatch" in ver.mismatches[0]
+
+    # Validation guards
+    with pytest.raises(ValueError, match="trace_event_count"):
+        SnapshotManifest.from_dict({**loaded.to_dict(), "trace_event_count": -1})
+    with pytest.raises(ValueError, match="trace_adapter"):
+        SnapshotManifest.from_dict({**loaded.to_dict(), "trace_adapter": "unknown"})
+    with pytest.raises(ValueError, match="Unsupported trace_adapter"):
+        create_snapshot_manifest(
+            tmp_path / "baseline.jsonl",
+            trace_path=trace_file,
+            trace_adapter="bogus",  # type: ignore[arg-type]
+        )
+
+
 

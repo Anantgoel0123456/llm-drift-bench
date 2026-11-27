@@ -433,6 +433,17 @@ def register_extra_subcommands(
         help="Optional baseline multi-turn conversations file (.json/.jsonl) to pin.",
     )
     snap_create.add_argument(
+        "--trace",
+        default=None,
+        help="Optional baseline agent tool-trace file to pin.",
+    )
+    snap_create.add_argument(
+        "--trace-adapter",
+        choices=("normalized", "openai", "anthropic", "gemini", "otel"),
+        default="normalized",
+        help="Adapter for optional --trace file (default: normalized).",
+    )
+    snap_create.add_argument(
         "--base-dir", default=None, help="Optional root directory for relative manifest paths."
     )
     snap_create.add_argument(
@@ -1603,7 +1614,14 @@ def _handle_snapshot(args: argparse.Namespace, protect_inputs: ProtectFn) -> int
     if action is None:
         raise ValueError("Specify a snapshot action: 'create' or 'verify'.")
     if action == "create":
-        protect_inputs(args.output, args.baseline, args.suite, args.config, args.conversations)
+        protect_inputs(
+            args.output,
+            args.baseline,
+            args.suite,
+            args.config,
+            args.conversations,
+            args.trace,
+        )
         from llm_drift_bench.snapshot import create_snapshot_manifest
 
         manifest = create_snapshot_manifest(
@@ -1611,6 +1629,8 @@ def _handle_snapshot(args: argparse.Namespace, protect_inputs: ProtectFn) -> int
             suite_path=args.suite,
             config_path=args.config,
             conversations_path=args.conversations,
+            trace_path=args.trace,
+            trace_adapter=args.trace_adapter,
             base_dir=args.base_dir,
             output_path=args.output,
         )
