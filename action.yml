@@ -55,6 +55,22 @@ inputs:
     description: "Fail audit when segmented shift_scope is 'widespread' ('true' or 'false')."
     required: false
     default: "false"
+  min-embedding-similarity:
+    description: "Optional min mean embedding cosine similarity in [-1, 1] for offline audit."
+    required: false
+    default: ""
+  baseline-conversations:
+    description: "Optional baseline multi-turn conversations file (.json/.jsonl)."
+    required: false
+    default: ""
+  candidate-conversations:
+    description: "Optional candidate multi-turn conversations file (.json/.jsonl)."
+    required: false
+    default: ""
+  conversations-html-output:
+    description: "Optional path to render a standalone multi-turn conversation drift HTML report."
+    required: false
+    default: ""
   github-summary:
     description: "Append verdict and metrics to GITHUB_STEP_SUMMARY ('true' or 'false')."
     required: false
@@ -106,6 +122,10 @@ runs:
         INPUT_AUDIT_HTML_OUTPUT: ${{ inputs.audit-html-output }}
         INPUT_GROUP_BY: ${{ inputs.group-by }}
         INPUT_FAIL_ON_WIDESPREAD: ${{ inputs.fail-on-widespread }}
+        INPUT_MIN_EMBEDDING_SIMILARITY: ${{ inputs.min-embedding-similarity }}
+        INPUT_BASELINE_CONVERSATIONS: ${{ inputs.baseline-conversations }}
+        INPUT_CANDIDATE_CONVERSATIONS: ${{ inputs.candidate-conversations }}
+        INPUT_CONVERSATIONS_HTML_OUTPUT: ${{ inputs.conversations-html-output }}
         INPUT_GITHUB_SUMMARY: ${{ inputs.github-summary }}
         INPUT_FAIL_ON_DRIFT: ${{ inputs.fail-on-drift }}
       run: |
@@ -159,10 +179,35 @@ runs:
           if [ "$INPUT_FAIL_ON_WIDESPREAD" = "true" ]; then
             audit_args+=(--fail-on-widespread)
           fi
+          if [ -n "$INPUT_MIN_EMBEDDING_SIMILARITY" ]; then
+            audit_args+=(--min-embedding-similarity "$INPUT_MIN_EMBEDDING_SIMILARITY")
+          fi
+          if [ -n "$INPUT_BASELINE_CONVERSATIONS" ] && [ -n "$INPUT_CANDIDATE_CONVERSATIONS" ]; then
+            audit_args+=(
+              --baseline-conversations "$INPUT_BASELINE_CONVERSATIONS"
+              --candidate-conversations "$INPUT_CANDIDATE_CONVERSATIONS"
+            )
+          fi
           llm-drift-bench "${audit_args[@]}"
           audit_rc=$?
           if [ "$rc" -eq 0 ] && [ "$audit_rc" -ne 0 ] && [ "$INPUT_FAIL_ON_DRIFT" != "false" ]; then
             rc=$audit_rc
+          fi
+        fi
+
+        if [ -n "$INPUT_BASELINE_CONVERSATIONS" ] && [ -n "$INPUT_CANDIDATE_CONVERSATIONS" ]; then
+          conv_args=(
+            check-conversations
+            -b "$INPUT_BASELINE_CONVERSATIONS"
+            -c "$INPUT_CANDIDATE_CONVERSATIONS"
+          )
+          if [ -n "$INPUT_CONVERSATIONS_HTML_OUTPUT" ]; then
+            conv_args+=(--format html -o "$INPUT_CONVERSATIONS_HTML_OUTPUT")
+          fi
+          llm-drift-bench "${conv_args[@]}"
+          conv_rc=$?
+          if [ "$rc" -eq 0 ] && [ "$conv_rc" -ne 0 ] && [ "$INPUT_FAIL_ON_DRIFT" != "false" ]; then
+            rc=$conv_rc
           fi
         fi
         exit "$rc"
