@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from llm_drift_bench import __version__
+from llm_drift_bench.conversation import ConversationDriftReport
 from llm_drift_bench.models import DriftBenchmarkReport
 
 _SARIF_SCHEMA = (
@@ -176,6 +177,145 @@ def export_sarif_report(
                     "passed": report.passed,
                     "total_samples": report.total_samples,
                     "drifted_samples": report.drifted_samples,
+                },
+                "results": results,
+            }
+        ],
+    }
+    serialized = json.dumps(sarif_doc, indent=2) + "\n"
+    if output_path is not None:
+        target = Path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(serialized, encoding="utf-8")
+    return serialized
+
+
+_CONV_SARIF_RULES: list[dict[str, Any]] = [
+    {
+        "id": "CONV001",
+        "name": "ConversationRefusalFlip",
+        "shortDescription": {
+            "text": "Candidate refused a multi-turn prompt that baseline answered."
+        },
+        "defaultConfiguration": {"level": "error"},
+    },
+    {
+        "id": "CONV002",
+        "name": "ConversationTrajectoryDrift",
+        "shortDescription": {
+            "text": "Multi-turn conversation exceeded turn drift or turn-count gates."
+        },
+        "defaultConfiguration": {"level": "error"},
+    },
+    {
+        "id": "CONV003",
+        "name": "ConversationGateFailure",
+        "shortDescription": {"text": "Aggregate multi-turn conversation trajectory gate failed."},
+        "defaultConfiguration": {"level": "error"},
+    },
+]
+
+
+def export_conversation_sarif_report(
+    report: ConversationDriftReport,
+    output_path: str | Path | None = None,
+    *,
+    artifact_uri: str = "conversations.jsonl",
+) -> str:
+    """Export ConversationDriftReport findings as OASIS SARIF 2.1.0 JSON without raw turn text."""
+    if not isinstance(report, ConversationDriftReport):
+        raise ValueError("Conversation SARIF export requires a ConversationDriftReport.")
+    if not isinstance(artifact_uri, str) or not artifact_uri.strip():
+        raise ValueError("artifact_uri must be a non-empty string.")
+
+    results: list[dict[str, Any]] = []
+    for conv in sorted(report.conversations, key=lambda item: item.conversation_id):
+        if not conv.drifted:
+            continue
+        rule_id = "CONV001" if conv.refusal_flip_turns else "CONV002"
+        if conv.refusal_flip_turns:
+            turns = ", ".join(str(t) for t in conv.refusal_flip_turns)
+            msg = (
+                f"Conversation {conv.conversation_id!r} flipped to refusal at turn(s) {turns} "
+                f"(max drift {conv.max_turn_drift:.4f})."
+            )
+        else:
+            msg = (
+                f"Conversation {conv.conversation_id!r} exceeded trajectory drift gate "
+                f"(max drift {conv.max_turn_drift:.4f}, first div turn "
+                f"{conv.first_divergence_turn})."
+            )
+        results.append(
+            {
+                "ruleId": rule_id,
+                "level": "error",
+                "message": {"text": msg},
+                "locations": [
+                    {
+                        "physicalLocation": {"artifactLocation": {"uri": artifact_uri}},
+                        "logicalLocations": [
+                            {"name": conv.conversation_id, "kind": "conversation"}
+                        ],
+                    }
+                ],
+                "partialFingerprints": {
+                    "primaryLocationLineHash": _partial_fingerprint(
+                        rule_id, conv.conversation_id, "conversations", artifact_uri
+                    )
+                },
+                "properties": {
+                    "conversation_id": conv.conversation_id,
+                    "max_turn_drift": round(conv.max_turn_drift, 4),
+                    "first_divergence_turn": conv.first_divergence_turn,
+                    "refusal_flip_turns": list(conv.refusal_flip_turns),
+                },
+            }
+        )
+
+    if not report.passed:
+        for reason in report.failure_reasons or ("Conversation trajectory gate failed.",):
+            results.append(
+                {
+                    "ruleId": "CONV003",
+                    "level": "error",
+                    "message": {"text": reason},
+                    "locations": [
+                        {
+                            "physicalLocation": {"artifactLocation": {"uri": artifact_uri}},
+                            "logicalLocations": [{"name": "conversation_gate", "kind": "suite"}],
+                        }
+                    ],
+                    "partialFingerprints": {
+                        "primaryLocationLineHash": _partial_fingerprint(
+                            "CONV003", reason, "conversations", artifact_uri
+                        )
+                    },
+                    "properties": {
+                        "mean_trajectory_drift": round(report.mean_trajectory_drift, 4),
+                        "total_refusal_flip_turns": report.total_refusal_flip_turns,
+                    },
+                }
+            )
+
+    sarif_doc: dict[str, Any] = {
+        "$schema": _SARIF_SCHEMA,
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "llm-drift-bench",
+                        "version": __version__,
+                        "informationUri": "https://github.com/Anantgoel0123456/llm-drift-bench",
+                        "rules": _CONV_SARIF_RULES,
+                    }
+                },
+                "invocations": [{"executionSuccessful": True}],
+                "properties": {
+                    "passed": report.passed,
+                    "total_conversations": report.total_conversations,
+                    "drifted_conversations": report.drifted_conversations,
+                    "mean_trajectory_drift": round(report.mean_trajectory_drift, 4),
                 },
                 "results": results,
             }

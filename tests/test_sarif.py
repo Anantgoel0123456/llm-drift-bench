@@ -92,3 +92,67 @@ def test_cli_run_and_report_sarif_output(
         "-o", str(out_same),
         "--sarif-output", str(out_same),
     ]) == 2
+
+
+def test_export_conversation_sarif_report_and_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from llm_drift_bench.conversation import (
+        ConversationRecord,
+        ConversationTurn,
+        analyze_conversation_drift,
+        load_conversations,
+    )
+    from llm_drift_bench.sarif import export_conversation_sarif_report
+
+    base = load_conversations(EXAMPLES / "conversations-baseline.jsonl")
+    drift = load_conversations(EXAMPLES / "conversations-candidate-drift.jsonl")
+
+    pass_sarif = json.loads(
+        export_conversation_sarif_report(analyze_conversation_drift(base, base))
+    )
+    assert pass_sarif["runs"][0]["results"] == []
+
+    # Cover CONV001 (refusal flip), CONV002 (non-refusal drift), and CONV003 (suite gate)
+    extra_b = [
+        *base,
+        ConversationRecord("c-lex", (ConversationTurn("assistant", "alpha beta gamma"),)),
+    ]
+    extra_c = [
+        *drift,
+        ConversationRecord("c-lex", (ConversationTurn("assistant", "totally different words"),)),
+    ]
+    sarif_file = tmp_path / "conv.sarif"
+    raw = export_conversation_sarif_report(
+        analyze_conversation_drift(extra_b, extra_c),
+        output_path=sarif_file,
+        artifact_uri="conversations-candidate-drift.jsonl",
+    )
+    assert sarif_file.read_text(encoding="utf-8") == raw
+    doc = json.loads(raw)
+    rule_ids = {r["ruleId"] for r in doc["runs"][0]["results"]}
+    assert {"CONV001", "CONV002", "CONV003"} <= rule_ids
+
+    with pytest.raises(ValueError, match="ConversationDriftReport"):
+        export_conversation_sarif_report({})  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="artifact_uri"):
+        export_conversation_sarif_report(analyze_conversation_drift(base, base), artifact_uri=" ")
+
+    assert (
+        main(
+            [
+                "check-conversations",
+                "-b",
+                str(EXAMPLES / "conversations-baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "conversations-candidate-drift.jsonl"),
+                "--format",
+                "sarif",
+            ]
+        )
+        == 1
+    )
+    cli_doc = json.loads(capsys.readouterr().out)
+    assert cli_doc["version"] == "2.1.0"
+    assert any(r["ruleId"] == "CONV001" for r in cli_doc["runs"][0]["results"])
+

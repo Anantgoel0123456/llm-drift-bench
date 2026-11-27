@@ -272,7 +272,7 @@ if TYPE_CHECKING:
         sample_prompt_suite,
         slice_samples_for_suite,
     )
-    from llm_drift_bench.sarif import export_sarif_report
+    from llm_drift_bench.sarif import export_conversation_sarif_report, export_sarif_report
     from llm_drift_bench.schema_infer import (
         infer_prompt_suite,
         infer_schema_from_value,
@@ -496,6 +496,7 @@ _EXPORTS: dict[str, str] = {
     "export_consumer_html": "consumer",
     "export_conversation_badge_svg": "badge",
     "export_conversation_html": "conversation",
+    "export_conversation_sarif_report": "sarif",
     "export_csv_report": "csv_export",
     "export_distribution_html": "distribution",
     "export_drift_badge_svg": "badge",
@@ -764,6 +765,7 @@ __all__ = [
     "export_consumer_html",
     "export_conversation_badge_svg",
     "export_conversation_html",
+    "export_conversation_sarif_report",
     "export_csv_report",
     "export_distribution_html",
     "export_drift_badge_svg",
