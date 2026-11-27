@@ -525,6 +525,47 @@ def format_conversation_markdown(report: ConversationDriftReport) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _render_trajectory_svg(conv: ConversationDriftResult) -> str:
+    """Render an inline script-free SVG sparkline of turn-by-turn composite drift."""
+    turns = conv.turn_results
+    if not turns:
+        return "<span class='muted'>n/a</span>"
+    width, height = 120.0, 28.0
+    pad_x, pad_top, pad_bot = 6.0, 4.0, 4.0
+    usable_w = width - 2 * pad_x
+    usable_h = height - pad_top - pad_bot
+    coords: list[tuple[float, float, TurnDriftResult]] = []
+    n = len(turns)
+    for idx, t in enumerate(turns):
+        x = (pad_x + usable_w / 2.0) if n == 1 else (pad_x + (idx / (n - 1)) * usable_w)
+        y = pad_top + usable_h * (1.0 - max(0.0, min(1.0, t.composite_drift)))
+        coords.append((x, y, t))
+    stroke = "#fda4af" if conv.drifted else "#6ee7b7"
+    tip = escape(
+        ", ".join(f"T{t.turn_index}={t.composite_drift:.2f}" for t in turns)
+    )
+    poly = (
+        f"<polyline fill='none' stroke='{stroke}' stroke-width='1.8' "
+        f"points='{' '.join(f'{x:.1f},{y:.1f}' for x, y, _ in coords)}'/>"
+        if n >= 2
+        else ""
+    )
+    dots = "".join(
+        f"<circle cx='{x:.1f}' cy='{y:.1f}' r='2.4' "
+        f"fill='{'#fb7185' if t.refusal_flip else stroke}'/>"
+        for x, y, t in coords
+    )
+    return (
+        f"<svg viewBox='0 0 {int(width)} {int(height)}' width='120' height='28' "
+        f"role='img' aria-label='Drift trajectory for {escape(conv.conversation_id)}'>"
+        f"<title>{tip}</title>"
+        f"<line x1='{pad_x:.0f}' y1='{height - pad_bot:.0f}' "
+        f"x2='{width - pad_x:.0f}' y2='{height - pad_bot:.0f}' "
+        "stroke='#334155' stroke-width='1'/>"
+        f"{poly}{dots}</svg>"
+    )
+
+
 def export_conversation_html(
     report: ConversationDriftReport,
     output_path: str | Path | None = None,
@@ -538,6 +579,7 @@ def export_conversation_html(
     rows_html = "".join(
         f"<tr><td>{escape(c.conversation_id)}</td>"
         f"<td>{c.baseline_assistant_turns} &rarr; {c.candidate_assistant_turns}</td>"
+        f"<td>{_render_trajectory_svg(c)}</td>"
         f"<td>{c.mean_turn_drift:.4f}</td><td>{c.max_turn_drift:.4f}</td>"
         f"<td>{'-' if c.first_divergence_turn is None else f'Turn {c.first_divergence_turn}'}</td>"
         f"<td>{'n/a' if c.escalation_slope is None else f'{c.escalation_slope:+.4f}'}</td>"
@@ -552,11 +594,13 @@ def export_conversation_html(
         )
     html = (
         "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        "<meta http-equiv='Content-Security-Policy' "
+        "content=\"default-src 'none'; style-src 'unsafe-inline'\">"
         "<title>LLM Drift Bench — Multi-Turn Conversation Drift</title>"
         "<style>"
         "body{font-family:system-ui,-apple-system,sans-serif;background:#0b1320;color:#e6edf7;"
         "margin:0;padding:24px;line-height:1.5}"
-        "main{max-width:980px;margin:0 auto}h1,h2{color:#f8fafc}.muted{color:#94a3b8}"
+        "main{max-width:1060px;margin:0 auto}h1,h2{color:#f8fafc}.muted{color:#94a3b8}"
         ".badge{display:inline-block;padding:4px 10px;border-radius:6px;font-weight:700}"
         ".pass{color:#6ee7b7;font-weight:700}.fail{color:#fda4af;font-weight:700}"
         ".badge.pass{background:#064e3b}.badge.fail{background:#4c0519}"
@@ -574,7 +618,7 @@ def export_conversation_html(
         f"{report.max_trajectory_drift:.4f}</strong> | "
         f"Mean final-turn drift: <strong>{final_s}</strong></p>"
         "<table><thead><tr><th>Conversation</th><th>Assistant Turns</th>"
-        "<th>Mean Drift</th><th>Max Drift</th><th>First Divergence</th>"
+        "<th>Trajectory</th><th>Mean Drift</th><th>Max Drift</th><th>First Divergence</th>"
         "<th>Escalation Slope</th><th>Status</th></tr></thead>"
         f"<tbody>{rows_html}</tbody></table>"
         f"{fail_html}</main></body></html>\n"

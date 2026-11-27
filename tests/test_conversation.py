@@ -87,7 +87,14 @@ def test_conversation_snowball_drift_escalation_and_refusal_flip(tmp_path: Path)
     html = export_conversation_html(rep, output_path=html_out)
     assert html_out.read_text(encoding="utf-8") == html
     assert "Multi-Turn Conversation Trajectory Drift" in html
+    assert "default-src 'none'" in html
+    assert "<svg viewBox=" in html and "<polyline" in html and "<title>T1=" in html
     assert "<script" not in html.lower()
+
+    # Zero-assistant-turn conversation renders n/a trajectory cleanly
+    user_only = [ConversationRecord("u1", (ConversationTurn("user", "ping"),))]
+    empty_html = export_conversation_html(analyze_conversation_drift(user_only, user_only))
+    assert "<span class='muted'>n/a</span>" in empty_html
 
 
 def test_load_conversations_json_wrapper_array_and_jsonl(tmp_path: Path) -> None:
