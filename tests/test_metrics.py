@@ -198,6 +198,9 @@ class TestMetrics(unittest.TestCase):
             deep = {"n": deep}
         flat = flatten_json_paths(deep)
         self.assertEqual(len(flat), 1)
+        # Distinct whitespace-only strings tokenize empty and score 1.0
+        self.assertEqual(jaccard_similarity("   ", "\t\n"), 1.0)
+        self.assertEqual(ngram_overlap_similarity("   ", "\t\n"), 1.0)
         self.assertEqual(next(iter(flat.values())), 42)
 
     def test_metrics_boundary_and_error_branches(self) -> None:

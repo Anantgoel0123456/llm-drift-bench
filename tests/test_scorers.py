@@ -245,8 +245,9 @@ def test_scorers_edge_cases_entry_points_and_error_guards(
     # Short inputs (< n) fall back to single-character cosine cleanly
     assert char_ngram_cosine_similarity("ab", "ac", n=3) == pytest.approx(0.5)
 
-    # Empty Python source, Markdown ordered lists, empty JSON objects, and numeric zeros
+    # Empty Python source, comment-only ASTs, Markdown ordered lists, empty JSON, numeric zeros
     assert python_ast_similarity("   ", "x = 1") is None
+    assert python_ast_similarity("# only a comment\n", "# another comment\n") == 1.0
     assert markdown_structure_similarity("1. First\n2. Second\n", "1) One\n2) Two\n") == 1.0
     assert json_key_jaccard_similarity("{}", "{}") == 1.0
     assert numeric_prose_similarity("Balance: 0.00", "Balance: -0") == 1.0

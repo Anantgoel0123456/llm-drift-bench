@@ -141,3 +141,8 @@ def test_quality_checks_clean_pair_and_validation() -> None:
         detect_repetition_loop("abc", ngram_words=1)
     with pytest.raises(ValueError, match="min_repeats"):
         detect_repetition_loop("abc", min_repeats=2)
+    with pytest.raises(ValueError, match="non-empty"):
+        run_quality_checks([], same)
+    # Overlapping 5-word n-gram occurrences collapse below min_repeats (no false loop)
+    assert detect_repetition_loop("word " * 8, ngram_words=5, min_repeats=4) == (False, None)
+

@@ -184,3 +184,21 @@ def test_rolling_baseline_validation_and_threshold_edges() -> None:
         analyze_rolling_distribution([s_ok], s_ok, fail_on_widespread_shift=True)
     with pytest.raises(ValueError, match="between 0.0 and 1.0"):
         analyze_rolling_distribution([s_ok], s_ok, max_tvd=2.0)
+
+    # Fallback segment resolution: sample.metadata["category"] when suite omitted,
+    # and PromptCase.metadata[key] when sample.metadata omits the key
+    from llm_drift_bench.models import PromptCase
+
+    cat_sample = [
+        ModelSample(prompt_id="p1", output='{"label": "a"}', metadata={"category": "billing"})
+    ]
+    rep_cat = analyze_rolling_distribution([cat_sample], cat_sample, group_by="category")
+    assert rep_cat.segmented is not None and "billing" in rep_cat.segmented.segments
+
+    plain_sample = [ModelSample(prompt_id="p1", output='{"label": "a"}')]
+    cases = [PromptCase(prompt_id="p1", prompt="x", metadata={"tenant": "acme"})]
+    rep_meta = analyze_rolling_distribution(
+        [plain_sample], plain_sample, group_by="metadata:tenant", prompt_cases=cases
+    )
+    assert rep_meta.segmented is not None and "acme" in rep_meta.segmented.segments
+

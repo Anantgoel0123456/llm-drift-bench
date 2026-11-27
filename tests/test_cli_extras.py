@@ -2820,6 +2820,96 @@ def test_cli_import_conversations_roundtrip(
     assert "VALID (2 artifact(s) verified)" in capsys.readouterr().out
 
 
+def test_cli_extras_cost_budget_incomplete_wizard_interactive_and_logprobs_entropy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import math
+
+    from llm_drift_bench.wizard import PRESET_ANSWERS
+
+    # cost text mode with incomplete tokens and a budget gate prints Budget check
+    assert (
+        main(
+            [
+                "cost",
+                "-b",
+                str(EXAMPLES / "baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "candidate-pass.jsonl"),
+                "--max-token-increase-pct",
+                "10",
+            ]
+        )
+        == 1
+    )
+    assert "Budget check  : FAIL" in capsys.readouterr().out
+
+    # wizard interactive fallback branch
+    monkeypatch.setattr(
+        "llm_drift_bench.wizard.run_guided_wizard",
+        lambda: (PRESET_ANSWERS["extraction"], "# preset"),
+    )
+    assert main(["wizard"]) == 0
+    assert "[thresholds]" in capsys.readouterr().out
+
+    # logprobs --max-entropy-delta failure branch
+    lp_b = tmp_path / "lp_b.jsonl"
+    lp_c = tmp_path / "lp_c.jsonl"
+    lp_b.write_text(
+        json.dumps(
+            {
+                "prompt_id": "p1",
+                "model_name": "b",
+                "output": "yes",
+                "metadata": {
+                    "logprobs": [
+                        {
+                            "token": "yes",
+                            "logprob": math.log(0.99),
+                            "top_logprobs": [
+                                {"token": "yes", "logprob": math.log(0.99)},
+                                {"token": "no", "logprob": math.log(0.01)},
+                            ],
+                        }
+                    ]
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    lp_c.write_text(
+        json.dumps(
+            {
+                "prompt_id": "p1",
+                "model_name": "c",
+                "output": "yes",
+                "metadata": {
+                    "logprobs": [
+                        {
+                            "token": "yes",
+                            "logprob": math.log(0.55),
+                            "top_logprobs": [
+                                {"token": "yes", "logprob": math.log(0.55)},
+                                {"token": "no", "logprob": math.log(0.45)},
+                            ],
+                        }
+                    ]
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert (
+        main(["logprobs", "-b", str(lp_b), "-c", str(lp_c), "--max-entropy-delta", "0.1"]) == 1
+    )
+    assert "abs(mean_entropy_delta_bits)" in capsys.readouterr().out
+
+
+
 
 
 
