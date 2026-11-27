@@ -23,7 +23,11 @@ if TYPE_CHECKING:
         format_audit_text,
         run_full_audit,
     )
-    from llm_drift_bench.badge import export_drift_badge_svg
+    from llm_drift_bench.badge import (
+        export_audit_badge_svg,
+        export_conversation_badge_svg,
+        export_drift_badge_svg,
+    )
     from llm_drift_bench.batch import evaluate_many
     from llm_drift_bench.batch_import import (
         import_anthropic_batch_jsonl,
@@ -466,10 +470,12 @@ _EXPORTS: dict[str, str] = {
     "evaluate_response_pair": "evaluator",
     "evaluate_sample_pair": "engine",
     "evaluate_suite": "evaluator",
+    "export_audit_badge_svg": "badge",
     "export_audit_html": "audit",
     "export_comparison_html": "reporter",
     "export_comparison_markdown": "_comparison_md",
     "export_consumer_html": "consumer",
+    "export_conversation_badge_svg": "badge",
     "export_conversation_html": "conversation",
     "export_csv_report": "csv_export",
     "export_distribution_html": "distribution",
@@ -723,10 +729,12 @@ __all__ = [
     "evaluate_response_pair",
     "evaluate_sample_pair",
     "evaluate_suite",
+    "export_audit_badge_svg",
     "export_audit_html",
     "export_comparison_html",
     "export_comparison_markdown",
     "export_consumer_html",
+    "export_conversation_badge_svg",
     "export_conversation_html",
     "export_csv_report",
     "export_distribution_html",

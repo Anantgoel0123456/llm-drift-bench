@@ -5,6 +5,8 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 
+from llm_drift_bench.audit import AuditReport
+from llm_drift_bench.conversation import ConversationDriftReport
 from llm_drift_bench.models import DriftBenchmarkReport
 
 
@@ -13,23 +15,17 @@ def _text_width(text: str) -> int:
     return max(36, len(text) * 7 + 16)
 
 
-def export_drift_badge_svg(
-    report: DriftBenchmarkReport,
-    output_path: str | Path | None = None,
+def _render_badge_svg(
     *,
-    label: str = "llm-drift",
+    label: str,
+    value: str,
+    passed: bool,
+    output_path: str | Path | None = None,
 ) -> str:
-    """Render an offline static SVG status badge summarizing a DriftBenchmarkReport."""
-    if not isinstance(report, DriftBenchmarkReport):
-        raise TypeError("export_drift_badge_svg requires a DriftBenchmarkReport instance.")
     if not isinstance(label, str) or not label.strip():
         raise ValueError("label must be a non-empty string.")
-
     clean_label = label.strip()
-    state = "PASS" if report.passed else "FAIL"
-    value = f"{state} {report.mean_composite_drift:.2f}"
-    color = "#2ea44f" if report.passed else "#d73a49"
-
+    color = "#2ea44f" if passed else "#d73a49"
     left_w = _text_width(clean_label)
     right_w = _text_width(value)
     total_w = left_w + right_w
@@ -69,3 +65,62 @@ def export_drift_badge_svg(
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(svg, encoding="utf-8")
     return svg
+
+
+def export_drift_badge_svg(
+    report: DriftBenchmarkReport,
+    output_path: str | Path | None = None,
+    *,
+    label: str = "llm-drift",
+) -> str:
+    """Render an offline static SVG status badge summarizing a DriftBenchmarkReport."""
+    if not isinstance(report, DriftBenchmarkReport):
+        raise TypeError("export_drift_badge_svg requires a DriftBenchmarkReport instance.")
+    state = "PASS" if report.passed else "FAIL"
+    return _render_badge_svg(
+        label=label,
+        value=f"{state} {report.mean_composite_drift:.2f}",
+        passed=report.passed,
+        output_path=output_path,
+    )
+
+
+def export_audit_badge_svg(
+    report: AuditReport,
+    output_path: str | Path | None = None,
+    *,
+    label: str = "llm-audit",
+) -> str:
+    """Render an offline static SVG status badge summarizing a unified AuditReport."""
+    if not isinstance(report, AuditReport):
+        raise TypeError("export_audit_badge_svg requires an AuditReport instance.")
+    state = "PASS" if report.passed else "FAIL"
+    value = (
+        f"{state} {report.benchmark.mean_composite_drift:.2f}"
+        if report.passed
+        else f"{state} ({len(report.failure_reasons)} issue(s))"
+    )
+    return _render_badge_svg(
+        label=label,
+        value=value,
+        passed=report.passed,
+        output_path=output_path,
+    )
+
+
+def export_conversation_badge_svg(
+    report: ConversationDriftReport,
+    output_path: str | Path | None = None,
+    *,
+    label: str = "conversations",
+) -> str:
+    """Render an offline static SVG status badge summarizing a ConversationDriftReport."""
+    if not isinstance(report, ConversationDriftReport):
+        raise TypeError("export_conversation_badge_svg requires a ConversationDriftReport.")
+    state = "PASS" if report.passed else "FAIL"
+    return _render_badge_svg(
+        label=label,
+        value=f"{state} {report.mean_trajectory_drift:.2f}",
+        passed=report.passed,
+        output_path=output_path,
+    )
