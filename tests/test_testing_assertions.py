@@ -72,3 +72,29 @@ def test_assert_no_conversation_embedding_and_release_gate_helpers() -> None:
     # assert_no_regression with >5 regressed prompts hits truncation line cleanly
     with pytest.raises(AssertionError, match="1 additional regressions"):
         assert_no_regression([rep_ok, rep_fail], against="ok")
+
+
+def test_assert_no_tool_trace_drift_and_assert_audit_passed() -> None:
+    from llm_drift_bench.audit import run_full_audit
+    from llm_drift_bench.testing import assert_audit_passed, assert_no_tool_trace_drift
+    from llm_drift_bench.tool_events import ToolEvent, compare_tool_traces
+
+    base_ev = [ToolEvent(0, "read", "src/a.py@1", start=0, end=10)]
+    cand_ev = [
+        ToolEvent(0, "read", "src/a.py@1", start=0, end=10),
+        ToolEvent(1, "edit", "src/b.py@1"),
+    ]
+    assert_no_tool_trace_drift(compare_tool_traces(base_ev, base_ev))
+    fail_diff = compare_tool_traces(base_ev, cand_ev, fail_on_new_edit_resources=True)
+    with pytest.raises(AssertionError, match="agent tool-trace drift failed"):
+        assert_no_tool_trace_drift(fail_diff)
+    with pytest.raises(TypeError, match="ToolTraceDiff"):
+        assert_no_tool_trace_drift({})  # type: ignore[arg-type]
+
+    same = [ModelSample(prompt_id="p1", output='{"x": 1}')]
+    diff = [ModelSample(prompt_id="p1", output="bad")]
+    assert_audit_passed(run_full_audit(same, same))
+    with pytest.raises(AssertionError, match="unified audit failed"):
+        assert_audit_passed(run_full_audit(same, diff))
+    with pytest.raises(TypeError, match="AuditReport"):
+        assert_audit_passed({})  # type: ignore[arg-type]

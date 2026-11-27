@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from llm_drift_bench.audit import AuditReport
 from llm_drift_bench.comparison import prompt_changes
 from llm_drift_bench.conversation import ConversationDriftReport
 from llm_drift_bench.embeddings import EmbeddingDriftReport
 from llm_drift_bench.gates import ReleaseVerdict
 from llm_drift_bench.models import DriftBenchmarkReport
+from llm_drift_bench.tool_events import ToolTraceDiff
 
 
 def assert_no_drift(report: DriftBenchmarkReport) -> None:
@@ -126,5 +128,38 @@ def assert_release_approved(verdict: ReleaseVerdict) -> None:
     lines = [
         f"LLM release gate NO-GO: {len(verdict.blocking_failures)} blocking failure(s).",
         *[f"- {reason}" for reason in verdict.blocking_failures],
+    ]
+    raise AssertionError("\n".join(lines))
+
+
+def assert_no_tool_trace_drift(diff: ToolTraceDiff) -> None:
+    """Raise AssertionError if an agent ToolTraceDiff fails its gates."""
+    if not isinstance(diff, ToolTraceDiff):
+        raise TypeError(
+            f"assert_no_tool_trace_drift requires a ToolTraceDiff, got {type(diff).__name__}."
+        )
+    if diff.passed:
+        return
+    lines = [
+        f"LLM agent tool-trace drift failed (calls {diff.baseline_calls}->{diff.candidate_calls}, "
+        f"failed {diff.baseline_failed}->{diff.candidate_failed}, "
+        f"jaccard={diff.action_jaccard:.4f}).",
+        *[f"- {reason}" for reason in diff.failure_reasons],
+    ]
+    raise AssertionError("\n".join(lines))
+
+
+def assert_audit_passed(report: AuditReport) -> None:
+    """Raise AssertionError if a unified offline AuditReport failed."""
+    if not isinstance(report, AuditReport):
+        raise TypeError(
+            f"assert_audit_passed requires an AuditReport, got {type(report).__name__}."
+        )
+    if report.passed:
+        return
+    lines = [
+        f"LLM unified audit failed ({len(report.failure_reasons)} failure reason(s); "
+        f"mean_drift={report.benchmark.mean_composite_drift:.4f}).",
+        *[f"- {reason}" for reason in report.failure_reasons],
     ]
     raise AssertionError("\n".join(lines))

@@ -317,10 +317,12 @@ if TYPE_CHECKING:
         wilson_score_interval,
     )
     from llm_drift_bench.testing import (
+        assert_audit_passed,
         assert_no_conversation_drift,
         assert_no_drift,
         assert_no_embedding_drift,
         assert_no_regression,
+        assert_no_tool_trace_drift,
         assert_release_approved,
     )
     from llm_drift_bench.tool_events import (
@@ -444,10 +446,12 @@ _EXPORTS: dict[str, str] = {
     "analyze_logprobs_drift": "logprobs",
     "analyze_rolling_distribution": "rolling",
     "analyze_segmented_distributions": "distribution",
+    "assert_audit_passed": "testing",
     "assert_no_conversation_drift": "testing",
     "assert_no_drift": "testing",
     "assert_no_embedding_drift": "testing",
     "assert_no_regression": "testing",
+    "assert_no_tool_trace_drift": "testing",
     "assert_release_approved": "testing",
     "bootstrap_mean_ci": "stats",
     "build_drift_matrix": "matrix",
@@ -719,10 +723,12 @@ __all__ = [
     "analyze_logprobs_drift",
     "analyze_rolling_distribution",
     "analyze_segmented_distributions",
+    "assert_audit_passed",
     "assert_no_conversation_drift",
     "assert_no_drift",
     "assert_no_embedding_drift",
     "assert_no_regression",
+    "assert_no_tool_trace_drift",
     "assert_release_approved",
     "bootstrap_mean_ci",
     "build_drift_matrix",
