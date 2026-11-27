@@ -71,6 +71,30 @@ inputs:
     description: "Optional path to render a standalone multi-turn conversation drift HTML report."
     required: false
     default: ""
+  conversations-sarif-output:
+    description: "Optional path to write SARIF 2.1.0 multi-turn conversation drift output."
+    required: false
+    default: ""
+  conversations-junit-output:
+    description: "Optional path to write JUnit XML multi-turn conversation drift output."
+    required: false
+    default: ""
+  baseline-trace:
+    description: "Optional baseline agent tool-trace file for tool-usage drift comparison."
+    required: false
+    default: ""
+  candidate-trace:
+    description: "Optional candidate agent tool-trace file for tool-usage drift comparison."
+    required: false
+    default: ""
+  trace-adapter:
+    description: "Adapter for tool traces (normalized, openai, anthropic, gemini, or otel)."
+    required: false
+    default: "normalized"
+  tool-trace-html-output:
+    description: "Optional path to render a standalone agent tool-trace drift HTML report."
+    required: false
+    default: ""
   github-summary:
     description: "Append verdict and metrics to GITHUB_STEP_SUMMARY ('true' or 'false')."
     required: false
@@ -126,6 +150,12 @@ runs:
         INPUT_BASELINE_CONVERSATIONS: ${{ inputs.baseline-conversations }}
         INPUT_CANDIDATE_CONVERSATIONS: ${{ inputs.candidate-conversations }}
         INPUT_CONVERSATIONS_HTML_OUTPUT: ${{ inputs.conversations-html-output }}
+        INPUT_CONVERSATIONS_SARIF_OUTPUT: ${{ inputs.conversations-sarif-output }}
+        INPUT_CONVERSATIONS_JUNIT_OUTPUT: ${{ inputs.conversations-junit-output }}
+        INPUT_BASELINE_TRACE: ${{ inputs.baseline-trace }}
+        INPUT_CANDIDATE_TRACE: ${{ inputs.candidate-trace }}
+        INPUT_TRACE_ADAPTER: ${{ inputs.trace-adapter }}
+        INPUT_TOOL_TRACE_HTML_OUTPUT: ${{ inputs.tool-trace-html-output }}
         INPUT_GITHUB_SUMMARY: ${{ inputs.github-summary }}
         INPUT_FAIL_ON_DRIFT: ${{ inputs.fail-on-drift }}
       run: |
@@ -188,6 +218,13 @@ runs:
               --candidate-conversations "$INPUT_CANDIDATE_CONVERSATIONS"
             )
           fi
+          if [ -n "$INPUT_BASELINE_TRACE" ] && [ -n "$INPUT_CANDIDATE_TRACE" ]; then
+            audit_args+=(
+              --baseline-trace "$INPUT_BASELINE_TRACE"
+              --candidate-trace "$INPUT_CANDIDATE_TRACE"
+              --trace-adapter "$INPUT_TRACE_ADAPTER"
+            )
+          fi
           llm-drift-bench "${audit_args[@]}"
           audit_rc=$?
           if [ "$rc" -eq 0 ] && [ "$audit_rc" -ne 0 ] && [ "$INPUT_FAIL_ON_DRIFT" != "false" ]; then
@@ -206,8 +243,37 @@ runs:
           fi
           llm-drift-bench "${conv_args[@]}"
           conv_rc=$?
+          if [ -n "$INPUT_CONVERSATIONS_SARIF_OUTPUT" ]; then
+            llm-drift-bench check-conversations \
+              -b "$INPUT_BASELINE_CONVERSATIONS" \
+              -c "$INPUT_CANDIDATE_CONVERSATIONS" \
+              --format sarif -o "$INPUT_CONVERSATIONS_SARIF_OUTPUT"
+          fi
+          if [ -n "$INPUT_CONVERSATIONS_JUNIT_OUTPUT" ]; then
+            llm-drift-bench check-conversations \
+              -b "$INPUT_BASELINE_CONVERSATIONS" \
+              -c "$INPUT_CANDIDATE_CONVERSATIONS" \
+              --format junit -o "$INPUT_CONVERSATIONS_JUNIT_OUTPUT"
+          fi
           if [ "$rc" -eq 0 ] && [ "$conv_rc" -ne 0 ] && [ "$INPUT_FAIL_ON_DRIFT" != "false" ]; then
             rc=$conv_rc
+          fi
+        fi
+
+        if [ -n "$INPUT_BASELINE_TRACE" ] && [ -n "$INPUT_CANDIDATE_TRACE" ]; then
+          trace_args=(
+            diff-tools
+            -b "$INPUT_BASELINE_TRACE"
+            -c "$INPUT_CANDIDATE_TRACE"
+            --adapter "$INPUT_TRACE_ADAPTER"
+          )
+          if [ -n "$INPUT_TOOL_TRACE_HTML_OUTPUT" ]; then
+            trace_args+=(--format html -o "$INPUT_TOOL_TRACE_HTML_OUTPUT")
+          fi
+          llm-drift-bench "${trace_args[@]}"
+          trace_rc=$?
+          if [ "$rc" -eq 0 ] && [ "$trace_rc" -ne 0 ] && [ "$INPUT_FAIL_ON_DRIFT" != "false" ]; then
+            rc=$trace_rc
           fi
         fi
         exit "$rc"
