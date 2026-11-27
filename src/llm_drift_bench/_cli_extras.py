@@ -982,6 +982,11 @@ def register_extra_subcommands(
         help="How to handle turns > 16,384 chars: error (default) or skip_levenshtein.",
     )
     conv_p.add_argument(
+        "--show-diffs",
+        action="store_true",
+        help="Include per-turn semantic JSON/text diffs for changed turns (text/json formats).",
+    )
+    conv_p.add_argument(
         "--format",
         choices=("text", "json", "markdown", "html"),
         default="text",
@@ -2188,7 +2193,9 @@ def _handle_check_conversations(
     protect_inputs(args.output, args.baseline, args.candidate)
     from llm_drift_bench.conversation import (
         analyze_conversation_drift,
+        diff_conversations,
         export_conversation_html,
+        format_conversation_diffs_text,
         format_conversation_markdown,
         format_conversation_text,
         load_conversations,
@@ -2206,14 +2213,24 @@ def _handle_check_conversations(
         fail_on_refusal_flip=args.fail_on_refusal_flip,
         long_text_mode=args.long_text_mode,
     )
+    turn_diffs = (
+        diff_conversations(base, cand, only_changed=True)
+        if getattr(args, "show_diffs", False)
+        else None
+    )
     if args.format == "json":
-        rendered = json.dumps(report.to_dict(), indent=2) + "\n"
+        payload = report.to_dict()
+        if turn_diffs is not None:
+            payload["turn_diffs"] = [d.to_dict() for d in turn_diffs]
+        rendered = json.dumps(payload, indent=2) + "\n"
     elif args.format == "markdown":
         rendered = format_conversation_markdown(report)
     elif args.format == "html":
         rendered = export_conversation_html(report)
     else:
         rendered = format_conversation_text(report)
+        if turn_diffs is not None:
+            rendered += "\n" + format_conversation_diffs_text(turn_diffs)
     if args.output:
         atomic_write_text(Path(args.output), rendered)
         if args.format == "html":

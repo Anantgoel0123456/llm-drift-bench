@@ -201,3 +201,38 @@ def test_conversation_validation_and_error_guards(tmp_path: Path) -> None:
         analyze_conversation_drift(ok, ok, max_turn_count_delta=-1)
     with pytest.raises(ValueError, match="long_text_mode"):
         analyze_conversation_drift(ok, ok, long_text_mode="bad")  # type: ignore[arg-type]
+
+
+def test_diff_conversations_per_turn_json_and_text_diffs() -> None:
+    from llm_drift_bench.conversation import diff_conversations, format_conversation_diffs_text
+
+    base = [
+        _conv("c1", ['{"amount": 10}', '{"status": "ok"}']),
+        _conv("c2", ["identical"]),
+    ]
+    cand = [
+        _conv("c1", ['{"amount": 10}', '{"status": "error"}']),
+        _conv("c2", ["identical"]),
+    ]
+    all_diffs = diff_conversations(base, cand, only_changed=False)
+    assert len(all_diffs) == 2
+    assert all_diffs[0].changed is True and all_diffs[1].changed is False
+    assert all_diffs[0].to_dict()["turn_diffs"][1]["turn_index"] == 2
+
+    only_diffs = diff_conversations(base, cand, only_changed=True)
+    assert [d.conversation_id for d in only_diffs] == ["c1"]
+    assert [t.turn_index for t in only_diffs[0].turn_diffs] == [2]
+    rendered = format_conversation_diffs_text(only_diffs)
+    assert "Conversation c1 (CHANGED)" in rendered and "$.status" in rendered
+
+    # Identical collection -> empty only_changed diff; user-only conversation has no compared turns
+    assert format_conversation_diffs_text(diff_conversations(base, base, only_changed=True)) == (
+        "No changed conversation turns.\n"
+    )
+    user_only = [ConversationRecord("u1", (ConversationTurn("user", "hi"),))]
+    assert "no compared assistant turn diffs" in format_conversation_diffs_text(
+        diff_conversations(user_only, user_only)
+    )
+    with pytest.raises(ValueError, match="non-empty"):
+        diff_conversations([], base)
+

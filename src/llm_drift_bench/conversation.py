@@ -17,6 +17,7 @@ from typing import Any, Literal
 from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench._matching import require_same_ids
 from llm_drift_bench._report_views import markdown_cell
+from llm_drift_bench.diffing import PromptDiff, diff_sample_pair, format_diffs_text
 from llm_drift_bench.metrics import (
     _MAX_EDIT_DISTANCE_CHARS,
     compute_composite_drift_score,
@@ -27,6 +28,7 @@ from llm_drift_bench.metrics import (
     ngram_overlap_similarity,
     normalized_levenshtein_similarity,
 )
+from llm_drift_bench.models import ModelSample
 from llm_drift_bench.quality_checks import is_likely_refusal
 from llm_drift_bench.validator import extract_json_payload
 
@@ -628,3 +630,86 @@ def export_conversation_html(
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(html, encoding="utf-8")
     return html
+
+
+@dataclass(frozen=True)
+class TurnDiff:
+    """Semantic JSON or unified text diff for one aligned assistant turn pair."""
+
+    turn_index: int
+    diff: PromptDiff
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"turn_index": self.turn_index, **self.diff.to_dict()}
+
+
+@dataclass(frozen=True)
+class ConversationDiff:
+    """Per-turn semantic diffs for one matched multi-turn conversation."""
+
+    conversation_id: str
+    changed: bool
+    turn_diffs: tuple[TurnDiff, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "conversation_id": self.conversation_id,
+            "changed": self.changed,
+            "turn_diffs": [td.to_dict() for td in self.turn_diffs],
+        }
+
+
+def diff_conversations(
+    baseline_conversations: Sequence[ConversationRecord],
+    candidate_conversations: Sequence[ConversationRecord],
+    *,
+    only_changed: bool = False,
+) -> list[ConversationDiff]:
+    """Compute per-turn semantic JSON/text diffs across matched multi-turn conversations."""
+    if not baseline_conversations or not candidate_conversations:
+        raise ValueError("Both baseline and candidate conversation collections must be non-empty.")
+    base_map = _index_conversations(baseline_conversations, "baseline conversations")
+    cand_map = _index_conversations(candidate_conversations, "candidate conversations")
+    require_same_ids(set(base_map), set(cand_map), "Candidate conversations")
+
+    results: list[ConversationDiff] = []
+    for cid in sorted(base_map):
+        b_asst = base_map[cid].assistant_turns()
+        c_asst = cand_map[cid].assistant_turns()
+        compared = min(len(b_asst), len(c_asst))
+        turn_diffs: list[TurnDiff] = []
+        for idx in range(1, compared + 1):
+            label = f"{cid}#turn-{idx}"
+            pdiff = diff_sample_pair(
+                ModelSample(prompt_id=label, output=b_asst[idx - 1].content),
+                ModelSample(prompt_id=label, output=c_asst[idx - 1].content),
+            )
+            if not only_changed or pdiff.changed:
+                turn_diffs.append(TurnDiff(turn_index=idx, diff=pdiff))
+        conv_changed = any(td.diff.changed for td in turn_diffs) or len(b_asst) != len(c_asst)
+        if only_changed and not conv_changed:
+            continue
+        results.append(
+            ConversationDiff(
+                conversation_id=cid,
+                changed=conv_changed,
+                turn_diffs=tuple(turn_diffs),
+            )
+        )
+    return results
+
+
+def format_conversation_diffs_text(diffs: Sequence[ConversationDiff]) -> str:
+    """Render per-turn conversation semantic diffs as concise terminal text."""
+    if not diffs:
+        return "No changed conversation turns.\n"
+    blocks: list[str] = []
+    for conv in diffs:
+        label = "CHANGED" if conv.changed else "IDENTICAL"
+        header = f"Conversation {conv.conversation_id} ({label})"
+        if conv.turn_diffs:
+            body = format_diffs_text([td.diff for td in conv.turn_diffs])
+            blocks.append(f"{header}\n{body}")
+        else:
+            blocks.append(f"{header}\n  (no compared assistant turn diffs)")
+    return "\n\n".join(blocks) + "\n"

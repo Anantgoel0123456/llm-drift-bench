@@ -2977,6 +2977,42 @@ def test_cli_diff_tools_normalized_and_openai_adapter(
     )
     assert "PASSED" in capsys.readouterr().out
 
+    # check-conversations --show-diffs in both text and json modes
+    assert (
+        main(
+            [
+                "check-conversations",
+                "-b",
+                str(EXAMPLES / "conversations-baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "conversations-candidate-drift.jsonl"),
+                "--show-diffs",
+            ]
+        )
+        == 1
+    )
+    txt_diff = capsys.readouterr().out
+    assert "Conversation conv-support-01 (CHANGED)" in txt_diff
+    assert (
+        main(
+            [
+                "check-conversations",
+                "-b",
+                str(EXAMPLES / "conversations-baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "conversations-candidate-drift.jsonl"),
+                "--show-diffs",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    json_diff = json.loads(capsys.readouterr().out)
+    assert len(json_diff["turn_diffs"]) == 1
+    assert json_diff["turn_diffs"][0]["conversation_id"] == "conv-support-01"
+
+
 
 
 
