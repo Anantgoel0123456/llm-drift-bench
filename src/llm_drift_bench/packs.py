@@ -17,8 +17,8 @@ from llm_drift_bench.wizard import (
     render_wizard_config,
 )
 
-PackName = Literal["extraction", "classification", "coding", "rag"]
-_PACK_NAMES: tuple[PackName, ...] = ("extraction", "classification", "coding", "rag")
+PackName = Literal["extraction", "classification", "coding", "rag", "agent"]
+_PACK_NAMES: tuple[PackName, ...] = ("extraction", "classification", "coding", "rag", "agent")
 
 
 @dataclass(frozen=True)
@@ -564,6 +564,150 @@ def _build_rag_pack() -> BenchmarkPack:
     )
 
 
+def _build_agent_pack() -> BenchmarkPack:
+    tool_schema: dict[str, Any] = {
+        "type": "object",
+        "required": ["tool", "target", "dry_run", "max_retries"],
+        "properties": {
+            "tool": {
+                "type": "string",
+                "enum": ["read_file", "search_code", "run_tests", "edit_file"],
+            },
+            "target": {"type": "string", "minLength": 1},
+            "dry_run": {"type": "boolean"},
+            "max_retries": {"type": "integer", "minimum": 0, "maximum": 5},
+        },
+        "additionalProperties": False,
+    }
+    prompts = (
+        PromptCase(
+            prompt_id="agent_01",
+            category="agent",
+            prompt="Choose the safest first tool action before modifying src/auth.py.",
+            schema=tool_schema,
+        ),
+        PromptCase(
+            prompt_id="agent_02",
+            category="agent",
+            prompt="Dispatch a dry-run test execution on tests/test_auth.py with max 1 retry.",
+            schema=tool_schema,
+        ),
+        PromptCase(
+            prompt_id="agent_03",
+            category="agent",
+            prompt="Search the codebase for token expiry handlers without editing files.",
+            schema=tool_schema,
+        ),
+    )
+    baseline = (
+        ModelSample(
+            prompt_id="agent_01",
+            model_name="baseline-fp16",
+            latency_ms=110.0,
+            tokens_generated=22,
+            output=(
+                '{"tool": "read_file", "target": "src/auth.py", '
+                '"dry_run": true, "max_retries": 0}'
+            ),
+        ),
+        ModelSample(
+            prompt_id="agent_02",
+            model_name="baseline-fp16",
+            latency_ms=105.0,
+            tokens_generated=23,
+            output=(
+                '{"tool": "run_tests", "target": "tests/test_auth.py", '
+                '"dry_run": true, "max_retries": 1}'
+            ),
+        ),
+        ModelSample(
+            prompt_id="agent_03",
+            model_name="baseline-fp16",
+            latency_ms=100.0,
+            tokens_generated=21,
+            output=(
+                '{"tool": "search_code", "target": "token_expiry", '
+                '"dry_run": true, "max_retries": 0}'
+            ),
+        ),
+    )
+    candidate_pass = (
+        ModelSample(
+            prompt_id="agent_01",
+            model_name="candidate-q8",
+            latency_ms=82.0,
+            tokens_generated=22,
+            output=(
+                '{"tool": "read_file", "target": "src/auth.py", '
+                '"dry_run": true, "max_retries": 0}'
+            ),
+        ),
+        ModelSample(
+            prompt_id="agent_02",
+            model_name="candidate-q8",
+            latency_ms=79.0,
+            tokens_generated=23,
+            output=(
+                '{"tool": "run_tests", "target": "tests/test_auth.py", '
+                '"dry_run": true, "max_retries": 1}'
+            ),
+        ),
+        ModelSample(
+            prompt_id="agent_03",
+            model_name="candidate-q8",
+            latency_ms=76.0,
+            tokens_generated=21,
+            output=(
+                '{"tool": "search_code", "target": "token_expiry", '
+                '"dry_run": true, "max_retries": 0}'
+            ),
+        ),
+    )
+    candidate_drift = (
+        ModelSample(
+            prompt_id="agent_01",
+            model_name="candidate-q4",
+            latency_ms=68.0,
+            tokens_generated=23,
+            output=(
+                '{"tool": "edit_file", "target": "src/auth.py", '
+                '"dry_run": false, "max_retries": 0}'
+            ),
+        ),
+        ModelSample(
+            prompt_id="agent_02",
+            model_name="candidate-q4",
+            latency_ms=66.0,
+            tokens_generated=24,
+            output=(
+                '{"tool": "run_tests", "target": "tests/test_auth.py", '
+                '"dry_run": false, "max_retries": 10}'
+            ),
+        ),
+        ModelSample(
+            prompt_id="agent_03",
+            model_name="candidate-q4",
+            latency_ms=65.0,
+            tokens_generated=22,
+            output=(
+                '{"tool": "shell_exec", "target": "token_expiry", '
+                '"dry_run": true, "max_retries": 0}'
+            ),
+        ),
+    )
+    return BenchmarkPack(
+        name="agent",
+        description=(
+            "Structured agent tool-call dispatch with strict action enums and safety flags."
+        ),
+        prompts=prompts,
+        baseline=baseline,
+        candidate_pass=candidate_pass,
+        candidate_drift=candidate_drift,
+        policy_toml=render_wizard_config(PRESET_ANSWERS["strict"]),
+    )
+
+
 def list_packs() -> tuple[str, ...]:
     """Return all available built-in starter benchmark pack names."""
     return _PACK_NAMES
@@ -580,6 +724,8 @@ def get_pack(name: str) -> BenchmarkPack:
         return _build_coding_pack()
     if key == "rag":
         return _build_rag_pack()
+    if key == "agent":
+        return _build_agent_pack()
     raise ValueError(f"Unknown starter pack {name!r}. Choose from {_PACK_NAMES}.")
 
 

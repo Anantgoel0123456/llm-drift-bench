@@ -818,7 +818,7 @@ def _add_init_sample_subparser(
     )
     init_parser.add_argument(
         "--pack",
-        choices=("extraction", "classification", "coding", "rag"),
+        choices=("extraction", "classification", "coding", "rag", "agent"),
         default=None,
         help="Scaffold a curated starter pack (prompts, baseline, pass/drift, drift.toml).",
     )

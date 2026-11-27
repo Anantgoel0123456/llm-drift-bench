@@ -41,5 +41,6 @@ def test_every_starter_pack_is_lint_clean_and_separates_pass_from_drift(
 
 
 def test_unknown_pack_raises() -> None:
+    assert "agent" in list_packs()
     with pytest.raises(ValueError, match="Unknown starter pack"):
         get_pack("nonexistent")
