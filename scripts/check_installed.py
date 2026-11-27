@@ -531,6 +531,43 @@ else:
         if conv_diff_out.returncode != 1:
             raise SystemExit(f"check-conversations --show-diffs: exit {conv_diff_out.returncode}")
         assert len(json.loads(conv_diff_out.stdout)["turn_diffs"]) == 1
+        conv_sarif = subprocess.run(
+            [
+                str(cli), "check-conversations",
+                "-b", str(examples / "conversations-baseline.jsonl"),
+                "-c", str(examples / "conversations-candidate-drift.jsonl"),
+                "--format", "sarif",
+            ],
+            cwd=root, env=env, check=False, capture_output=True, text=True,
+        )
+        if conv_sarif.returncode != 1:
+            raise SystemExit(f"check-conversations --format sarif: exit {conv_sarif.returncode}")
+        assert json.loads(conv_sarif.stdout)["version"] == "2.1.0"
+        conv_junit = subprocess.run(
+            [
+                str(cli), "check-conversations",
+                "-b", str(examples / "conversations-baseline.jsonl"),
+                "-c", str(examples / "conversations-candidate-drift.jsonl"),
+                "--format", "junit",
+            ],
+            cwd=root, env=env, check=False, capture_output=True, text=True,
+        )
+        if conv_junit.returncode != 1:
+            raise SystemExit(f"check-conversations --format junit: exit {conv_junit.returncode}")
+        assert "llm-drift-bench-conversations" in conv_junit.stdout
+        gate_trace = subprocess.run(
+            [
+                str(cli), "gate",
+                "-i", str(examples / "expected-pass.json"),
+                "--baseline-trace", str(trace),
+                "--candidate-trace", str(trace),
+                "--format", "json",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        gate_trace_data = json.loads(gate_trace.stdout)
+        assert gate_trace_data["approved"] is True
+        assert any(c["name"] == "tool_trace_drift" for c in gate_trace_data["checks"])
         case_dir = examples / "case-study"
         case_doc = subprocess.run(
             [
