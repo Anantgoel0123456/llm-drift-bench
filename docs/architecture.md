@@ -149,13 +149,13 @@ other thresholds does not certify latency performance.
 Commands are:
 
 - `run` (with `--config`, `--category`, `--long-text-mode`, `--include-diffs`, `--format pr-comment|csv|sarif`, `--junit-output`, `--sarif-output`, `--github-summary`)
-- `audit` (unified offline audit combining per-prompt drift, field distributions with optional `--group-by`/`--fail-on-widespread` blast-radius checks, optional downstream consumer validation via decision logs or `--validator-module`, optional offline embeddings via `--min-embedding-similarity`, optional multi-turn conversations via `--baseline-conversations`/`--candidate-conversations`, quality checks, logprobs, and token volume in `text`, `json`, `markdown`, or offline `html`)
+- `audit` (unified offline audit combining per-prompt drift, field distributions with optional `--group-by`/`--fail-on-widespread` blast-radius checks, optional downstream consumer validation via decision logs or `--validator-module`, optional offline embeddings via `--min-embedding-similarity`, optional multi-turn conversations via `--baseline-conversations`/`--candidate-conversations`, optional agent tool-trace drift via `--baseline-trace`/`--candidate-trace`, quality checks, logprobs, and token volume in `text`, `json`, `markdown`, or offline `html`)
 - `diff` (policy-aware JSON field-level and unified text diff inspector in `text`, `json`, or GFM `markdown`)
 - `distribution` (cross-prompt JSON field distribution drift using categorical TVD/JSD and numeric quantiles + exact 1D Wasserstein, with optional `--group-by category|metadata:<key>` segmentation, `localized` vs `widespread` blast-radius classification, and `--fail-on-widespread`)
 - `rolling-distribution` (unpaired rolling-baseline cross-window JSON field distribution analyzer pooling prior traffic windows `-w`, measuring consecutive-window baseline jitter, classifying segmented blast radius, and exporting `text`, `json`, `markdown`, or offline `html`)
 - `logprobs` (optional `top_logprobs` token entropy and position-aligned top-k JSD analyzer)
 - `check-embeddings` (opt-in semantic embedding cosine similarity drift analyzer working offline on `metadata.embedding` or via any OpenAI-compatible `/v1/embeddings` endpoint, exporting `text`, `json`, `markdown`, or offline `html`)
-- `check-conversations` (multi-turn assistant conversation trajectory drift analyzer detecting per-turn divergence, earliest divergence turn, escalation slope, turn-count mismatches, JSON adherence drops, refusal flips, and optional `--show-diffs` in `text`, `json`, `markdown`, offline `html` with inline SVG sparklines, `sarif` 2.1.0, or `junit` XML)
+- `check-conversations` (multi-turn assistant conversation trajectory drift analyzer detecting per-turn divergence, earliest divergence turn, escalation slope, turn-count mismatches, JSON adherence drops, refusal flips, optional `--show-diffs`, and `--diagnose` in `text`, `json`, `markdown`, offline `html` with inline SVG sparklines, `sarif` 2.1.0, `junit` XML, or `csv`)
 - `check-quality` (deterministic repetition-loop, refusal-flip, length-truncation, and length-blowup regression checks)
 - `check-formats` (standalone semantic format validator for `date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, and `iso-currency` on exact or `[*]` wildcard JSONPaths)
 - `check-consumer` (downstream consumer validation rejection-rate comparator from pre-recorded decision logs or `--validator-module pkg.mod:fn`, exporting `text`, `json`, `markdown`, or offline `html`)
@@ -169,12 +169,12 @@ Commands are:
 - `matrix` (Prompt x Candidate drift heatmap matrix in `text`, `json`, or offline `html`)
 - `gate` (composite GO/NO-GO release gate combining drift, persistent history trends, statistical tests, tool checks, agent tool-trace drift, segmented distribution blast radius, offline embedding similarity, multi-turn conversation trajectories, and downstream consumer rejection logs)
 - `cost` (explicit generated token volume, optional USD output cost drift comparator, and `--max-token-increase-pct` / `--max-cost-increase-pct` budgets)
-- `badge` (offline shields-style static SVG drift status badge generator)
+- `badge` (offline shields-style static SVG status badge generator supporting saved canonical engine, unified audit, and multi-turn conversation JSON reports)
 - `import-captures` (offline importers for OpenAI Batch API JSONL, Anthropic Message Batches JSONL, and CSV captures)
 - `import-conversations` (offline importers converting OpenAI chat, Anthropic messages, and ShareGPT JSONL transcripts into canonical `ConversationRecord` JSONL)
 - `snapshot` (`create` and `verify` offline SHA-256 baseline fixture integrity manifests, with optional `--conversations` pinning)
 - `check-tools` (supports `--adapter normalized|openai|anthropic|gemini|otel`, `--max-failed-calls`, `--max-tool-calls`, and `--allow-resource`)
-- `diff-tools` (offline baseline vs candidate agent tool-trace drift comparator across normalized, OpenAI, Anthropic, Gemini, and OTel transcripts)
+- `diff-tools` (offline baseline vs candidate agent tool-trace drift comparator across normalized, OpenAI, Anthropic, Gemini, and OTel transcripts in `text`, `json`, `markdown`, or offline `html`)
 - `stats` (bootstrap confidence intervals, multi-run flakiness, paired permutation with Cohen's `d`, and overflow-safe exact two-sided McNemar tests)
 - `history` (`record`, `show` with `--candidate`/`--tag` filters, sparklines & SVG tooltips, `check` moving-window gate, `summary`, and atomic `prune`)
 - `capture` (zero-dependency OpenAI-compatible, Anthropic `--provider anthropic`, and Gemini `--provider gemini` endpoint collector with `--concurrency`, `--runs`, `--json-mode`, `--resume`, `--header`, `Retry-After` backoff, and connection-drop retries)
@@ -185,7 +185,7 @@ Commands are:
 - `lint-suite` (prompt suite quality and JSON Schema hygiene auditor)
 - `calibrate` (automatic `drift.toml` threshold calibration, volatile JSON field detection with `[*]` wildcard collapse, and `--numeric-tolerances`)
 - `init-sample` (optional `--with-policy` to scaffold `drift.toml`, or `--pack extraction|classification|coding|rag|agent` for curated starter suites)
-- `doctor` (pre-flight validation of environment, report/history schema versions, policies, suite schemas/regex safety, blank capture outputs, consumer decision logs, multi-turn conversation transcripts, and ID alignment)
+- `doctor` (pre-flight validation of environment, report/history schema versions, policies, suite schemas/regex safety, blank capture outputs, consumer decision logs, multi-turn conversation transcripts, agent tool traces with credential scanning, and ID alignment)
 - `ai-devices`
 
 Additional library modules:

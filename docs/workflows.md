@@ -66,11 +66,12 @@ llm-drift-bench import-conversations --from openai-chat -i raw-baseline.jsonl -o
 # 2. Scrub API keys and PII before committing golden transcripts
 llm-drift-bench redact --conversations -i baseline-conv.jsonl -o baseline-conv-clean.jsonl
 
-# 3. Pre-flight check conversation_id alignment and export HTML, SARIF 2.1.0, or JUnit XML reports
+# 3. Pre-flight check conversation_id alignment and export HTML, SARIF 2.1.0, JUnit XML, or CSV reports
 llm-drift-bench doctor --baseline-conversations baseline-conv-clean.jsonl --candidate-conversations candidate-conv.jsonl
-llm-drift-bench check-conversations -b baseline-conv-clean.jsonl -c candidate-conv.jsonl --format html -o conversation-drift.html
+llm-drift-bench check-conversations -b baseline-conv-clean.jsonl -c candidate-conv.jsonl --diagnose --format html -o conversation-drift.html
 llm-drift-bench check-conversations -b baseline-conv-clean.jsonl -c candidate-conv.jsonl --format sarif -o conversation-drift.sarif
 llm-drift-bench check-conversations -b baseline-conv-clean.jsonl -c candidate-conv.jsonl --format junit -o conversation-drift.junit.xml
+llm-drift-bench check-conversations -b baseline-conv-clean.jsonl -c candidate-conv.jsonl --format csv -o conversation-drift.csv
 ```
 
 You can also collect live multi-turn candidate transcripts directly from OpenAI-compatible,
@@ -79,4 +80,7 @@ Anthropic, or Gemini endpoints by replaying user/system templates with
 
 To gate releases in one command, pass `--baseline-conversations` and
 `--candidate-conversations` (and optional `--baseline-trace` / `--candidate-trace` for
-agent tool-trace drift) directly to `llm-drift-bench audit` or `llm-drift-bench gate`.
+agent tool-trace drift, or standalone `llm-drift-bench diff-tools --format html -o trace-diff.html`)
+directly to `llm-drift-bench audit` or `llm-drift-bench gate`. Saved engine, audit, and
+conversation JSON reports can all generate offline SVG status badges via
+`llm-drift-bench badge -i report.json -o badge.svg`.
