@@ -2789,6 +2789,37 @@ def test_cli_import_conversations_roundtrip(
     red_text = redacted_conv.read_text(encoding="utf-8")
     assert "user@example.com" not in red_text and "[REDACTED:OPENAI_KEY]" in red_text
 
+    # Snapshot create & verify with --conversations
+    import shutil
+
+    snap_dir = tmp_path / "snap_conv_cli"
+    snap_dir.mkdir()
+    shutil.copy2(EXAMPLES / "baseline.jsonl", snap_dir / "baseline.jsonl")
+    shutil.copy2(EXAMPLES / "conversations-baseline.jsonl", snap_dir / "conversations.jsonl")
+    snap_manifest = snap_dir / "manifest.json"
+    assert (
+        main(
+            [
+                "snapshot",
+                "create",
+                "-b",
+                str(snap_dir / "baseline.jsonl"),
+                "--conversations",
+                str(snap_dir / "conversations.jsonl"),
+                "-o",
+                str(snap_manifest),
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    snap_json = json.loads(capsys.readouterr().out)
+    assert snap_json["conversation_count"] == 2
+    assert main(["snapshot", "verify", "-i", str(snap_manifest)]) == 0
+    assert "VALID (2 artifact(s) verified)" in capsys.readouterr().out
+
+
 
 
 

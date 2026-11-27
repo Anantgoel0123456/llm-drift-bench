@@ -387,6 +387,11 @@ def register_extra_subcommands(
     )
     snap_create.add_argument("--config", default=None, help="Optional drift.toml/drift.json file.")
     snap_create.add_argument(
+        "--conversations",
+        default=None,
+        help="Optional baseline multi-turn conversations file (.json/.jsonl) to pin.",
+    )
+    snap_create.add_argument(
         "--base-dir", default=None, help="Optional root directory for relative manifest paths."
     )
     snap_create.add_argument(
@@ -1397,13 +1402,14 @@ def _handle_snapshot(args: argparse.Namespace, protect_inputs: ProtectFn) -> int
     if action is None:
         raise ValueError("Specify a snapshot action: 'create' or 'verify'.")
     if action == "create":
-        protect_inputs(args.output, args.baseline, args.suite, args.config)
+        protect_inputs(args.output, args.baseline, args.suite, args.config, args.conversations)
         from llm_drift_bench.snapshot import create_snapshot_manifest
 
         manifest = create_snapshot_manifest(
             args.baseline,
             suite_path=args.suite,
             config_path=args.config,
+            conversations_path=args.conversations,
             base_dir=args.base_dir,
             output_path=args.output,
         )

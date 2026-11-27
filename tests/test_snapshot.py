@@ -171,3 +171,34 @@ def test_snapshot_validation_base_dir_and_prompt_id_digest_mismatch(tmp_path: Pa
         create_snapshot_manifest(sub / "baseline.jsonl", suite_path=empty_suite)
 
 
+def test_snapshot_conversations_pinning_and_verification(tmp_path: Path) -> None:
+    shutil.copy2(EXAMPLES / "baseline.jsonl", tmp_path / "baseline.jsonl")
+    shutil.copy2(EXAMPLES / "conversations-baseline.jsonl", tmp_path / "conversations.jsonl")
+    manifest_file = tmp_path / "snap_conv.json"
+
+    manifest = create_snapshot_manifest(
+        tmp_path / "baseline.jsonl",
+        conversations_path=tmp_path / "conversations.jsonl",
+        output_path=manifest_file,
+    )
+    assert manifest.conversation_count == 2
+    assert manifest.conversation_ids_sha256 is not None
+    assert [a.role for a in manifest.artifacts] == ["baseline", "conversations"]
+    assert verify_snapshot_manifest(manifest_file).valid is True
+
+    # Tampered conversation_ids_sha256 is detected
+    bad_meta = manifest.to_dict()
+    bad_meta["conversation_ids_sha256"] = "0" * 64
+    bad_file = tmp_path / "bad_conv_meta.json"
+    bad_file.write_text(json.dumps(bad_meta), encoding="utf-8")
+    ver = verify_snapshot_manifest(bad_file)
+    assert ver.valid is False and "conversation ID digest" in ver.mismatches[0]
+
+    # Validation guards for conversation_count & conversation_ids_sha256
+    with pytest.raises(ValueError, match="conversation_count"):
+        SnapshotManifest.from_dict({**manifest.to_dict(), "conversation_count": 0})
+    with pytest.raises(ValueError, match="conversation_ids_sha256"):
+        SnapshotManifest.from_dict({**manifest.to_dict(), "conversation_ids_sha256": ""})
+
+
+

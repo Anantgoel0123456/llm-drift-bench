@@ -14,6 +14,7 @@ from typing import Any
 from llm_drift_bench import __version__
 from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench._matching import require_same_ids
+from llm_drift_bench.conversation import load_conversations
 from llm_drift_bench.engine import load_model_samples, load_prompt_cases
 from llm_drift_bench.policy import load_policy
 
@@ -87,9 +88,11 @@ class SnapshotManifest:
     sample_count: int
     prompt_ids_sha256: str
     artifacts: tuple[SnapshotArtifact, ...]
+    conversation_count: int | None = None
+    conversation_ids_sha256: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "version": self.version,
             "created_at": self.created_at,
             "tool_version": self.tool_version,
@@ -98,6 +101,11 @@ class SnapshotManifest:
             "prompt_ids_sha256": self.prompt_ids_sha256,
             "artifacts": [item.to_dict() for item in self.artifacts],
         }
+        if self.conversation_count is not None:
+            payload["conversation_count"] = self.conversation_count
+        if self.conversation_ids_sha256 is not None:
+            payload["conversation_ids_sha256"] = self.conversation_ids_sha256
+        return payload
 
     def to_json(self, *, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent) + "\n"
@@ -114,6 +122,16 @@ class SnapshotManifest:
         count = data.get("sample_count")
         if type(count) is not int or count < 1:
             raise ValueError("Snapshot manifest 'sample_count' must be a positive integer.")
+        raw_conv_count = data.get("conversation_count")
+        if raw_conv_count is not None and (type(raw_conv_count) is not int or raw_conv_count < 1):
+            raise ValueError("Snapshot manifest 'conversation_count' must be a positive integer.")
+        raw_conv_sha = data.get("conversation_ids_sha256")
+        if raw_conv_sha is not None and (
+            not isinstance(raw_conv_sha, str) or not raw_conv_sha.strip()
+        ):
+            raise ValueError(
+                "Snapshot manifest 'conversation_ids_sha256' must be a non-empty string."
+            )
         raw_artifacts = data.get("artifacts")
         if not isinstance(raw_artifacts, list) or not raw_artifacts:
             raise ValueError("Snapshot manifest requires a non-empty 'artifacts' list.")
@@ -131,6 +149,8 @@ class SnapshotManifest:
             sample_count=count,
             prompt_ids_sha256=data["prompt_ids_sha256"],
             artifacts=artifacts,
+            conversation_count=raw_conv_count,
+            conversation_ids_sha256=raw_conv_sha,
         )
 
 
@@ -180,6 +200,7 @@ def create_snapshot_manifest(
     *,
     suite_path: str | Path | None = None,
     config_path: str | Path | None = None,
+    conversations_path: str | Path | None = None,
     base_dir: str | Path | None = None,
     output_path: str | Path | None = None,
     created_at: str | None = None,
@@ -207,6 +228,15 @@ def create_snapshot_manifest(
         load_policy(cfg_file)
         tagged_files.append(("policy", cfg_file))
 
+    conv_count: int | None = None
+    conv_ids_sha: str | None = None
+    if conversations_path is not None:
+        conv_file = Path(conversations_path).resolve()
+        conv_records = load_conversations(conv_file)
+        conv_count = len(conv_records)
+        conv_ids_sha = _sha256_prompt_ids({r.conversation_id for r in conv_records})
+        tagged_files.append(("conversations", conv_file))
+
     root = _resolve_root([p for _, p in tagged_files], base_dir, output_path)
     artifacts: list[SnapshotArtifact] = []
     for role, path in tagged_files:
@@ -229,6 +259,8 @@ def create_snapshot_manifest(
         sample_count=len(samples),
         prompt_ids_sha256=_sha256_prompt_ids(base_ids),
         artifacts=tuple(artifacts),
+        conversation_count=conv_count,
+        conversation_ids_sha256=conv_ids_sha,
     )
     if output_path is not None:
         _atomic_write(Path(output_path), manifest.to_json(indent=2))
@@ -275,6 +307,21 @@ def verify_snapshot_manifest(
             ):
                 mismatches.append(
                     f"baseline ({artifact.path}): prompt ID digest or sample count mismatch"
+                )
+        elif (
+            artifact.role == "conversations"
+            and manifest.conversation_count is not None
+            and manifest.conversation_ids_sha256 is not None
+        ):
+            conv_records = load_conversations(target)
+            actual_conv_sha = _sha256_prompt_ids({r.conversation_id for r in conv_records})
+            if (
+                len(conv_records) != manifest.conversation_count
+                or actual_conv_sha != manifest.conversation_ids_sha256
+            ):
+                mismatches.append(
+                    f"conversations ({artifact.path}): "
+                    "conversation ID digest or count mismatch"
                 )
 
     return SnapshotVerification(
