@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from llm_drift_bench.conversation import ConversationDriftReport
 from llm_drift_bench.models import DriftBenchmarkReport
 
 
@@ -116,4 +117,87 @@ def diagnose_report(report: DriftBenchmarkReport) -> list[Finding]:
                 "Capture latency for every baseline and candidate response.",
             )
         )
+    return findings
+
+
+def diagnose_conversation_report(report: ConversationDriftReport) -> list[Finding]:
+    """Explain a ConversationDriftReport with actionable per-conversation root causes."""
+    findings: list[Finding] = []
+    ordered = sorted(
+        report.conversations,
+        key=lambda item: (-item.max_turn_drift, item.conversation_id),
+    )
+    for conv in ordered:
+        if not conv.drifted:
+            continue
+        emitted = False
+        if conv.refusal_flip_turns:
+            turns_str = ", ".join(f"turn {idx}" for idx in conv.refusal_flip_turns)
+            findings.append(
+                Finding(
+                    "refusal_flip",
+                    conv.conversation_id,
+                    f"Candidate refused previously answered prompt(s) at {turns_str}.",
+                    "Inspect system prompt safety framing and multi-turn context wording.",
+                )
+            )
+            emitted = True
+
+        json_drop_turns = [
+            t.turn_index
+            for t in conv.turn_results
+            if t.json_valid_baseline and not t.json_valid_candidate
+        ]
+        if json_drop_turns:
+            turns_str = ", ".join(f"turn {idx}" for idx in json_drop_turns)
+            findings.append(
+                Finding(
+                    "json_drop",
+                    conv.conversation_id,
+                    f"Candidate lost valid JSON formatting at {turns_str}.",
+                    "Reinforce JSON output reminders or enable json_mode on later turns.",
+                )
+            )
+            emitted = True
+
+        if conv.turn_count_delta != 0:
+            findings.append(
+                Finding(
+                    "turn_count_mismatch",
+                    conv.conversation_id,
+                    f"Assistant turn count changed ({conv.baseline_assistant_turns} -> "
+                    f"{conv.candidate_assistant_turns}).",
+                    "Check stop sequences, early termination, or unexpected follow-up loops.",
+                )
+            )
+            emitted = True
+
+        if conv.escalation_slope is not None and conv.escalation_slope > 0.15:
+            findings.append(
+                Finding(
+                    "snowball_escalation",
+                    conv.conversation_id,
+                    f"Drift escalated across turns (slope {conv.escalation_slope:+.4f}, "
+                    f"first divergence at turn {conv.first_divergence_turn}).",
+                    "Inspect the earliest diverging turn with 'check-conversations --show-diffs'.",
+                )
+            )
+            emitted = True
+
+        if not emitted:
+            findings.append(
+                Finding(
+                    "turn_drift",
+                    conv.conversation_id,
+                    f"Max turn drift {conv.max_turn_drift:.4f} "
+                    f"(first divergence at turn {conv.first_divergence_turn}).",
+                    "Run 'check-conversations --show-diffs' to inspect turn-by-turn changes.",
+                )
+            )
+
+    if not report.passed:
+        for reason in report.failure_reasons:
+            findings.append(
+                Finding("suite", None, reason, "Review conversation gates and transcripts.")
+            )
     return findings

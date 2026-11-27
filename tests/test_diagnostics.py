@@ -101,3 +101,50 @@ def test_diagnose_report_gives_specific_advice_for_bounds_pattern_and_const() ->
     assert "empty or truncated list" in findings["$.tags: minItems"]
     assert "constant value" in findings["$.version: const"]
 
+    # Schema-clean JSON prompt that drifted purely on text content emits generic "drift" finding
+    prose_rep = DriftBenchmarkEngine().evaluate(
+        [ModelSample("p_prose", '{"msg": "alpha beta gamma"}', latency_ms=10.0)],
+        [ModelSample("p_prose", '{"msg": "totally unrelated answer text"}', latency_ms=10.0)],
+    )
+    assert any(f.code == "drift" for f in diagnose_report(prose_rep))
+
+
+def test_diagnose_conversation_report_root_causes() -> None:
+    from llm_drift_bench.conversation import (
+        ConversationRecord,
+        ConversationTurn,
+        analyze_conversation_drift,
+    )
+    from llm_drift_bench.diagnostics import diagnose_conversation_report
+
+    def _c(cid: str, replies: list[str]) -> ConversationRecord:
+        turns = []
+        for idx, reply in enumerate(replies, start=1):
+            turns.append(ConversationTurn("user", f"u{idx}"))
+            turns.append(ConversationTurn("assistant", reply))
+        return ConversationRecord(cid, tuple(turns))
+
+    base = [
+        _c("c_snowball", ['{"step": 1}', '{"step": 2}', '{"step": 3}']),
+        _c("c_turn_only", ["hello world one two three"]),
+        _c("c_ok", ["same answer"]),
+    ]
+    cand = [
+        _c("c_snowball", ['{"step": 1}', "I'm sorry, I cannot assist with that."]),
+        _c("c_turn_only", ["completely different wording here"]),
+        _c("c_ok", ["same answer"]),
+    ]
+    rep = analyze_conversation_drift(base, cand, max_turn_count_delta=0)
+    findings = diagnose_conversation_report(rep)
+    by_cid: dict[str | None, set[str]] = {}
+    for item in findings:
+        by_cid.setdefault(item.prompt_id, set()).add(item.code)
+
+    assert {"refusal_flip", "json_drop", "turn_count_mismatch", "snowball_escalation"} <= by_cid[
+        "c_snowball"
+    ]
+    assert by_cid["c_turn_only"] == {"turn_drift"}
+    assert "c_ok" not in by_cid
+    assert "suite" in by_cid[None]
+
+

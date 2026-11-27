@@ -90,7 +90,11 @@ if TYPE_CHECKING:
         rank_candidate_costs,
     )
     from llm_drift_bench.csv_export import export_csv_report
-    from llm_drift_bench.diagnostics import Finding, diagnose_report
+    from llm_drift_bench.diagnostics import (
+        Finding,
+        diagnose_conversation_report,
+        diagnose_report,
+    )
     from llm_drift_bench.diffing import (
         FieldChange,
         PromptDiff,
@@ -471,6 +475,7 @@ _EXPORTS: dict[str, str] = {
     "detect_numeric_tolerances": "calibrate",
     "detect_repetition_loop": "quality_checks",
     "detect_volatile_fields": "calibrate",
+    "diagnose_conversation_report": "diagnostics",
     "diagnose_report": "diagnostics",
     "diff_captures": "diffing",
     "diff_conversations": "conversation",
@@ -737,6 +742,7 @@ __all__ = [
     "detect_numeric_tolerances",
     "detect_repetition_loop",
     "detect_volatile_fields",
+    "diagnose_conversation_report",
     "diagnose_report",
     "diff_captures",
     "diff_conversations",
