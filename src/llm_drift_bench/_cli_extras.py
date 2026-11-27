@@ -791,6 +791,41 @@ def register_extra_subcommands(
         help="Max mean trajectory drift for attached conversation checks (default: 0.25).",
     )
     audit_p.add_argument(
+        "--baseline-trace",
+        default=None,
+        metavar="FILE",
+        help="Optional baseline agent tool-trace file for tool-usage drift audit.",
+    )
+    audit_p.add_argument(
+        "--candidate-trace",
+        default=None,
+        metavar="FILE",
+        help="Optional candidate agent tool-trace file for tool-usage drift audit.",
+    )
+    audit_p.add_argument(
+        "--trace-adapter",
+        choices=("normalized", "openai", "anthropic", "gemini", "otel"),
+        default="normalized",
+        help="Format adapter for attached tool traces (default: normalized).",
+    )
+    audit_p.add_argument(
+        "--max-tool-call-increase",
+        type=int,
+        default=None,
+        help="Optional max allowed increase in total tool invocations vs baseline trace.",
+    )
+    audit_p.add_argument(
+        "--max-tool-failed-increase",
+        type=int,
+        default=None,
+        help="Optional max allowed increase in failed tool invocations vs baseline trace.",
+    )
+    audit_p.add_argument(
+        "--fail-on-new-edit-resources",
+        action="store_true",
+        help="Fail tool-trace audit when candidate edits resources not edited in baseline.",
+    )
+    audit_p.add_argument(
         "--format",
         choices=("text", "json", "markdown", "html"),
         default="text",
@@ -1928,6 +1963,9 @@ def _handle_audit(
         raise ValueError(
             "Both --baseline-conversations and --candidate-conversations are required."
         )
+    using_traces = args.baseline_trace is not None or args.candidate_trace is not None
+    if using_traces and not (args.baseline_trace and args.candidate_trace):
+        raise ValueError("Both --baseline-trace and --candidate-trace are required.")
     protect_inputs(
         args.output,
         args.baseline,
@@ -1938,6 +1976,8 @@ def _handle_audit(
         args.candidate_decisions,
         args.baseline_conversations,
         args.candidate_conversations,
+        args.baseline_trace,
+        args.candidate_trace,
     )
     from llm_drift_bench.audit import (
         export_audit_html,
@@ -2004,6 +2044,26 @@ def _handle_audit(
             max_mean_drift=args.max_mean_trajectory_drift,
         )
 
+    tool_trace_diff = None
+    if using_traces:
+        from llm_drift_bench.adapters import load_adapted_tool_events
+        from llm_drift_bench.tool_events import compare_tool_traces
+        from llm_drift_bench.tool_log import load_tool_events
+
+        if args.trace_adapter == "normalized":
+            base_ev = load_tool_events(args.baseline_trace)
+            cand_ev = load_tool_events(args.candidate_trace)
+        else:
+            base_ev = load_adapted_tool_events(args.baseline_trace, adapter=args.trace_adapter)
+            cand_ev = load_adapted_tool_events(args.candidate_trace, adapter=args.trace_adapter)
+        tool_trace_diff = compare_tool_traces(
+            base_ev,
+            cand_ev,
+            max_call_increase=args.max_tool_call_increase,
+            max_failed_increase=args.max_tool_failed_increase,
+            fail_on_new_edit_resources=args.fail_on_new_edit_resources,
+        )
+
     report = run_full_audit(
         base,
         cand,
@@ -2021,6 +2081,7 @@ def _handle_audit(
         consumer_comparison=consumer_comp,
         embedding_report=embedding_rep,
         conversation_report=conversation_rep,
+        tool_trace_diff=tool_trace_diff,
     )
     if args.format == "json":
         rendered = json.dumps(report.to_dict(), indent=2) + "\n"

@@ -231,3 +231,80 @@ def test_full_audit_embedding_and_conversation_integration(tmp_path: Path) -> No
     assert "embeddings" in payload and "conversations" in payload
 
 
+def test_full_audit_tool_trace_integration_and_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+
+    from llm_drift_bench.cli import main
+    from llm_drift_bench.tool_events import ToolEvent, compare_tool_traces
+
+    samples = [ModelSample(prompt_id="p1", output='{"ok": true}', model_name="m1")]
+    base_ev = [ToolEvent(0, "read", "src/a.py@1", start=0, end=10)]
+    cand_ev = [
+        ToolEvent(0, "read", "src/a.py@1", start=0, end=10),
+        ToolEvent(1, "edit", "src/secret.py@1"),
+    ]
+    diff_fail = compare_tool_traces(base_ev, cand_ev, fail_on_new_edit_resources=True)
+    rep = run_full_audit(samples, samples, tool_trace_diff=diff_fail)
+    assert rep.passed is False
+    assert rep.tool_trace is diff_fail
+    assert any("new resource" in r for r in rep.failure_reasons)
+    assert "Tool trace   : FAIL" in format_audit_text(rep)
+    assert "| Agent tool trace | FAIL |" in format_audit_markdown(rep)
+    html = export_audit_html(rep)
+    assert "Agent Tool Calls" in html and "1 &rarr; 2 (FAIL)" in html
+    assert "tool_trace" in rep.to_dict()
+
+    examples = Path(__file__).resolve().parents[1] / "examples"
+    b_trace = tmp_path / "b.jsonl"
+    c_trace = tmp_path / "c.jsonl"
+    b_trace.write_text(
+        '{"kind": "read", "resource": "a@1", "start": 0, "end": 10}\n', encoding="utf-8"
+    )
+    c_trace.write_text(
+        '{"kind": "read", "resource": "a@1", "start": 0, "end": 10}\n'
+        '{"kind": "edit", "resource": "b@1"}\n',
+        encoding="utf-8",
+    )
+    assert (
+        main(
+            [
+                "audit",
+                "-s",
+                str(examples / "extraction-suite.json"),
+                "-b",
+                str(examples / "baseline.jsonl"),
+                "-c",
+                str(examples / "candidate-pass.jsonl"),
+                "--baseline-trace",
+                str(b_trace),
+                "--candidate-trace",
+                str(c_trace),
+                "--fail-on-new-edit-resources",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["passed"] is False and doc["tool_trace"]["passed"] is False
+
+    # Missing paired trace flag returns usage/input error (exit 2)
+    assert (
+        main(
+            [
+                "audit",
+                "-b",
+                str(examples / "baseline.jsonl"),
+                "-c",
+                str(examples / "candidate-pass.jsonl"),
+                "--baseline-trace",
+                str(b_trace),
+            ]
+        )
+        == 2
+    )
+
+

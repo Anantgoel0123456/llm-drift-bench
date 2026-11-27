@@ -30,6 +30,7 @@ from llm_drift_bench.models import (
 )
 from llm_drift_bench.policy import DriftPolicy
 from llm_drift_bench.quality_checks import QualityReport, run_quality_checks
+from llm_drift_bench.tool_events import ToolTraceDiff
 
 
 def _validate_optional_unit(name: str, val: float | None) -> None:
@@ -54,6 +55,7 @@ class AuditReport:
     consumer: ConsumerComparison | None = None
     embeddings: EmbeddingDriftReport | None = None
     conversations: ConversationDriftReport | None = None
+    tool_trace: ToolTraceDiff | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -73,6 +75,8 @@ class AuditReport:
             payload["embeddings"] = self.embeddings.to_dict()
         if self.conversations is not None:
             payload["conversations"] = self.conversations.to_dict()
+        if self.tool_trace is not None:
+            payload["tool_trace"] = self.tool_trace.to_dict()
         return payload
 
 
@@ -97,6 +101,7 @@ def run_full_audit(
     consumer_comparison: ConsumerComparison | None = None,
     embedding_report: EmbeddingDriftReport | None = None,
     conversation_report: ConversationDriftReport | None = None,
+    tool_trace_diff: ToolTraceDiff | None = None,
 ) -> AuditReport:
     """Run canonical drift, field distribution, quality, logprobs, and cost checks in one pass."""
     _validate_optional_unit("max_tvd", max_tvd)
@@ -212,6 +217,10 @@ def run_full_audit(
             conversation_report.failure_reasons
             or ("Multi-turn conversation trajectory check failed.",)
         )
+    if tool_trace_diff is not None and not tool_trace_diff.passed:
+        failures.extend(
+            tool_trace_diff.failure_reasons or ("Agent tool-trace drift check failed.",)
+        )
 
     return AuditReport(
         benchmark=benchmark,
@@ -225,6 +234,7 @@ def run_full_audit(
         consumer=consumer_comparison,
         embeddings=embedding_report,
         conversations=conversation_report,
+        tool_trace=tool_trace_diff,
     )
 
 
@@ -290,6 +300,14 @@ def format_audit_text(report: AuditReport) -> str:
             f"drifted {conv.drifted_conversations}/{conv.total_conversations}, "
             f"mean drift={conv.mean_trajectory_drift:.4f}, "
             f"refusal flips={conv.total_refusal_flip_turns}"
+        )
+    if report.tool_trace is not None:
+        tt = report.tool_trace
+        lines.append(
+            f"Tool trace   : {'PASS' if tt.passed else 'FAIL'} | "
+            f"calls {tt.baseline_calls} -> {tt.candidate_calls} ({tt.call_delta:+d}), "
+            f"failed {tt.baseline_failed} -> {tt.candidate_failed}, "
+            f"jaccard={tt.action_jaccard:.4f}"
         )
     if report.failure_reasons:
         lines.append("")
@@ -365,6 +383,14 @@ def format_audit_markdown(report: AuditReport) -> str:
             f"| drifted {conv.drifted_conversations}/{conv.total_conversations}, "
             f"mean={conv.mean_trajectory_drift:.4f}, "
             f"refusal flips={conv.total_refusal_flip_turns} |"
+        )
+    if report.tool_trace is not None:
+        tt = report.tool_trace
+        lines.append(
+            f"| Agent tool trace | {'PASS' if tt.passed else 'FAIL'} "
+            f"| calls {tt.baseline_calls} -&gt; {tt.candidate_calls} ({tt.call_delta:+d}), "
+            f"jaccard={tt.action_jaccard:.4f}, "
+            f"new edits={len(tt.added_edit_resources)} |"
         )
     if report.failure_reasons:
         lines += ["", "## Failure reasons", ""]
@@ -467,6 +493,13 @@ def export_audit_html(
             '  <div class="card"><div class="label">Conversations Drifted</div>'
             f'<div class="val">{conv.drifted_conversations} / {conv.total_conversations} '
             f'({"PASS" if conv.passed else "FAIL"})</div></div>\n'
+        )
+    if report.tool_trace is not None:
+        tt = report.tool_trace
+        extra_cards += (
+            '  <div class="card"><div class="label">Agent Tool Calls</div>'
+            f'<div class="val">{tt.baseline_calls} &rarr; {tt.candidate_calls} '
+            f'({"PASS" if tt.passed else "FAIL"})</div></div>\n'
         )
     conv_section = ""
     if report.conversations is not None:
