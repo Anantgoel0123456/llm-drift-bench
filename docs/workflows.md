@@ -51,4 +51,26 @@ data with good latency.
 
 Use `report -i report.json --format html -o report.html` to view an engine report
 in a browser. This is a standalone offline document, not a monitoring service.
-Run history and trace correlation remain roadmap items.
+
+## Multi-turn conversation trajectory drift
+
+When assistant behavior drifts gradually over multi-turn dialogs (snowballing
+changes, dropped JSON formatting on turn 3, or late-turn refusal flips), import
+existing OpenAI chat, Anthropic messages, or ShareGPT exports, scrub secrets/PII,
+pin the baseline snapshot, and run trajectory checks offline:
+
+```bash
+# 1. Convert existing chat logs to canonical ConversationRecord JSONL
+llm-drift-bench import-conversations --from openai-chat -i raw-baseline.jsonl -o baseline-conv.jsonl
+
+# 2. Scrub API keys and PII before committing golden transcripts
+llm-drift-bench redact --conversations -i baseline-conv.jsonl -o baseline-conv-clean.jsonl
+
+# 3. Pre-flight check conversation_id alignment and export an offline HTML dashboard with SVG sparklines
+llm-drift-bench doctor --baseline-conversations baseline-conv-clean.jsonl --candidate-conversations candidate-conv.jsonl
+llm-drift-bench check-conversations -b baseline-conv-clean.jsonl -c candidate-conv.jsonl --format html -o conversation-drift.html
+```
+
+To gate releases in one command, pass `--baseline-conversations` and
+`--candidate-conversations` directly to `llm-drift-bench audit` or
+`llm-drift-bench gate`.

@@ -282,7 +282,7 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | Command | Purpose |
 | :--- | :--- |
 | `run` | Compare baseline and candidate captures (`--config`, `--category`, `--long-text-mode`, `--include-diffs`, `--format`, `--junit-output`, `--sarif-output`, `--github-summary`) |
-| `audit` | Run a unified offline audit combining per-prompt drift, field distributions (`--group-by`, `--shift-threshold`, `--fail-on-widespread`), downstream consumer validation (`--baseline-decisions`/`--candidate-decisions` or `--validator-module`), quality checks, logprobs, and token volume (`--format text\|json\|markdown\|html`, `-o`) |
+| `audit` | Run a unified offline audit combining per-prompt drift, field distributions (`--group-by`, `--shift-threshold`, `--fail-on-widespread`), downstream consumer validation (`--baseline-decisions`/`--candidate-decisions` or `--validator-module`), offline embeddings (`--min-embedding-similarity`), multi-turn conversations (`--baseline-conversations`/`--candidate-conversations`), quality checks, logprobs, and token volume (`--format text\|json\|markdown\|html`, `-o`) |
 | `diff` | Show policy-aware JSON field-level or unified text diffs between two captures (`--only-changed`, `--prompt-id`, `--format text\|json\|markdown`) |
 | `distribution` | Measure cross-prompt JSON field distribution drift (categorical TVD/JSD, numeric p10/p50/p90 & normalized 1D Wasserstein; `--group-by category\|metadata:<key>`, `--shift-threshold`, `--fail-on-widespread`, `--max-tvd`, `--max-jsd`, `--max-wasserstein`, `--format text\|json\|markdown\|html`) |
 | `rolling-distribution` | Compare an unpaired candidate capture window against a pooled rolling baseline of prior windows (`-w FILE` repeatable), measuring natural window-to-window baseline jitter (`--max-jitter-multiplier`), segmented blast radius (`--group-by`, `--fail-on-widespread`), and exporting `text\|json\|markdown\|html` |
@@ -304,12 +304,13 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | `cost` | Compare explicit generated token counts & optional USD output cost drift (`--max-token-increase-pct`, `--max-cost-increase-pct`) |
 | `badge` | Generate an offline shields-style static SVG drift status badge from a saved engine report (`--label`) |
 | `import-captures` | Convert OpenAI Batch API JSONL, Anthropic Message Batches JSONL, or CSV exports into canonical `ModelSample` JSONL (`--from`) |
-| `snapshot` | Create or verify offline SHA-256 integrity manifests (`create`, `verify`) for golden baseline fixtures and policies |
+| `import-conversations` | Convert OpenAI chat, Anthropic messages, or ShareGPT JSONL transcripts into canonical `ConversationRecord` JSONL (`--from`) |
+| `snapshot` | Create or verify offline SHA-256 integrity manifests (`create`, `verify`) for golden baseline fixtures, policies, and optional `--conversations` transcripts |
 | `check-tools` | Offline read-before-edit, `--max-failed-calls`, `--max-tool-calls`, & `--allow-resource` checks on normalized/OpenAI/Anthropic/Gemini/OTel traces |
 | `stats` | Multi-run bootstrap CIs, flaky-prompt detection, paired permutation (with Cohen's `d`), and exact two-sided McNemar tests |
 | `history` | Record reports (`record`, with optional `--distribution-tvd`/`--distribution-wasserstein`), inspect sparklines/SVG trends (`show`), gate on persistent regressions (`check --persist-windows`), view summaries (`summary`), and compact ledgers (`prune`) |
 | `capture` | Capture reproducible JSONL outputs from OpenAI-compatible, Anthropic (`--provider anthropic`), or Gemini (`--provider gemini`) endpoints (`--top-logprobs`, `--resume`, `--runs`) |
-| `redact` | Deterministically scrub API keys, private keys, and optional PII from captures before sharing or archiving (`--secrets-only`) |
+| `redact` | Deterministically scrub API keys, private keys, and optional PII from captures or multi-turn transcripts (`--conversations`, `--secrets-only`) |
 | `subsample` | Deterministically draw stratified prompt subsamples and slice matching captures in lockstep (`--size`, `--seed`, `--slice-capture`) |
 | `infer-schema` | Auto-infer a supported-subset JSON Schema prompt suite from baseline captures |
 | `lint-suite` | Audit prompt suites for duplicate IDs/prompts, unsatisfiable schemas, permissive objects, and unsupported keywords (`--strict`) |
