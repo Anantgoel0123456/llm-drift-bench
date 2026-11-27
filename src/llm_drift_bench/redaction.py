@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
@@ -10,6 +11,7 @@ from typing import Any
 
 from llm_drift_bench.conversation import ConversationRecord, ConversationTurn
 from llm_drift_bench.models import ModelSample
+from llm_drift_bench.tool_events import ToolEvent
 
 _SECRET_REDACTION_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("PRIVATE_KEY", re.compile(
@@ -295,3 +297,60 @@ def redact_conversations(
         counts_by_kind=dict(sorted(overall.items())),
     )
     return cleaned_records, report
+
+
+def redact_tool_events(
+    events: Sequence[ToolEvent],
+    *,
+    include_pii: bool = True,
+    custom_patterns: Mapping[str, str] | None = None,
+) -> tuple[list[ToolEvent], RedactionReport]:
+    """Redact secrets and optional PII/custom patterns across normalized ToolEvent resources."""
+    custom_rules = _compile_custom_patterns(custom_patterns)
+    overall: Counter[str] = Counter()
+    cleaned_events: list[ToolEvent] = []
+    redacted_count = 0
+
+    for ev in events:
+        clean_res, found = _redact_text_compiled(
+            ev.resource, include_pii=include_pii, custom_rules=custom_rules
+        )
+        if found:
+            redacted_count += 1
+            overall.update(found)
+        cleaned_events.append(
+            ToolEvent(
+                sequence=ev.sequence,
+                kind=ev.kind,
+                resource=clean_res,
+                start=ev.start,
+                end=ev.end,
+                success=ev.success,
+            )
+        )
+
+    report = RedactionReport(
+        total_samples=len(events),
+        redacted_samples=redacted_count,
+        total_replacements=sum(overall.values()),
+        counts_by_kind=dict(sorted(overall.items())),
+    )
+    return cleaned_events, report
+
+
+def serialize_tool_events_jsonl(events: Sequence[ToolEvent]) -> str:
+    """Serialize normalized ToolEvent objects to deterministic JSONL."""
+    lines: list[str] = []
+    for ev in events:
+        row: dict[str, Any] = {
+            "sequence": ev.sequence,
+            "kind": ev.kind,
+            "resource": ev.resource,
+            "success": ev.success,
+        }
+        if ev.start is not None:
+            row["start"] = ev.start
+        if ev.end is not None:
+            row["end"] = ev.end
+        lines.append(json.dumps(row, ensure_ascii=False))
+    return ("\n".join(lines) + "\n") if lines else ""

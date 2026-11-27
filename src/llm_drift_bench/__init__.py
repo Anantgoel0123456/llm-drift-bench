@@ -263,6 +263,8 @@ if TYPE_CHECKING:
         redact_conversations,
         redact_samples,
         redact_text,
+        redact_tool_events,
+        serialize_tool_events_jsonl,
     )
     from llm_drift_bench.report_io import load_report
     from llm_drift_bench.reporter import (
@@ -629,6 +631,7 @@ _EXPORTS: dict[str, str] = {
     "redact_conversations": "redaction",
     "redact_samples": "redaction",
     "redact_text": "redaction",
+    "redact_tool_events": "redaction",
     "register_scorer": "scorers",
     "render_calibrated_toml": "calibrate",
     "render_console_report": "reporter",
@@ -643,6 +646,7 @@ _EXPORTS: dict[str, str] = {
     "score_captures": "scorers",
     "serialize_conversations_jsonl": "batch_import",
     "serialize_samples_jsonl": "capture",
+    "serialize_tool_events_jsonl": "redaction",
     "slice_samples_for_suite": "sampling",
     "sparkline": "history",
     "summarize_history": "history",
@@ -911,6 +915,7 @@ __all__ = [
     "redact_conversations",
     "redact_samples",
     "redact_text",
+    "redact_tool_events",
     "register_scorer",
     "render_calibrated_toml",
     "render_console_report",
@@ -925,6 +930,7 @@ __all__ = [
     "score_captures",
     "serialize_conversations_jsonl",
     "serialize_samples_jsonl",
+    "serialize_tool_events_jsonl",
     "slice_samples_for_suite",
     "sparkline",
     "summarize_history",

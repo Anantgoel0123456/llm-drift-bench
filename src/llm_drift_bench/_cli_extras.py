@@ -38,6 +38,17 @@ def register_extra_subcommands(
         help="Treat input as multi-turn ConversationRecord JSON/JSONL instead of ModelSamples.",
     )
     redact_p.add_argument(
+        "--traces",
+        action="store_true",
+        help="Treat input as an agent tool trace instead of ModelSamples.",
+    )
+    redact_p.add_argument(
+        "--trace-adapter",
+        choices=("normalized", "openai", "anthropic", "gemini", "otel"),
+        default="normalized",
+        help="Format adapter when --traces is set (default: normalized).",
+    )
+    redact_p.add_argument(
         "--format",
         choices=("text", "json"),
         default="text",
@@ -1223,6 +1234,8 @@ def _handle_redact(
     atomic_write_text: AtomicWriteFn,
 ) -> int:
     protect_inputs(args.output, args.input)
+    if args.conversations and args.traces:
+        raise ValueError("Specify either --conversations or --traces on redact, not both.")
     if args.conversations:
         from llm_drift_bench.batch_import import serialize_conversations_jsonl
         from llm_drift_bench.conversation import load_conversations
@@ -1232,6 +1245,19 @@ def _handle_redact(
         cleaned_convs, summary = redact_conversations(convs, include_pii=not args.secrets_only)
         atomic_write_text(Path(args.output), serialize_conversations_jsonl(cleaned_convs))
         noun = "conversation(s)"
+    elif args.traces:
+        from llm_drift_bench.adapters import load_adapted_tool_events
+        from llm_drift_bench.redaction import redact_tool_events, serialize_tool_events_jsonl
+        from llm_drift_bench.tool_log import load_tool_events
+
+        events = (
+            load_tool_events(args.input)
+            if args.trace_adapter == "normalized"
+            else load_adapted_tool_events(args.input, adapter=args.trace_adapter)
+        )
+        cleaned_events, summary = redact_tool_events(events, include_pii=not args.secrets_only)
+        atomic_write_text(Path(args.output), serialize_tool_events_jsonl(cleaned_events))
+        noun = "tool event(s)"
     else:
         from llm_drift_bench.capture import serialize_samples_jsonl
         from llm_drift_bench.engine import load_model_samples

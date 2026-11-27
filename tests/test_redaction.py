@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+
+import pytest
 
 from llm_drift_bench.models import ModelSample
 from llm_drift_bench.redaction import redact_samples, redact_text
@@ -153,6 +156,64 @@ def test_redact_conversations_scrubs_turns_and_metadata() -> None:
     assert cleaned[0].turns[0].metadata["ip"] == "[REDACTED:IPV4]"
     assert cleaned[0].metadata["owner"] == "[REDACTED:EMAIL]"
     assert cleaned[1].turns[0].content == "clean reply"
+
+
+def test_redact_tool_events_and_cli_traces(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from llm_drift_bench.cli import main
+    from llm_drift_bench.redaction import redact_tool_events, serialize_tool_events_jsonl
+    from llm_drift_bench.tool_events import ToolEvent
+    from llm_drift_bench.tool_log import load_tool_events
+
+    events = [
+        ToolEvent(
+            0,
+            "read",
+            "db/postgres://u:secret@db.internal/app sk-ant-api03-1234567890abcdefghij",
+            start=0,
+            end=20,
+        ),
+        ToolEvent(1, "edit", "src/clean.py@1"),
+    ]
+    cleaned, rep = redact_tool_events(events)
+    assert rep.total_samples == 2 and rep.redacted_samples == 1
+    assert "[REDACTED:ANTHROPIC_KEY]" in cleaned[0].resource
+    assert cleaned[1].resource == "src/clean.py@1"
+    assert serialize_tool_events_jsonl([]) == ""
+
+    raw_trace = tmp_path / "raw_trace.jsonl"
+    out_trace = tmp_path / "clean_trace.jsonl"
+    raw_trace.write_text(
+        '{"kind": "read", "resource": "mail/alice@corp.io/sk-ant-api03-1234567890abcdefghij", '
+        '"start": 0, "end": 10}\n'
+        '{"kind": "edit", "resource": "src/a.py@1"}\n',
+        encoding="utf-8",
+    )
+    assert (
+        main(["redact", "--traces", "-i", str(raw_trace), "-o", str(out_trace)]) == 0
+    )
+    assert "tool event(s)" in capsys.readouterr().out
+    reloaded = load_tool_events(out_trace)
+    assert "[REDACTED:EMAIL]" in reloaded[0].resource
+    assert "[REDACTED:ANTHROPIC_KEY]" in reloaded[0].resource
+    assert reloaded[1].resource == "src/a.py@1"
+
+    # Reject combining --conversations and --traces
+    assert (
+        main(
+            [
+                "redact",
+                "--conversations",
+                "--traces",
+                "-i",
+                str(raw_trace),
+                "-o",
+                str(out_trace),
+            ]
+        )
+        == 2
+    )
 
 
 
