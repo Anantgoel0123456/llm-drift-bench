@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from html import escape
 from typing import Any, Literal
 
 from llm_drift_bench.scores import EvidenceScore
@@ -437,3 +438,109 @@ def format_tool_trace_diff_text(diff: ToolTraceDiff) -> str:
         for reason in diff.failure_reasons:
             lines.append(f"  - {reason}")
     return "\n".join(lines) + "\n"
+
+
+def _md_escape(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("|", "\\|").replace("\r", " ").replace("\n", " ")
+
+
+def format_tool_trace_diff_markdown(diff: ToolTraceDiff) -> str:
+    """Render a ToolTraceDiff as GitHub-Flavored Markdown."""
+    verdict = "PASS" if diff.passed else "FAIL"
+    lines = [
+        f"## Agent Tool-Trace Drift ({verdict})",
+        "",
+        "| Metric | Baseline | Candidate | Delta |",
+        "| :--- | ---: | ---: | ---: |",
+        f"| Total calls | {diff.baseline_calls} | {diff.candidate_calls} | "
+        f"{diff.call_delta:+d} |",
+        f"| Read calls | {diff.baseline_reads} | {diff.candidate_reads} | "
+        f"{diff.candidate_reads - diff.baseline_reads:+d} |",
+        f"| Edit calls | {diff.baseline_edits} | {diff.candidate_edits} | "
+        f"{diff.candidate_edits - diff.baseline_edits:+d} |",
+        f"| Failed calls | {diff.baseline_failed} | {diff.candidate_failed} | "
+        f"{diff.failed_delta:+d} |",
+        f"| Action Jaccard | - | {diff.action_jaccard:.4f} | - |",
+    ]
+    if diff.added_resources:
+        joined = ", ".join(_md_escape(r) for r in diff.added_resources)
+        lines.append(f"\n- **Added resources:** {joined}")
+    if diff.removed_resources:
+        joined = ", ".join(_md_escape(r) for r in diff.removed_resources)
+        lines.append(f"- **Removed resources:** {joined}")
+    if diff.added_edit_resources:
+        joined = ", ".join(_md_escape(r) for r in diff.added_edit_resources)
+        lines.append(f"- **New edit targets:** {joined}")
+    if diff.failure_reasons:
+        lines.append("\n### Failure Reasons\n")
+        for reason in diff.failure_reasons:
+            lines.append(f"- {_md_escape(reason)}")
+    return "\n".join(lines) + "\n"
+
+
+def export_tool_trace_diff_html(diff: ToolTraceDiff) -> str:
+    """Export a standalone script-free offline HTML report for a ToolTraceDiff."""
+    verdict = "PASS" if diff.passed else "FAIL"
+    badge_bg = "#2ea44f" if diff.passed else "#d73a49"
+    rows = [
+        (
+            "Total calls",
+            str(diff.baseline_calls),
+            str(diff.candidate_calls),
+            f"{diff.call_delta:+d}",
+        ),
+        (
+            "Read calls",
+            str(diff.baseline_reads),
+            str(diff.candidate_reads),
+            f"{diff.candidate_reads - diff.baseline_reads:+d}",
+        ),
+        (
+            "Edit calls",
+            str(diff.baseline_edits),
+            str(diff.candidate_edits),
+            f"{diff.candidate_edits - diff.baseline_edits:+d}",
+        ),
+        (
+            "Failed calls",
+            str(diff.baseline_failed),
+            str(diff.candidate_failed),
+            f"{diff.failed_delta:+d}",
+        ),
+        ("Action Jaccard", "-", f"{diff.action_jaccard:.4f}", "-"),
+    ]
+    row_html = "\n".join(
+        f"<tr><td>{escape(name)}</td><td>{escape(b)}</td>"
+        f"<td>{escape(c)}</td><td>{escape(d)}</td></tr>"
+        for name, b, c, d in rows
+    )
+    sections: list[str] = []
+    for title, items in (
+        ("Added resources", diff.added_resources),
+        ("Removed resources", diff.removed_resources),
+        ("New edit targets", diff.added_edit_resources),
+    ):
+        if items:
+            lis = "".join(f"<li><code>{escape(item)}</code></li>" for item in items)
+            sections.append(f"<h2>{escape(title)}</h2><ul>{lis}</ul>")
+    if diff.failure_reasons:
+        lis = "".join(f"<li>{escape(reason)}</li>" for reason in diff.failure_reasons)
+        sections.append(f"<h2>Failure Reasons</h2><ul class='fail'>{lis}</ul>")
+    extra_html = "\n".join(sections)
+    return (
+        "<!DOCTYPE html>\n<html lang='en'><head><meta charset='utf-8'>"
+        "<title>Agent Tool-Trace Drift Report</title>"
+        "<style>"
+        "body{font-family:system-ui,-apple-system,sans-serif;max-width:860px;"
+        "margin:2rem auto;padding:0 1rem;color:#1f2937}"
+        f".badge{{display:inline-block;padding:0.2rem 0.65rem;border-radius:999px;"
+        f"color:#fff;font-weight:600;background:{badge_bg}}}"
+        "table{width:100%;border-collapse:collapse;margin-top:1rem}"
+        "th,td{border:1px solid #e5e7eb;padding:0.5rem 0.75rem;text-align:left}"
+        "th{background:#f9fafb}.fail{color:#b91c1c}"
+        "</style></head><body>"
+        f"<h1>Agent Tool-Trace Drift <span class='badge'>{verdict}</span></h1>"
+        "<table><thead><tr><th>Metric</th><th>Baseline</th><th>Candidate</th>"
+        f"<th>Delta</th></tr></thead><tbody>{row_html}</tbody></table>"
+        f"{extra_html}</body></html>\n"
+    )

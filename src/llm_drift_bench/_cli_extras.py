@@ -1092,9 +1092,12 @@ def register_extra_subcommands(
     )
     diff_tools_p.add_argument(
         "--format",
-        choices=("text", "json"),
+        choices=("text", "json", "markdown", "html"),
         default="text",
-        help="Output format: text (default) or json.",
+        help="Output format: text (default), json, markdown, or html.",
+    )
+    diff_tools_p.add_argument(
+        "-o", "--output", default=None, help="Optional output file path to write the report."
     )
 
     cap_conv_p = subparsers.add_parser(
@@ -2087,7 +2090,7 @@ def dispatch_extra_command(
     if args.command == "import-conversations":
         return _handle_import_conversations(args, protect_inputs, atomic_write_text)
     if args.command == "diff-tools":
-        return _handle_diff_tools(args)
+        return _handle_diff_tools(args, protect_inputs, atomic_write_text)
     if args.command == "capture-conversations":
         return _handle_capture_conversations(args, protect_inputs, atomic_write_text)
     return None
@@ -2385,9 +2388,19 @@ def _handle_import_conversations(
     return 0
 
 
-def _handle_diff_tools(args: argparse.Namespace) -> int:
+def _handle_diff_tools(
+    args: argparse.Namespace,
+    protect_inputs: ProtectFn,
+    atomic_write_text: AtomicWriteFn,
+) -> int:
+    protect_inputs(args.output, args.baseline, args.candidate)
     from llm_drift_bench.adapters import load_adapted_tool_events
-    from llm_drift_bench.tool_events import compare_tool_traces, format_tool_trace_diff_text
+    from llm_drift_bench.tool_events import (
+        compare_tool_traces,
+        export_tool_trace_diff_html,
+        format_tool_trace_diff_markdown,
+        format_tool_trace_diff_text,
+    )
     from llm_drift_bench.tool_log import load_tool_events
 
     if args.adapter == "normalized":
@@ -2405,9 +2418,21 @@ def _handle_diff_tools(args: argparse.Namespace) -> int:
         fail_on_new_edit_resources=args.fail_on_new_edit_resources,
     )
     if args.format == "json":
-        print(json.dumps(diff.to_dict(), indent=2))
+        rendered = json.dumps(diff.to_dict(), indent=2) + "\n"
+    elif args.format == "markdown":
+        rendered = format_tool_trace_diff_markdown(diff)
+    elif args.format == "html":
+        rendered = export_tool_trace_diff_html(diff)
     else:
-        print(format_tool_trace_diff_text(diff), end="")
+        rendered = format_tool_trace_diff_text(diff)
+    if args.output:
+        atomic_write_text(Path(args.output), rendered)
+        if args.format == "html":
+            print(f"Wrote agent tool-trace drift report -> {args.output}")
+        else:
+            print(rendered, end="")
+    else:
+        print(rendered, end="")
     return 0 if diff.passed else 1
 
 

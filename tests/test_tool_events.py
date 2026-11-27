@@ -1,5 +1,7 @@
 """Behavioral checks on read completions and edit invocations."""
 
+from pathlib import Path
+
 import pytest
 
 from llm_drift_bench.tool_events import ToolEvent, check_read_before_edit
@@ -207,6 +209,100 @@ def test_compare_tool_traces_detects_call_retry_and_edit_scope_drift() -> None:
         compare_tool_traces(base, base, max_failed_increase=True)
     with pytest.raises(ValueError, match="fail_on_new_edit_resources"):
         compare_tool_traces(base, base, fail_on_new_edit_resources="yes")  # type: ignore[arg-type]
+
+
+def test_tool_trace_diff_markdown_html_and_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from llm_drift_bench.cli import main
+    from llm_drift_bench.tool_events import (
+        compare_tool_traces,
+        export_tool_trace_diff_html,
+        format_tool_trace_diff_markdown,
+    )
+
+    base = [
+        ToolEvent(0, "read", "src/a.py@1", start=0, end=20),
+        ToolEvent(1, "edit", "src/a.py@1"),
+        ToolEvent(2, "read", "src/old.py@1", start=0, end=10),
+    ]
+    cand = [
+        ToolEvent(0, "read", "src/a.py@1", start=0, end=20),
+        ToolEvent(1, "edit", "src/new<x>.py@1", success=False),
+    ]
+    diff = compare_tool_traces(
+        base,
+        cand,
+        max_failed_increase=0,
+        fail_on_new_edit_resources=True,
+    )
+    md = format_tool_trace_diff_markdown(diff)
+    assert "## Agent Tool-Trace Drift (FAIL)" in md
+    assert "**Added resources:**" in md
+    assert "**Removed resources:**" in md
+    assert "**New edit targets:**" in md
+    assert "### Failure Reasons" in md
+
+    html = export_tool_trace_diff_html(diff)
+    assert "<!DOCTYPE html>" in html and "<script" not in html.lower()
+    assert "src/new&lt;x&gt;.py@1" in html
+    assert "Failure Reasons" in html
+
+    same_diff = compare_tool_traces(base, base)
+    assert "## Agent Tool-Trace Drift (PASS)" in format_tool_trace_diff_markdown(same_diff)
+    assert "Failure Reasons" not in export_tool_trace_diff_html(same_diff)
+
+    base_file = tmp_path / "base.jsonl"
+    cand_file = tmp_path / "cand.jsonl"
+    base_file.write_text(
+        '{"kind": "read", "resource": "src/a.py@1", "start": 0, "end": 10}\n',
+        encoding="utf-8",
+    )
+    cand_file.write_text(
+        '{"kind": "read", "resource": "src/a.py@1", "start": 0, "end": 10}\n'
+        '{"kind": "edit", "resource": "src/b.py@1"}\n',
+        encoding="utf-8",
+    )
+    md_out = tmp_path / "diff.md"
+    html_out = tmp_path / "diff.html"
+    assert (
+        main(
+            [
+                "diff-tools",
+                "-b",
+                str(base_file),
+                "-c",
+                str(cand_file),
+                "--format",
+                "markdown",
+                "-o",
+                str(md_out),
+            ]
+        )
+        == 0
+    )
+    assert "## Agent Tool-Trace Drift (PASS)" in md_out.read_text(encoding="utf-8")
+    assert "## Agent Tool-Trace Drift (PASS)" in capsys.readouterr().out
+
+    assert (
+        main(
+            [
+                "diff-tools",
+                "-b",
+                str(base_file),
+                "-c",
+                str(cand_file),
+                "--fail-on-new-edit-resources",
+                "--format",
+                "html",
+                "-o",
+                str(html_out),
+            ]
+        )
+        == 1
+    )
+    assert "Wrote agent tool-trace drift report" in capsys.readouterr().out
+    assert "<!DOCTYPE html>" in html_out.read_text(encoding="utf-8")
 
 
 
