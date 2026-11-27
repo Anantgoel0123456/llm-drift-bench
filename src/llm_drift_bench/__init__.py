@@ -235,6 +235,7 @@ if TYPE_CHECKING:
     )
     from llm_drift_bench.redaction import (
         RedactionReport,
+        redact_conversations,
         redact_samples,
         redact_text,
     )
@@ -555,6 +556,7 @@ _EXPORTS: dict[str, str] = {
     "python_ast_similarity": "scorers",
     "rank_candidate_costs": "cost",
     "record_report": "history",
+    "redact_conversations": "redaction",
     "redact_samples": "redaction",
     "redact_text": "redaction",
     "register_scorer": "scorers",
@@ -808,6 +810,7 @@ __all__ = [
     "python_ast_similarity",
     "rank_candidate_costs",
     "record_report",
+    "redact_conversations",
     "redact_samples",
     "redact_text",
     "register_scorer",

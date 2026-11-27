@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from llm_drift_bench.conversation import ConversationRecord, ConversationTurn
 from llm_drift_bench.models import ModelSample
 
 _SECRET_REDACTION_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -234,3 +235,63 @@ def redact_samples(
         counts_by_kind=dict(sorted(overall.items())),
     )
     return redacted_list, report
+
+
+def redact_conversations(
+    conversations: Sequence[ConversationRecord],
+    *,
+    include_pii: bool = True,
+    custom_patterns: Mapping[str, str] | None = None,
+) -> tuple[list[ConversationRecord], RedactionReport]:
+    """Redact secrets and optional PII/custom patterns across multi-turn conversation records."""
+    custom_rules = _compile_custom_patterns(custom_patterns)
+    overall: Counter[str] = Counter()
+    cleaned_records: list[ConversationRecord] = []
+    redacted_convs = 0
+
+    for rec in conversations:
+        rec_counts: Counter[str] = Counter()
+        clean_turns: list[ConversationTurn] = []
+        for turn in rec.turns:
+            clean_text, found = _redact_text_compiled(
+                turn.content, include_pii=include_pii, custom_rules=custom_rules
+            )
+            rec_counts.update(found)
+            clean_tmeta = _redact_value(
+                turn.metadata,
+                include_pii=include_pii,
+                custom_rules=custom_rules,
+                counts=rec_counts,
+            )
+            clean_turns.append(
+                ConversationTurn(
+                    role=turn.role,
+                    content=clean_text,
+                    metadata=clean_tmeta if isinstance(clean_tmeta, dict) else {},
+                )
+            )
+        clean_meta = _redact_value(
+            rec.metadata,
+            include_pii=include_pii,
+            custom_rules=custom_rules,
+            counts=rec_counts,
+        )
+        if rec_counts:
+            redacted_convs += 1
+            overall.update(rec_counts)
+        cleaned_records.append(
+            ConversationRecord(
+                conversation_id=rec.conversation_id,
+                turns=tuple(clean_turns),
+                model_name=rec.model_name,
+                metadata=clean_meta if isinstance(clean_meta, dict) else {},
+            )
+        )
+
+    report = RedactionReport(
+        total_samples=len(conversations),
+        redacted_samples=redacted_convs,
+        total_replacements=sum(overall.values()),
+        counts_by_kind=dict(sorted(overall.items())),
+    )
+    return cleaned_records, report

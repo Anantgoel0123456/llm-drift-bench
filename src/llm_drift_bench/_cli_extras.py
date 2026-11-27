@@ -33,6 +33,11 @@ def register_extra_subcommands(
         help="Redact credentials/keys only and skip PII (emails, SSNs, IPv4, credit cards).",
     )
     redact_p.add_argument(
+        "--conversations",
+        action="store_true",
+        help="Treat input as multi-turn ConversationRecord JSON/JSONL instead of ModelSamples.",
+    )
+    redact_p.add_argument(
         "--format",
         choices=("text", "json"),
         default="text",
@@ -1025,13 +1030,24 @@ def _handle_redact(
     atomic_write_text: AtomicWriteFn,
 ) -> int:
     protect_inputs(args.output, args.input)
-    from llm_drift_bench.capture import serialize_samples_jsonl
-    from llm_drift_bench.engine import load_model_samples
-    from llm_drift_bench.redaction import redact_samples
+    if args.conversations:
+        from llm_drift_bench.batch_import import serialize_conversations_jsonl
+        from llm_drift_bench.conversation import load_conversations
+        from llm_drift_bench.redaction import redact_conversations
 
-    samples = load_model_samples(args.input)
-    cleaned, summary = redact_samples(samples, include_pii=not args.secrets_only)
-    atomic_write_text(Path(args.output), serialize_samples_jsonl(cleaned))
+        convs = load_conversations(args.input)
+        cleaned_convs, summary = redact_conversations(convs, include_pii=not args.secrets_only)
+        atomic_write_text(Path(args.output), serialize_conversations_jsonl(cleaned_convs))
+        noun = "conversation(s)"
+    else:
+        from llm_drift_bench.capture import serialize_samples_jsonl
+        from llm_drift_bench.engine import load_model_samples
+        from llm_drift_bench.redaction import redact_samples
+
+        samples = load_model_samples(args.input)
+        cleaned, summary = redact_samples(samples, include_pii=not args.secrets_only)
+        atomic_write_text(Path(args.output), serialize_samples_jsonl(cleaned))
+        noun = "sample(s)"
     if args.format == "json":
         payload = summary.to_dict()
         payload["output"] = str(args.output)
@@ -1039,7 +1055,7 @@ def _handle_redact(
     else:
         print(
             f"Redacted {summary.total_replacements} occurrence(s) across "
-            f"{summary.redacted_samples}/{summary.total_samples} sample(s) -> {args.output}"
+            f"{summary.redacted_samples}/{summary.total_samples} {noun} -> {args.output}"
         )
         if summary.counts_by_kind:
             details = ", ".join(f"{k}={v}" for k, v in summary.counts_by_kind.items())

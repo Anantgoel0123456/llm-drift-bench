@@ -120,3 +120,39 @@ def test_redaction_luhn_custom_errors_report_dict_and_scalar_metadata() -> None:
     }
 
 
+def test_redact_conversations_scrubs_turns_and_metadata() -> None:
+    from llm_drift_bench.conversation import ConversationRecord, ConversationTurn
+    from llm_drift_bench.redaction import redact_conversations
+
+    convs = [
+        ConversationRecord(
+            conversation_id="c1",
+            model_name="m1",
+            turns=(
+                ConversationTurn(
+                    role="user",
+                    content="My email is alice@corp.io and key sk-proj-1234567890abcdefghijklmnop",
+                    metadata={"ip": "10.0.0.1"},
+                ),
+                ConversationTurn(role="assistant", content='{"status": "ok"}'),
+            ),
+            metadata={"owner": "bob@corp.io"},
+        ),
+        ConversationRecord(
+            conversation_id="c2",
+            model_name="m1",
+            turns=(ConversationTurn(role="assistant", content="clean reply"),),
+        ),
+    ]
+    cleaned, rep = redact_conversations(convs)
+    assert rep.total_samples == 2
+    assert rep.redacted_samples == 1
+    assert rep.total_replacements == 4
+    assert "[REDACTED:EMAIL]" in cleaned[0].turns[0].content
+    assert "[REDACTED:OPENAI_KEY]" in cleaned[0].turns[0].content
+    assert cleaned[0].turns[0].metadata["ip"] == "[REDACTED:IPV4]"
+    assert cleaned[0].metadata["owner"] == "[REDACTED:EMAIL]"
+    assert cleaned[1].turns[0].content == "clean reply"
+
+
+

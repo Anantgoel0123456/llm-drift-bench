@@ -2765,6 +2765,31 @@ def test_cli_import_conversations_roundtrip(
     assert main(["check-conversations", "-b", str(out), "-c", str(out), "--format", "json"]) == 0
     assert json.loads(capsys.readouterr().out)["passed"] is True
 
+    # Redact multi-turn conversations via --conversations flag
+    leaky_conv = tmp_path / "leaky_conv.jsonl"
+    redacted_conv = tmp_path / "redacted_conv.jsonl"
+    leaky_conv.write_text(
+        json.dumps(
+            {
+                "conversation_id": "c1",
+                "model_name": "m1",
+                "turns": [
+                    {"role": "user", "content": "email me at user@example.com"},
+                    {"role": "assistant", "content": "key=sk-proj-1234567890abcdefghijklmnop"},
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert (
+        main(["redact", "--conversations", "-i", str(leaky_conv), "-o", str(redacted_conv)]) == 0
+    )
+    assert "1/1 conversation(s)" in capsys.readouterr().out
+    red_text = redacted_conv.read_text(encoding="utf-8")
+    assert "user@example.com" not in red_text and "[REDACTED:OPENAI_KEY]" in red_text
+
+
 
 
 
