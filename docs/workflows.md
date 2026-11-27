@@ -81,8 +81,9 @@ Anthropic, or Gemini endpoints by replaying user/system templates with
 To gate releases in one command, pass `--baseline-conversations` and
 `--candidate-conversations` (and optional `--baseline-trace` / `--candidate-trace` for
 agent tool-trace drift, or standalone
-`llm-drift-bench diff-tools -b examples/trace-baseline.jsonl -c examples/trace-candidate-drift.jsonl --fail-on-new-edit-resources --format html|sarif|junit`)
-directly to `llm-drift-bench audit` or `llm-drift-bench gate`. Both `audit` and
-`check-conversations` also support `--format pr-comment` for compact GitHub PR comments,
-and saved engine, audit, and conversation JSON reports can all generate offline SVG status
-badges via `llm-drift-bench badge -i report.json -o badge.svg`.
+`llm-drift-bench diff-tools -b examples/trace-baseline.jsonl -c examples/trace-candidate-drift.jsonl --fail-on-new-edit-resources --diagnose --format html|sarif|junit|pr-comment`)
+directly to `llm-drift-bench audit` or `llm-drift-bench gate`. Use `redact --traces` to
+scrub credentials from agent traces before committing them, track multi-turn drift over
+time via `history record --conversation-drift`, and generate offline SVG status badges
+from saved engine, audit, conversation, or tool-trace JSON reports via
+`llm-drift-bench badge -i report.json -o badge.svg`.
