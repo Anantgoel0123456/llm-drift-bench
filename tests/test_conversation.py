@@ -236,3 +236,45 @@ def test_diff_conversations_per_turn_json_and_text_diffs() -> None:
     with pytest.raises(ValueError, match="non-empty"):
         diff_conversations([], base)
 
+
+def test_export_conversation_pr_comment_and_cli(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from llm_drift_bench.cli import main
+    from llm_drift_bench.conversation import export_conversation_pr_comment
+
+    def _rec(cid: str, reply: str) -> ConversationRecord:
+        return ConversationRecord(
+            cid, (ConversationTurn("user", "u"), ConversationTurn("assistant", reply))
+        )
+
+    pass_md = export_conversation_pr_comment(
+        analyze_conversation_drift([_rec("c1", "ok")], [_rec("c1", "ok")])
+    )
+    assert "<!-- llm-drift-bench:conversations -->" in pass_md
+    assert "**PASS**" in pass_md and "<details>" not in pass_md
+
+    base_many = [_rec(f"c{i}", '{"ok": true}') for i in range(6)]
+    cand_many = [_rec(f"c{i}", "I'm sorry, I cannot assist with that.") for i in range(6)]
+    fail_md = export_conversation_pr_comment(analyze_conversation_drift(base_many, cand_many))
+    assert "**FAIL**" in fail_md and "1 more drifted conversation(s)" in fail_md
+
+    examples = Path(__file__).resolve().parents[1] / "examples"
+    assert (
+        main(
+            [
+                "check-conversations",
+                "-b",
+                str(examples / "conversations-baseline.jsonl"),
+                "-c",
+                str(examples / "conversations-candidate-drift.jsonl"),
+                "--format",
+                "pr-comment",
+            ]
+        )
+        == 1
+    )
+    cli_out = capsys.readouterr().out
+    assert "### Multi-Turn Conversation Drift: **FAIL**" in cli_out
+    assert "ORD-1042" not in cli_out
+

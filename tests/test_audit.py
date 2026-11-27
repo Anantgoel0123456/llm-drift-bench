@@ -308,3 +308,59 @@ def test_full_audit_tool_trace_integration_and_cli(
     )
 
 
+def test_export_audit_pr_comment_and_cli(capsys: pytest.CaptureFixture[str]) -> None:
+    from llm_drift_bench.audit import export_audit_pr_comment
+    from llm_drift_bench.cli import main
+    from llm_drift_bench.conversation import (
+        ConversationRecord,
+        ConversationTurn,
+        analyze_conversation_drift,
+    )
+    from llm_drift_bench.embeddings import compare_embedding_vectors
+    from llm_drift_bench.tool_events import ToolEvent, compare_tool_traces
+
+    samples = [ModelSample(prompt_id="p1", output='{"ok": true}', model_name="m1")]
+    emb = compare_embedding_vectors({"p1": [1.0, 0.0]}, {"p1": [0.0, 1.0]}, min_mean_similarity=0.9)
+    conv = analyze_conversation_drift(
+        [ConversationRecord("c1", (ConversationTurn("assistant", "ok"),))],
+        [ConversationRecord("c1", (ConversationTurn("assistant", "ok"),))],
+    )
+    tt = compare_tool_traces(
+        [ToolEvent(0, "read", "a@1", start=0, end=5)],
+        [ToolEvent(0, "read", "a@1", start=0, end=5)],
+    )
+    rep = run_full_audit(
+        samples,
+        samples,
+        embedding_report=emb,
+        conversation_report=conv,
+        tool_trace_diff=tt,
+    )
+    comment = export_audit_pr_comment(rep)
+    assert "<!-- llm-drift-bench:audit -->" in comment
+    assert "| Embeddings | FAIL |" in comment
+    assert "| Conversations | PASS |" in comment
+    assert "| Agent tool trace | PASS |" in comment
+    assert "<details><summary>Failure reasons" in comment
+
+    examples = Path(__file__).resolve().parents[1] / "examples"
+    assert (
+        main(
+            [
+                "audit",
+                "-s",
+                str(examples / "extraction-suite.json"),
+                "-b",
+                str(examples / "baseline.jsonl"),
+                "-c",
+                str(examples / "candidate-pass.jsonl"),
+                "--format",
+                "pr-comment",
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "### LLM Drift Bench Audit: **PASS**" in out
+
+

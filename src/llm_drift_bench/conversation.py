@@ -713,3 +713,45 @@ def format_conversation_diffs_text(diffs: Sequence[ConversationDiff]) -> str:
         else:
             blocks.append(f"{header}\n  (no compared assistant turn diffs)")
     return "\n\n".join(blocks) + "\n"
+
+
+def export_conversation_pr_comment(report: ConversationDriftReport) -> str:
+    """Render a compact GitHub PR comment summarizing multi-turn conversation drift."""
+    verdict = "PASS" if report.passed else "FAIL"
+    lines = [
+        "<!-- llm-drift-bench:conversations -->",
+        f"### Multi-Turn Conversation Drift: **{verdict}**",
+        "",
+        "| Conversations | Drifted | Mean Drift | Max Drift | Refusal Flips | Turn Mismatches |",
+        "| ---: | ---: | ---: | ---: | ---: | ---: |",
+        f"| {report.total_conversations} | {report.drifted_conversations} | "
+        f"{report.mean_trajectory_drift:.4f} | {report.max_trajectory_drift:.4f} | "
+        f"{report.total_refusal_flip_turns} | {report.turn_count_mismatches} |",
+    ]
+    drifted = sorted(
+        (c for c in report.conversations if c.drifted),
+        key=lambda item: (-item.max_turn_drift, item.conversation_id),
+    )
+    if drifted:
+        lines += [
+            "",
+            "<details><summary>Drifted conversations "
+            f"({len(drifted)})</summary>",
+            "",
+            "| Conversation | Max Drift | First Div Turn | Refusal Flips |",
+            "| :--- | ---: | ---: | ---: |",
+        ]
+        for conv in drifted[:5]:
+            first_div = (
+                str(conv.first_divergence_turn)
+                if conv.first_divergence_turn is not None
+                else "-"
+            )
+            lines.append(
+                f"| `{markdown_cell(conv.conversation_id)}` | {conv.max_turn_drift:.4f} | "
+                f"{first_div} | {len(conv.refusal_flip_turns)} |"
+            )
+        if len(drifted) > 5:
+            lines.append(f"\n_...and {len(drifted) - 5} more drifted conversation(s)._")
+        lines += ["", "</details>"]
+    return "\n".join(lines) + "\n"

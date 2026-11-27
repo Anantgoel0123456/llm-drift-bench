@@ -571,3 +571,59 @@ td{{white-space:pre-wrap;overflow-wrap:anywhere}}.muted{{color:#a8bad2}}
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(html, encoding="utf-8")
     return html
+
+
+def export_audit_pr_comment(report: AuditReport) -> str:
+    """Render a compact GitHub Pull Request comment summarizing an AuditReport."""
+    b = report.benchmark
+    d = report.distribution
+    q = report.quality
+    verdict = "PASS" if report.passed else "FAIL"
+    lines = [
+        "<!-- llm-drift-bench:audit -->",
+        f"### LLM Drift Bench Audit: **{verdict}**",
+        "",
+        f"`{markdown_cell(b.baseline_model)}` -> `{markdown_cell(b.candidate_model)}` "
+        f"({b.total_samples} prompt(s))",
+        "",
+        "| Check | Status | Metric |",
+        "| :--- | :---: | :--- |",
+        f"| Per-prompt drift | {'PASS' if b.passed else 'FAIL'} | "
+        f"mean `{b.mean_composite_drift:.4f}`, "
+        f"conformity `{b.candidate_json_conformity_rate:.1%}` |",
+        f"| Field distribution | INFO | "
+        f"max TVD `{d.max_tvd:.4f}`, max W1 `{d.max_normalized_wasserstein:.4f}` |",
+        f"| Quality checks | {'PASS' if q.passed else 'FAIL'} | "
+        f"`{q.flagged_prompts}/{q.total_samples}` flagged |",
+    ]
+    if report.embeddings is not None:
+        emb = report.embeddings
+        lines.append(
+            f"| Embeddings | {'PASS' if emb.passed else 'FAIL'} | "
+            f"mean cosine `{measurement(emb.mean_similarity, '.4f')}` |"
+        )
+    if report.conversations is not None:
+        conv = report.conversations
+        lines.append(
+            f"| Conversations | {'PASS' if conv.passed else 'FAIL'} | "
+            f"`{conv.drifted_conversations}/{conv.total_conversations}` drifted, "
+            f"mean `{conv.mean_trajectory_drift:.4f}` |"
+        )
+    if report.tool_trace is not None:
+        tt = report.tool_trace
+        lines.append(
+            f"| Agent tool trace | {'PASS' if tt.passed else 'FAIL'} | "
+            f"calls `{tt.baseline_calls}->{tt.candidate_calls}` ({tt.call_delta:+d}), "
+            f"jaccard `{tt.action_jaccard:.4f}` |"
+        )
+    if report.failure_reasons:
+        lines.append("")
+        lines.append(
+            f"<details><summary>Failure reasons ({len(report.failure_reasons)})</summary>"
+        )
+        lines.append("")
+        for reason in report.failure_reasons:
+            lines.append(f"- {markdown_cell(reason)}")
+        lines.append("")
+        lines.append("</details>")
+    return "\n".join(lines) + "\n"

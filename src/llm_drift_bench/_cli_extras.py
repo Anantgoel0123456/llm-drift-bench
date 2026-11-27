@@ -845,9 +845,9 @@ def register_extra_subcommands(
     )
     audit_p.add_argument(
         "--format",
-        choices=("text", "json", "markdown", "html"),
+        choices=("text", "json", "markdown", "html", "pr-comment"),
         default="text",
-        help="Output format: text (default), json, markdown, or html.",
+        help="Output format: text (default), json, markdown, html, or pr-comment.",
     )
     audit_p.add_argument(
         "-o", "--output", default=None, help="Optional output path to save the rendered audit."
@@ -1087,9 +1087,9 @@ def register_extra_subcommands(
     )
     conv_p.add_argument(
         "--format",
-        choices=("text", "json", "markdown", "html", "sarif", "junit", "csv"),
+        choices=("text", "json", "markdown", "html", "sarif", "junit", "csv", "pr-comment"),
         default="text",
-        help="Output format: text (default), json, markdown, html, sarif, junit, or csv.",
+        help="Format: text (default), json, markdown, html, sarif, junit, csv, or pr-comment.",
     )
     conv_p.add_argument(
         "-o", "--output", default=None, help="Optional output file path to write the report."
@@ -2011,6 +2011,7 @@ def _handle_audit(
     )
     from llm_drift_bench.audit import (
         export_audit_html,
+        export_audit_pr_comment,
         format_audit_markdown,
         format_audit_text,
         run_full_audit,
@@ -2119,6 +2120,8 @@ def _handle_audit(
         rendered = format_audit_markdown(report)
     elif args.format == "html":
         rendered = export_audit_html(report)
+    elif args.format == "pr-comment":
+        rendered = export_audit_pr_comment(report)
     else:
         rendered = format_audit_text(report)
 
@@ -2405,6 +2408,7 @@ def _handle_check_conversations(
         analyze_conversation_drift,
         diff_conversations,
         export_conversation_html,
+        export_conversation_pr_comment,
         format_conversation_diffs_text,
         format_conversation_markdown,
         format_conversation_text,
@@ -2466,6 +2470,8 @@ def _handle_check_conversations(
         from llm_drift_bench.csv_export import export_conversation_csv_report
 
         rendered = export_conversation_csv_report(report)
+    elif args.format == "pr-comment":
+        rendered = export_conversation_pr_comment(report)
     else:
         rendered = format_conversation_text(report)
         if turn_diffs is not None:
