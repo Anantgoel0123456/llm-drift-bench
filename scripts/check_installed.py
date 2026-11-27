@@ -705,6 +705,78 @@ else:
             cwd=root, env=env, check=True, capture_output=True, text=True,
         )
         assert json.loads(ver_trace.stdout)["valid"] is True
+        red_trace_in = root / "secret_trace.jsonl"
+        red_trace_in.write_text(
+            '{"kind": "read", "resource": "mail/dev@example.com", "start": 0, "end": 5}\n',
+            encoding="utf-8",
+        )
+        red_trace_out = root / "clean_trace.jsonl"
+        subprocess.run(
+            [str(cli), "redact", "--traces", "-i", str(red_trace_in), "-o", str(red_trace_out)],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "[REDACTED:EMAIL]" in red_trace_out.read_text(encoding="utf-8")
+        tt_diag_json = root / "tt-diag.json"
+        tt_diag = subprocess.run(
+            [
+                str(cli), "diff-tools",
+                "-b", str(examples / "trace-baseline.jsonl"),
+                "-c", str(examples / "trace-candidate-drift.jsonl"),
+                "--fail-on-new-edit-resources",
+                "--diagnose", "--format", "json", "-o", str(tt_diag_json),
+            ],
+            cwd=root, env=env, check=False, capture_output=True, text=True,
+        )
+        if tt_diag.returncode != 1:
+            raise SystemExit(f"diff-tools --diagnose: exit {tt_diag.returncode}")
+        assert len(json.loads(tt_diag_json.read_text(encoding="utf-8"))["diagnostics"]) >= 1
+        tt_badge = subprocess.run(
+            [str(cli), "badge", "-i", str(tt_diag_json)],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "tool-trace: FAIL" in tt_badge.stdout
+        tt_pr = subprocess.run(
+            [
+                str(cli), "diff-tools",
+                "-b", str(examples / "trace-baseline.jsonl"),
+                "-c", str(examples / "trace-baseline.jsonl"),
+                "--format", "pr-comment",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "<!-- llm-drift-bench:tool-trace -->" in tt_pr.stdout
+        dist_csv = subprocess.run(
+            [
+                str(cli), "distribution",
+                "-b", str(examples / "baseline.jsonl"),
+                "-c", str(examples / "candidate-drift.jsonl"),
+                "--format", "csv",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "segment,field_type,path,baseline_count" in dist_csv.stdout
+        conv_ledger = root / "conv-history.jsonl"
+        for conv_val in ("0.02", "0.03"):
+            subprocess.run(
+                [
+                    str(cli), "history", "record",
+                    "--ledger", str(conv_ledger),
+                    "-i", str(examples / "expected-pass.json"),
+                    "--conversation-drift", conv_val,
+                ],
+                cwd=root, env=env, check=True, capture_output=True, text=True,
+            )
+        hist_chk = subprocess.run(
+            [
+                str(cli), "history", "check",
+                "--ledger", str(conv_ledger),
+                "--window", "1",
+                "--max-conversation-drift-increase", "0.10",
+                "--format", "json",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(hist_chk.stdout)["regressed"] is False
         case_dir = examples / "case-study"
         case_doc = subprocess.run(
             [
