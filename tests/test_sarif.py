@@ -217,3 +217,42 @@ def test_export_tool_trace_sarif_report_and_cli(
     assert cli_doc["version"] == "2.1.0"
     assert any(r["ruleId"] == "TOOL001" for r in cli_doc["runs"][0]["results"])
 
+
+def test_export_quality_sarif_report_and_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from llm_drift_bench.models import ModelSample
+    from llm_drift_bench.quality_checks import run_quality_checks
+    from llm_drift_bench.sarif import export_quality_sarif_report
+
+    base = [ModelSample("p1", "Detailed helpful answer about invoice.", model_name="b")]
+    cand = [ModelSample("p1", "I'm sorry, I cannot assist with that.", model_name="c")]
+    assert (
+        json.loads(export_quality_sarif_report(run_quality_checks(base, base)))["runs"][0][
+            "results"
+        ]
+        == []
+    )
+    out_file = tmp_path / "qual.sarif"
+    raw = export_quality_sarif_report(
+        run_quality_checks(base, cand), output_path=out_file, artifact_uri="c.jsonl"
+    )
+    assert out_file.read_text(encoding="utf-8") == raw
+    doc = json.loads(raw)
+    assert doc["runs"][0]["results"][0]["ruleId"] == "QUAL002"
+
+    with pytest.raises(ValueError, match="QualityReport"):
+        export_quality_sarif_report({})  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="artifact_uri"):
+        export_quality_sarif_report(run_quality_checks(base, base), artifact_uri=" ")
+
+    b_file = tmp_path / "qb.jsonl"
+    c_file = tmp_path / "qc.jsonl"
+    b_file.write_text('{"prompt_id": "p1", "output": "Helpful detailed answer."}\n', "utf-8")
+    c_file.write_text(
+        '{"prompt_id": "p1", "output": "I\'m sorry, I cannot assist with that."}\n', "utf-8"
+    )
+    assert main(["check-quality", "-b", str(b_file), "-c", str(c_file), "--format", "sarif"]) == 1
+    cli_doc = json.loads(capsys.readouterr().out)
+    assert cli_doc["version"] == "2.1.0" and cli_doc["runs"][0]["results"][0]["ruleId"] == "QUAL002"
+

@@ -10,6 +10,7 @@ from typing import Any
 from llm_drift_bench import __version__
 from llm_drift_bench.conversation import ConversationDriftReport
 from llm_drift_bench.models import DriftBenchmarkReport
+from llm_drift_bench.quality_checks import QualityReport
 from llm_drift_bench.tool_events import ToolTraceDiff
 
 _SARIF_SCHEMA = (
@@ -442,6 +443,112 @@ def export_tool_trace_sarif_report(
                     "call_delta": diff.call_delta,
                     "failed_delta": diff.failed_delta,
                     "action_jaccard": round(diff.action_jaccard, 4),
+                },
+                "results": results,
+            }
+        ],
+    }
+    serialized = json.dumps(sarif_doc, indent=2) + "\n"
+    if output_path is not None:
+        target = Path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(serialized, encoding="utf-8")
+    return serialized
+
+
+_QUALITY_SARIF_RULES: list[dict[str, Any]] = [
+    {
+        "id": "QUAL001",
+        "name": "QualityRepetitionLoop",
+        "shortDescription": {"text": "Candidate response contains a degenerate repetition loop."},
+        "defaultConfiguration": {"level": "error"},
+    },
+    {
+        "id": "QUAL002",
+        "name": "QualityRefusalFlip",
+        "shortDescription": {"text": "Candidate refusal behavior flipped relative to baseline."},
+        "defaultConfiguration": {"level": "error"},
+    },
+    {
+        "id": "QUAL003",
+        "name": "QualityLengthTruncation",
+        "shortDescription": {"text": "Candidate response length truncated sharply vs baseline."},
+        "defaultConfiguration": {"level": "error"},
+    },
+    {
+        "id": "QUAL004",
+        "name": "QualityLengthBlowup",
+        "shortDescription": {"text": "Candidate response length grew excessively vs baseline."},
+        "defaultConfiguration": {"level": "warning"},
+    },
+]
+
+_QUALITY_RULE_MAP = {
+    "repetition_loop": "QUAL001",
+    "refusal_flip": "QUAL002",
+    "length_truncation": "QUAL003",
+    "length_blowup": "QUAL004",
+}
+
+
+def export_quality_sarif_report(
+    report: QualityReport,
+    output_path: str | Path | None = None,
+    *,
+    artifact_uri: str = "candidate.jsonl",
+) -> str:
+    """Export QualityReport findings as OASIS SARIF 2.1.0 JSON without raw response bodies."""
+    if not isinstance(report, QualityReport):
+        raise ValueError("Quality SARIF export requires a QualityReport.")
+    if not isinstance(artifact_uri, str) or not artifact_uri.strip():
+        raise ValueError("artifact_uri must be a non-empty string.")
+
+    results: list[dict[str, Any]] = []
+    for finding in report.findings:
+        rule_id = _QUALITY_RULE_MAP.get(finding.check, "QUAL001")
+        level = "error" if finding.severity == "error" else "warning"
+        results.append(
+            {
+                "ruleId": rule_id,
+                "level": level,
+                "message": {"text": finding.detail},
+                "locations": [
+                    {
+                        "physicalLocation": {"artifactLocation": {"uri": artifact_uri}},
+                        "logicalLocations": [{"name": finding.prompt_id, "kind": "prompt"}],
+                    }
+                ],
+                "partialFingerprints": {
+                    "primaryLocationLineHash": _partial_fingerprint(
+                        rule_id, finding.prompt_id, finding.check, artifact_uri
+                    )
+                },
+                "properties": {
+                    "prompt_id": finding.prompt_id,
+                    "check": finding.check,
+                    "severity": finding.severity,
+                },
+            }
+        )
+
+    sarif_doc: dict[str, Any] = {
+        "$schema": _SARIF_SCHEMA,
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "llm-drift-bench",
+                        "version": __version__,
+                        "informationUri": "https://github.com/Anantgoel0123456/llm-drift-bench",
+                        "rules": _QUALITY_SARIF_RULES,
+                    }
+                },
+                "invocations": [{"executionSuccessful": True}],
+                "properties": {
+                    "passed": report.passed,
+                    "total_samples": report.total_samples,
+                    "flagged_prompts": report.flagged_prompts,
                 },
                 "results": results,
             }

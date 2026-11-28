@@ -300,6 +300,7 @@ if TYPE_CHECKING:
     )
     from llm_drift_bench.sarif import (
         export_conversation_sarif_report,
+        export_quality_sarif_report,
         export_sarif_report,
         export_tool_trace_sarif_report,
     )
@@ -563,6 +564,7 @@ _EXPORTS: dict[str, str] = {
     "export_markdown_report": "reporter",
     "export_pr_comment": "reporter",
     "export_quality_html": "quality_checks",
+    "export_quality_sarif_report": "sarif",
     "export_rolling_badge_svg": "badge",
     "export_rolling_html": "rolling",
     "export_rolling_pr_comment": "rolling",
@@ -863,6 +865,7 @@ __all__ = [
     "export_markdown_report",
     "export_pr_comment",
     "export_quality_html",
+    "export_quality_sarif_report",
     "export_rolling_badge_svg",
     "export_rolling_html",
     "export_rolling_pr_comment",
