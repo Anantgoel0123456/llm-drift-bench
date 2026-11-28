@@ -202,3 +202,41 @@ def test_rolling_baseline_validation_and_threshold_edges() -> None:
     )
     assert rep_meta.segmented is not None and "acme" in rep_meta.segmented.segments
 
+
+def test_export_rolling_pr_comment_and_cli(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from pathlib import Path
+
+    from llm_drift_bench.cli import main
+    from llm_drift_bench.rolling import export_rolling_pr_comment
+
+    s_a = [ModelSample("p1", '{"label": "a"}', metadata={"route": "r1"})]
+    s_b = [ModelSample("p2", '{"label": "b"}', metadata={"route": "r1"})]
+    pass_md = export_rolling_pr_comment(analyze_rolling_distribution([s_a], s_a))
+    assert "<!-- llm-drift-bench:rolling-distribution -->" in pass_md
+    assert "**PASS**" in pass_md and "<details>" not in pass_md
+
+    fail_rep = analyze_rolling_distribution(
+        [s_a, s_a], s_b, group_by="metadata:route", max_tvd=0.1
+    )
+    fail_md = export_rolling_pr_comment(fail_rep)
+    assert "**FAIL**" in fail_md and "Blast radius" in fail_md and "<details>" in fail_md
+
+    examples = Path(__file__).resolve().parents[1] / "examples"
+    assert (
+        main(
+            [
+                "rolling-distribution",
+                "-w",
+                str(examples / "baseline.jsonl"),
+                "-c",
+                str(examples / "candidate-pass.jsonl"),
+                "--format",
+                "pr-comment",
+            ]
+        )
+        == 0
+    )
+    assert "### Rolling-Baseline Distribution Drift: **PASS**" in capsys.readouterr().out
+

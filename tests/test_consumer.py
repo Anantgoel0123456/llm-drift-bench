@@ -191,3 +191,47 @@ def test_consumer_json_array_to_dict_and_full_error_matrix(tmp_path: Path) -> No
     with pytest.raises(ValueError, match="non-empty module"):
         load_validator_callable(":fn")
 
+
+def test_export_consumer_pr_comment_and_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from llm_drift_bench.cli import main
+    from llm_drift_bench.consumer import export_consumer_pr_comment
+
+    base = [ConsumerDecision(f"p{i}", True) for i in range(6)]
+    cand = [ConsumerDecision(f"p{i}", False, f"err_{i}") for i in range(6)]
+
+    pass_md = export_consumer_pr_comment(compare_consumer_decisions(base, base))
+    assert "<!-- llm-drift-bench:consumer -->" in pass_md
+    assert "**PASS**" in pass_md and "<details>" not in pass_md
+
+    fail_md = export_consumer_pr_comment(
+        compare_consumer_decisions(base, cand, max_rejection_increase=0.1)
+    )
+    assert "**FAIL**" in fail_md and "1 more newly rejected prompt(s)" in fail_md
+
+    b_file = tmp_path / "b.jsonl"
+    c_file = tmp_path / "c.jsonl"
+    b_file.write_text('{"prompt_id": "p1", "accepted": true}\n', encoding="utf-8")
+    c_file.write_text(
+        '{"prompt_id": "p1", "accepted": false, "reason": "bad_sku"}\n', encoding="utf-8"
+    )
+    assert (
+        main(
+            [
+                "check-consumer",
+                "--baseline-decisions",
+                str(b_file),
+                "--candidate-decisions",
+                str(c_file),
+                "--max-rejection-increase",
+                "0.1",
+                "--format",
+                "pr-comment",
+            ]
+        )
+        == 1
+    )
+    out = capsys.readouterr().out
+    assert "### Downstream Consumer Validation: **FAIL**" in out and "Newly rejected `p1`" in out
+

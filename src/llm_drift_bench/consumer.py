@@ -386,3 +386,34 @@ def export_consumer_html(
         target.write_text(html, encoding="utf-8")
     return html
 
+
+def export_consumer_pr_comment(comparison: ConsumerComparison) -> str:
+    """Render a compact GitHub PR comment summarizing downstream consumer rejection drift."""
+    verdict = "PASS" if comparison.passed else "FAIL"
+    lines = [
+        "<!-- llm-drift-bench:consumer -->",
+        f"### Downstream Consumer Validation: **{verdict}**",
+        "",
+        "| Metric | Baseline | Candidate | Delta |",
+        "| :--- | ---: | ---: | ---: |",
+        f"| Rejected prompts | {comparison.baseline_rejected}/{comparison.total_samples} | "
+        f"{comparison.candidate_rejected}/{comparison.total_samples} | "
+        f"{comparison.candidate_rejected - comparison.baseline_rejected:+d} |",
+        f"| Rejection rate | {comparison.baseline_rejection_rate:.1%} | "
+        f"{comparison.candidate_rejection_rate:.1%} | "
+        f"{comparison.rejection_rate_delta:+.1%} |",
+    ]
+    if comparison.newly_rejected_ids or comparison.failure_reasons:
+        lines += ["", "<details><summary>Details &amp; newly rejected prompts</summary>", ""]
+        for reason in comparison.failure_reasons:
+            lines.append(f"- {markdown_cell(reason)}")
+        for pid in comparison.newly_rejected_ids[:5]:
+            reason_note = comparison.candidate_reasons.get(pid, "")
+            suffix = f": {markdown_cell(reason_note)}" if reason_note else ""
+            lines.append(f"- Newly rejected `{markdown_cell(pid)}`{suffix}")
+        if len(comparison.newly_rejected_ids) > 5:
+            extra = len(comparison.newly_rejected_ids) - 5
+            lines.append(f"- _...and {extra} more newly rejected prompt(s)._")
+        lines += ["", "</details>"]
+    return "\n".join(lines) + "\n"
+

@@ -915,9 +915,9 @@ def register_extra_subcommands(
     )
     cons_p.add_argument(
         "--format",
-        choices=("text", "json", "markdown", "html"),
+        choices=("text", "json", "markdown", "html", "pr-comment"),
         default="text",
-        help="Output format: text (default), json, markdown, or html.",
+        help="Output format: text (default), json, markdown, html, or pr-comment.",
     )
     cons_p.add_argument(
         "-o", "--output", default=None, help="Optional output file path to write the report."
@@ -992,9 +992,9 @@ def register_extra_subcommands(
     )
     roll_p.add_argument(
         "--format",
-        choices=("text", "json", "markdown", "html"),
+        choices=("text", "json", "markdown", "html", "pr-comment"),
         default="text",
-        help="Output format: text (default), json, markdown, or html.",
+        help="Output format: text (default), json, markdown, html, or pr-comment.",
     )
     roll_p.add_argument(
         "-o", "--output", default=None, help="Optional output file path to write the report."
@@ -2313,6 +2313,7 @@ def _handle_check_consumer(
         compare_consumer_decisions,
         evaluate_consumer_rejection,
         export_consumer_html,
+        export_consumer_pr_comment,
         format_consumer_markdown,
         format_consumer_text,
         load_consumer_decisions,
@@ -2370,6 +2371,8 @@ def _handle_check_consumer(
         rendered = format_consumer_markdown(comp)
     elif args.format == "html":
         rendered = export_consumer_html(comp)
+    elif args.format == "pr-comment":
+        rendered = export_consumer_pr_comment(comp)
     else:
         rendered = format_consumer_text(comp)
     if args.output:
@@ -2394,6 +2397,7 @@ def _handle_rolling_distribution(
     from llm_drift_bench.rolling import (
         analyze_rolling_distribution,
         export_rolling_html,
+        export_rolling_pr_comment,
         format_rolling_markdown,
         format_rolling_text,
     )
@@ -2432,6 +2436,8 @@ def _handle_rolling_distribution(
         rendered = format_rolling_markdown(report)
     elif args.format == "html":
         rendered = export_rolling_html(report)
+    elif args.format == "pr-comment":
+        rendered = export_rolling_pr_comment(report)
     else:
         rendered = format_rolling_text(report)
     if args.output:

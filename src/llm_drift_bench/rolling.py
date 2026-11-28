@@ -630,3 +630,43 @@ def export_rolling_html(
         target.write_text(html, encoding="utf-8")
     return html
 
+
+def export_rolling_pr_comment(report: RollingWindowReport) -> str:
+    """Render a compact GitHub PR comment summarizing rolling-baseline distribution drift."""
+    verdict = "PASS" if report.passed else "FAIL"
+    jit_tvd = "n/a" if report.baseline_jitter_tvd is None else f"{report.baseline_jitter_tvd:.4f}"
+    jit_w1 = (
+        "n/a"
+        if report.baseline_jitter_wasserstein is None
+        else f"{report.baseline_jitter_wasserstein:.4f}"
+    )
+    lines = [
+        "<!-- llm-drift-bench:rolling-distribution -->",
+        f"### Rolling-Baseline Distribution Drift: **{verdict}**",
+        "",
+        "| Prior Windows | Samples (Base -> Cand) | Max TVD | Max JSD | Max W1 | "
+        "Jitter (TVD / W1) |",
+        "| ---: | :---: | ---: | ---: | ---: | :---: |",
+        f"| {report.window_count} | "
+        f"`{report.baseline_sample_count} -> {report.candidate_sample_count}` | "
+        f"`{report.overall.max_tvd:.4f}` | `{report.overall.max_jsd:.4f}` | "
+        f"`{report.overall.max_normalized_wasserstein:.4f}` | `{jit_tvd} / {jit_w1}` |",
+    ]
+    if report.segmented is not None:
+        seg = report.segmented
+        lines.append(
+            f"\nBlast radius (`{markdown_cell(seg.group_by)}`): **{seg.shift_scope}** "
+            f"({len(seg.shifted_segments)}/{len(seg.segments)} segment(s) >= "
+            f"{seg.shift_threshold:.2f})"
+        )
+    if report.failure_reasons:
+        lines += [
+            "",
+            f"<details><summary>Threshold failures ({len(report.failure_reasons)})</summary>",
+            "",
+        ]
+        for msg in report.failure_reasons:
+            lines.append(f"- {markdown_cell(msg)}")
+        lines += ["", "</details>"]
+    return "\n".join(lines) + "\n"
+
