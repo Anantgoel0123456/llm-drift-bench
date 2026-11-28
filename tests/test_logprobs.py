@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import pytest
 
@@ -187,3 +188,111 @@ def test_logprobs_validation_errors() -> None:
     noisy_summary = analyze_logprobs_drift(noisy_b, noisy_c)
     assert noisy_summary.comparable_samples == 1
     assert noisy_summary.complete is False
+
+
+def test_logprobs_markdown_html_and_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from llm_drift_bench.cli import main
+    from llm_drift_bench.logprobs import export_logprobs_html, format_logprobs_markdown
+
+    base = [
+        ModelSample(
+            prompt_id="p1",
+            output="yes",
+            model_name="b",
+            metadata={"logprobs": [{"token": "yes", "logprob": _lp(0.95)}]},
+        ),
+        ModelSample(prompt_id="p2", output="no", model_name="b"),
+    ]
+    cand = [
+        ModelSample(
+            prompt_id="p1",
+            output="yes",
+            model_name="c",
+            metadata={"logprobs": [{"token": "yes", "logprob": _lp(0.55)}]},
+        ),
+        ModelSample(prompt_id="p2", output="no", model_name="c"),
+    ]
+    summary = analyze_logprobs_drift(base, cand)
+    md = format_logprobs_markdown(summary)
+    assert "## Logprobs Distribution & Uncertainty Drift (Incomplete)" in md
+    assert "| `p1` | OK |" in md and "| `p2` | N/A |" in md
+
+    html_file = tmp_path / "lp.html"
+    html = export_logprobs_html(summary, output_path=html_file)
+    assert html_file.read_text(encoding="utf-8") == html
+    assert "Content-Security-Policy" in html and "<script" not in html.lower()
+    assert "INCOMPLETE" in html and "<code>p1</code>" in html
+
+    b_file = tmp_path / "b.jsonl"
+    c_file = tmp_path / "c.jsonl"
+    b_file.write_text(
+        '{"prompt_id": "p1", "output": "yes", "metadata": {"logprobs": '
+        '[{"token": "yes", "logprob": -0.05}]}}\n',
+        encoding="utf-8",
+    )
+    c_file.write_text(
+        '{"prompt_id": "p1", "output": "yes", "metadata": {"logprobs": '
+        '[{"token": "yes", "logprob": -0.60}]}}\n',
+        encoding="utf-8",
+    )
+    assert (
+        main(
+            [
+                "logprobs",
+                "-b",
+                str(b_file),
+                "-c",
+                str(c_file),
+                "--max-entropy-delta",
+                "0.01",
+                "--format",
+                "markdown",
+            ]
+        )
+        == 1
+    )
+    md_out = capsys.readouterr().out
+    assert "## Logprobs Distribution & Uncertainty Drift (Complete)" in md_out
+    assert "**Threshold failures:**" in md_out
+
+    cli_html = tmp_path / "cli_lp.html"
+    assert (
+        main(
+            [
+                "logprobs",
+                "-b",
+                str(b_file),
+                "-c",
+                str(c_file),
+                "--format",
+                "html",
+                "-o",
+                str(cli_html),
+            ]
+        )
+        == 0
+    )
+    assert "Wrote logprobs drift report" in capsys.readouterr().out
+    assert "COMPLETE" in cli_html.read_text(encoding="utf-8")
+
+    cli_md_out = tmp_path / "cli_lp.md"
+    assert (
+        main(
+            [
+                "logprobs",
+                "-b",
+                str(b_file),
+                "-c",
+                str(c_file),
+                "--format",
+                "markdown",
+                "-o",
+                str(cli_md_out),
+            ]
+        )
+        == 0
+    )
+    assert "## Logprobs" in cli_md_out.read_text(encoding="utf-8")
+    capsys.readouterr()

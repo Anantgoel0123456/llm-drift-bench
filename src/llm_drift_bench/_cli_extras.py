@@ -630,9 +630,12 @@ def register_extra_subcommands(
     )
     lp_p.add_argument(
         "--format",
-        choices=("text", "json"),
+        choices=("text", "json", "markdown", "html"),
         default="text",
-        help="Output format: text (default) or json.",
+        help="Output format: text (default), json, markdown, or html.",
+    )
+    lp_p.add_argument(
+        "-o", "--output", default=None, help="Optional output file path to write the report."
     )
 
     qual_p = subparsers.add_parser(
@@ -1926,7 +1929,12 @@ def _handle_wizard(
     return 0
 
 
-def _handle_logprobs(args: argparse.Namespace) -> int:
+def _handle_logprobs(
+    args: argparse.Namespace,
+    protect_inputs: ProtectFn,
+    atomic_write_text: AtomicWriteFn,
+) -> int:
+    protect_inputs(args.output, args.baseline, args.candidate)
     if args.max_entropy_delta is not None and (
         not math.isfinite(args.max_entropy_delta) or args.max_entropy_delta < 0.0
     ):
@@ -1934,7 +1942,12 @@ def _handle_logprobs(args: argparse.Namespace) -> int:
     _validate_unit_threshold("--max-jsd", args.max_jsd)
 
     from llm_drift_bench.engine import load_model_samples
-    from llm_drift_bench.logprobs import analyze_logprobs_drift, format_logprobs_text
+    from llm_drift_bench.logprobs import (
+        analyze_logprobs_drift,
+        export_logprobs_html,
+        format_logprobs_markdown,
+        format_logprobs_text,
+    )
 
     base = load_model_samples(args.baseline)
     cand = load_model_samples(args.candidate)
@@ -1970,12 +1983,26 @@ def _handle_logprobs(args: argparse.Namespace) -> int:
         if has_limits:
             payload["passed"] = passed
             payload["threshold_failures"] = failures
-        print(json.dumps(payload, indent=2))
-    else:
-        text = format_logprobs_text(summary)
+        rendered = json.dumps(payload, indent=2) + "\n"
+    elif args.format == "markdown":
+        rendered = format_logprobs_markdown(summary)
         if failures:
-            text += "Threshold failures:\n" + "".join(f"  - {msg}\n" for msg in failures)
-        print(text, end="")
+            rendered += "\n**Threshold failures:**\n" + "".join(f"- {msg}\n" for msg in failures)
+    elif args.format == "html":
+        rendered = export_logprobs_html(summary)
+    else:
+        rendered = format_logprobs_text(summary)
+        if failures:
+            rendered += "Threshold failures:\n" + "".join(f"  - {msg}\n" for msg in failures)
+
+    if args.output:
+        atomic_write_text(Path(args.output), rendered)
+        if args.format == "html":
+            print(f"Wrote logprobs drift report -> {args.output}")
+        else:
+            print(rendered, end="")
+    else:
+        print(rendered, end="")
     return 0 if passed else 1
 
 
@@ -2295,7 +2322,7 @@ def dispatch_extra_command(
     if args.command == "wizard":
         return _handle_wizard(args, atomic_write_text)
     if args.command == "logprobs":
-        return _handle_logprobs(args)
+        return _handle_logprobs(args, protect_inputs, atomic_write_text)
     if args.command == "check-quality":
         return _handle_check_quality(args, protect_inputs, atomic_write_text)
     if args.command == "check-formats":

@@ -5,9 +5,12 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from html import escape
+from pathlib import Path
 from typing import Any
 
 from llm_drift_bench._matching import index_records, require_same_ids
+from llm_drift_bench._report_views import markdown_cell
 from llm_drift_bench.models import ModelSample
 
 _TAIL_BUCKET = "\x00<other>"
@@ -273,23 +276,24 @@ def analyze_logprobs_drift(
     )
 
 
+def _fmt_lp(val: float | None, spec: str = ".4f") -> str:
+    return "n/a" if val is None else format(val, spec)
+
+
 def format_logprobs_text(summary: LogprobDriftSummary) -> str:
     """Format a LogprobDriftSummary as a clear human-readable text report."""
-    def _fmt(val: float | None, spec: str = ".4f") -> str:
-        return "n/a" if val is None else format(val, spec)
-
     status = "complete" if summary.complete else "incomplete (missing logprobs on some prompts)"
     lines = [
         f"Logprobs Distribution & Uncertainty Drift "
         f"({summary.comparable_samples}/{summary.total_samples} comparable, {status})",
-        f"Mean entropy (bits): {_fmt(summary.mean_baseline_entropy_bits)} -> "
-        f"{_fmt(summary.mean_candidate_entropy_bits)} "
-        f"(delta {_fmt(summary.mean_entropy_delta_bits, '+.4f')})",
-        f"Mean chosen logprob: {_fmt(summary.mean_baseline_logprob)} -> "
-        f"{_fmt(summary.mean_candidate_logprob)} "
-        f"(delta {_fmt(summary.mean_logprob_delta, '+.4f')})",
-        f"Position-aligned top-k JSD: mean={_fmt(summary.mean_top_k_jsd)}, "
-        f"max={_fmt(summary.max_top_k_jsd)}",
+        f"Mean entropy (bits): {_fmt_lp(summary.mean_baseline_entropy_bits)} -> "
+        f"{_fmt_lp(summary.mean_candidate_entropy_bits)} "
+        f"(delta {_fmt_lp(summary.mean_entropy_delta_bits, '+.4f')})",
+        f"Mean chosen logprob: {_fmt_lp(summary.mean_baseline_logprob)} -> "
+        f"{_fmt_lp(summary.mean_candidate_logprob)} "
+        f"(delta {_fmt_lp(summary.mean_logprob_delta, '+.4f')})",
+        f"Position-aligned top-k JSD: mean={_fmt_lp(summary.mean_top_k_jsd)}, "
+        f"max={_fmt_lp(summary.max_top_k_jsd)}",
     ]
     if summary.results:
         lines.append("")
@@ -300,10 +304,103 @@ def format_logprobs_text(summary: LogprobDriftSummary) -> str:
             else:
                 lines.append(
                     f"  {item.prompt_id}: entropy "
-                    f"{_fmt(item.baseline_mean_entropy_bits)}->"
-                    f"{_fmt(item.candidate_mean_entropy_bits)} "
-                    f"({_fmt(item.entropy_delta_bits, '+.4f')} bits), "
-                    f"top_k_jsd={_fmt(item.mean_top_k_jsd)} "
+                    f"{_fmt_lp(item.baseline_mean_entropy_bits)}->"
+                    f"{_fmt_lp(item.candidate_mean_entropy_bits)} "
+                    f"({_fmt_lp(item.entropy_delta_bits, '+.4f')} bits), "
+                    f"top_k_jsd={_fmt_lp(item.mean_top_k_jsd)} "
                     f"(aligned={item.aligned_positions} toks)"
                 )
     return "\n".join(lines) + "\n"
+
+
+def format_logprobs_markdown(summary: LogprobDriftSummary) -> str:
+    """Format a LogprobDriftSummary as GitHub-Flavored Markdown."""
+    status = "Complete" if summary.complete else "Incomplete"
+    lines = [
+        f"## Logprobs Distribution & Uncertainty Drift ({status})",
+        "",
+        f"- Comparable prompts: **{summary.comparable_samples} / {summary.total_samples}**",
+        f"- Mean entropy (bits): **{_fmt_lp(summary.mean_baseline_entropy_bits)}** -> "
+        f"**{_fmt_lp(summary.mean_candidate_entropy_bits)}** "
+        f"(delta `{_fmt_lp(summary.mean_entropy_delta_bits, '+.4f')}`)",
+        f"- Mean chosen logprob: **{_fmt_lp(summary.mean_baseline_logprob)}** -> "
+        f"**{_fmt_lp(summary.mean_candidate_logprob)}** "
+        f"(delta `{_fmt_lp(summary.mean_logprob_delta, '+.4f')}`)",
+        f"- Position-aligned top-k JSD: mean **{_fmt_lp(summary.mean_top_k_jsd)}**, "
+        f"max **{_fmt_lp(summary.max_top_k_jsd)}**",
+    ]
+    if summary.results:
+        lines += [
+            "",
+            "| Prompt ID | Status | Baseline Entropy | Candidate Entropy | "
+            "Entropy Delta | Top-k JSD | Aligned Tokens |",
+            "| :--- | :---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+        for item in summary.results:
+            tag = "OK" if item.available else "N/A"
+            lines.append(
+                f"| `{markdown_cell(item.prompt_id)}` | {tag} | "
+                f"{_fmt_lp(item.baseline_mean_entropy_bits)} | "
+                f"{_fmt_lp(item.candidate_mean_entropy_bits)} | "
+                f"{_fmt_lp(item.entropy_delta_bits, '+.4f')} | "
+                f"{_fmt_lp(item.mean_top_k_jsd)} | {item.aligned_positions} |"
+            )
+    return "\n".join(lines) + "\n"
+
+
+def export_logprobs_html(
+    summary: LogprobDriftSummary,
+    output_path: str | Path | None = None,
+) -> str:
+    """Export a standalone script-free offline HTML report for a LogprobDriftSummary."""
+    status = "COMPLETE" if summary.complete else "INCOMPLETE"
+    badge_bg = "#2ea44f" if summary.complete else "#b45309"
+    rows = "".join(
+        "<tr>"
+        f"<td><code>{escape(item.prompt_id)}</code></td>"
+        f"<td>{'OK' if item.available else 'N/A'}</td>"
+        f"<td>{_fmt_lp(item.baseline_mean_entropy_bits)}</td>"
+        f"<td>{_fmt_lp(item.candidate_mean_entropy_bits)}</td>"
+        f"<td>{_fmt_lp(item.entropy_delta_bits, '+.4f')}</td>"
+        f"<td>{_fmt_lp(item.mean_top_k_jsd)}</td>"
+        f"<td>{item.aligned_positions}</td>"
+        "</tr>"
+        for item in summary.results
+    )
+    table = (
+        "<table><thead><tr><th>Prompt ID</th><th>Status</th><th>Baseline Entropy</th>"
+        "<th>Candidate Entropy</th><th>Entropy Delta</th><th>Top-k JSD</th>"
+        f"<th>Aligned Tokens</th></tr></thead><tbody>{rows}</tbody></table>"
+        if summary.results
+        else "<p class='muted'>No per-prompt logprob rows.</p>"
+    )
+    html = (
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        "<meta http-equiv='Content-Security-Policy' "
+        "content=\"default-src 'none'; style-src 'unsafe-inline'\">"
+        "<title>LLM Drift Bench — Logprobs Drift</title>"
+        "<style>"
+        "body{font-family:system-ui,-apple-system,sans-serif;max-width:960px;"
+        "margin:2rem auto;padding:0 1rem;color:#1f2937}"
+        f".badge{{display:inline-block;padding:0.2rem 0.65rem;border-radius:999px;"
+        f"color:#fff;font-weight:600;background:{badge_bg}}}"
+        "table{width:100%;border-collapse:collapse;margin-top:1rem}"
+        "th,td{border:1px solid #e5e7eb;padding:0.5rem 0.75rem;text-align:left}"
+        "th{background:#f9fafb}.muted{color:#6b7280}"
+        "</style></head><body>"
+        f"<h1>Logprobs Uncertainty &amp; Distribution Drift "
+        f"<span class='badge'>{status}</span></h1>"
+        f"<p>Comparable prompts: <strong>{summary.comparable_samples} / "
+        f"{summary.total_samples}</strong> &middot; "
+        f"Mean entropy: <strong>{_fmt_lp(summary.mean_baseline_entropy_bits)}</strong> &rarr; "
+        f"<strong>{_fmt_lp(summary.mean_candidate_entropy_bits)}</strong> "
+        f"({_fmt_lp(summary.mean_entropy_delta_bits, '+.4f')} bits) &middot; "
+        f"Top-k JSD: mean <strong>{_fmt_lp(summary.mean_top_k_jsd)}</strong>, "
+        f"max <strong>{_fmt_lp(summary.max_top_k_jsd)}</strong></p>"
+        f"{table}</body></html>\n"
+    )
+    if output_path is not None:
+        target = Path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(html, encoding="utf-8")
+    return html
