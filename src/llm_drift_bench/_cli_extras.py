@@ -696,9 +696,12 @@ def register_extra_subcommands(
     )
     fmt_p.add_argument(
         "--format",
-        choices=("text", "json"),
+        choices=("text", "json", "markdown", "csv"),
         default="text",
-        help="Output format: text (default) or json.",
+        help="Output format: text (default), json, markdown, or csv.",
+    )
+    fmt_p.add_argument(
+        "-o", "--output", default=None, help="Optional output file path to write the report."
     )
 
     audit_p = subparsers.add_parser(
@@ -2020,10 +2023,16 @@ def _handle_check_quality(
     return 0
 
 
-def _handle_check_formats(args: argparse.Namespace) -> int:
+def _handle_check_formats(
+    args: argparse.Namespace,
+    protect_inputs: ProtectFn,
+    atomic_write_text: AtomicWriteFn,
+) -> int:
+    protect_inputs(args.output, args.input)
     from llm_drift_bench.engine import load_model_samples
     from llm_drift_bench.formats import (
         check_field_formats,
+        format_check_report_markdown,
         format_check_report_text,
         parse_format_rule_spec,
     )
@@ -2032,9 +2041,18 @@ def _handle_check_formats(args: argparse.Namespace) -> int:
     samples = load_model_samples(args.input)
     report = check_field_formats(samples, rules, allow_null=args.allow_null)
     if args.format == "json":
-        print(json.dumps(report.to_dict(), indent=2))
+        rendered = json.dumps(report.to_dict(), indent=2) + "\n"
+    elif args.format == "markdown":
+        rendered = format_check_report_markdown(report)
+    elif args.format == "csv":
+        from llm_drift_bench.csv_export import export_format_csv_report
+
+        rendered = export_format_csv_report(report)
     else:
-        print(format_check_report_text(report), end="")
+        rendered = format_check_report_text(report)
+    if args.output:
+        atomic_write_text(Path(args.output), rendered)
+    print(rendered, end="")
     return 0 if report.passed else 1
 
 
@@ -2259,7 +2277,7 @@ def dispatch_extra_command(
     if args.command == "check-quality":
         return _handle_check_quality(args, protect_inputs, atomic_write_text)
     if args.command == "check-formats":
-        return _handle_check_formats(args)
+        return _handle_check_formats(args, protect_inputs, atomic_write_text)
     if args.command == "audit":
         return _handle_audit(args, protect_inputs, atomic_write_text)
     if args.command == "check-consumer":

@@ -16,6 +16,7 @@ from datetime import date, datetime
 from typing import Any, Literal
 
 from llm_drift_bench._matching import index_records
+from llm_drift_bench._report_views import markdown_cell
 from llm_drift_bench.metrics import flatten_json_paths
 from llm_drift_bench.models import ModelSample
 from llm_drift_bench.policy import _compile_path_pattern
@@ -246,4 +247,28 @@ def format_check_report_text(report: FormatReport) -> str:
             f"  {issue.prompt_id} {issue.path} [{issue.expected_format}]: "
             f"{issue.message} (got {issue.actual_preview})"
         )
+    return "\n".join(lines) + "\n"
+
+
+def format_check_report_markdown(report: FormatReport) -> str:
+    """Format a FormatReport as GitHub-Flavored Markdown."""
+    verdict = "PASS" if report.passed else "FAIL"
+    lines = [
+        f"## Semantic Field Format Check ({verdict})",
+        "",
+        f"Checked **{report.checked_values}** value(s) across **{report.total_samples}** "
+        f"sample(s); **{report.failed_values}** failed.",
+    ]
+    if report.issues:
+        lines += [
+            "",
+            "| Prompt ID | JSONPath | Expected | Got | Message |",
+            "| :--- | :--- | :---: | :--- | :--- |",
+        ]
+        for issue in report.issues:
+            lines.append(
+                f"| `{markdown_cell(issue.prompt_id)}` | `{markdown_cell(issue.path)}` | "
+                f"`{issue.expected_format}` | `{markdown_cell(issue.actual_preview)}` | "
+                f"{markdown_cell(issue.message)} |"
+            )
     return "\n".join(lines) + "\n"

@@ -119,3 +119,76 @@ def test_parse_format_rule_spec_and_errors() -> None:
         check_field_formats(sample_ok, {"$.x": "bogus"})  # type: ignore[arg-type]
     skipped = check_field_formats(sample_ok, {"$.email": "email"})
     assert skipped.passed is True and skipped.checked_values == 0
+
+
+def test_format_markdown_csv_and_cli(
+    tmp_path: pytest.TempPathFactory, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import csv
+    import io
+    from pathlib import Path
+
+    from llm_drift_bench.cli import main
+    from llm_drift_bench.csv_export import FORMAT_CSV_COLUMNS, export_format_csv_report
+    from llm_drift_bench.formats import format_check_report_markdown
+
+    assert isinstance(tmp_path, Path)
+    clean_rep = check_field_formats(
+        [ModelSample("p1", '{"email": "dev@example.com"}')], {"$.email": "email"}
+    )
+    assert "## Semantic Field Format Check (PASS)" in format_check_report_markdown(clean_rep)
+
+    bad_rep = check_field_formats(
+        [ModelSample("=p1", '{"email": "=bad"}')], {"$.email": "email"}
+    )
+    md = format_check_report_markdown(bad_rep)
+    assert "## Semantic Field Format Check (FAIL)" in md and "`$.email`" in md
+
+    csv_file = tmp_path / "formats.csv"
+    csv_text = export_format_csv_report(bad_rep, output_path=csv_file)
+    assert csv_file.read_text(encoding="utf-8") == csv_text
+    rows = list(csv.DictReader(io.StringIO(csv_text)))
+    assert tuple(rows[0].keys()) == FORMAT_CSV_COLUMNS
+    assert rows[0]["prompt_id"] == "'=p1"
+
+    with pytest.raises(ValueError, match="FormatReport"):
+        export_format_csv_report({})  # type: ignore[arg-type]
+
+    cap = tmp_path / "cap.jsonl"
+    cap.write_text('{"prompt_id": "p1", "output": "{\\"email\\": \\"not-an-email\\"}"}\n', "utf-8")
+    md_out = tmp_path / "fmt.md"
+    assert (
+        main(
+            [
+                "check-formats",
+                "-i",
+                str(cap),
+                "--rule",
+                "$.email=email",
+                "--format",
+                "markdown",
+                "-o",
+                str(md_out),
+            ]
+        )
+        == 1
+    )
+    assert "Semantic Field Format Check (FAIL)" in md_out.read_text(encoding="utf-8")
+    capsys.readouterr()
+
+    assert (
+        main(
+            [
+                "check-formats",
+                "-i",
+                str(cap),
+                "--rule",
+                "$.email=email",
+                "--format",
+                "csv",
+            ]
+        )
+        == 1
+    )
+    cli_rows = list(csv.DictReader(io.StringIO(capsys.readouterr().out)))
+    assert len(cli_rows) == 1 and cli_rows[0]["expected_format"] == "email"

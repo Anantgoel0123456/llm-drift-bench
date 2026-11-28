@@ -10,6 +10,7 @@ from typing import Any
 from llm_drift_bench.conversation import ConversationDriftReport
 from llm_drift_bench.distribution import DistributionReport, SegmentedDistributionReport
 from llm_drift_bench.embeddings import EmbeddingDriftReport
+from llm_drift_bench.formats import FormatReport
 from llm_drift_bench.models import DriftBenchmarkReport
 
 CSV_COLUMNS = (
@@ -295,6 +296,43 @@ def export_distribution_csv_report(
             )
     else:
         _write_dist_rows(writer, "overall", report, sanitize_formulas=sanitize_formulas)
+    serialized = buffer.getvalue()
+    if output_path is not None:
+        target = Path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(serialized, encoding="utf-8")
+    return serialized
+
+
+FORMAT_CSV_COLUMNS = (
+    "prompt_id",
+    "path",
+    "expected_format",
+    "actual_preview",
+    "message",
+)
+
+
+def export_format_csv_report(
+    report: FormatReport,
+    output_path: str | Path | None = None,
+    *,
+    sanitize_formulas: bool = True,
+) -> str:
+    """Export semantic field format check issues as RFC-4180 CSV."""
+    if not isinstance(report, FormatReport):
+        raise ValueError("Format CSV export requires a FormatReport.")
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(FORMAT_CSV_COLUMNS)
+    for issue in report.issues:
+        writer.writerow([
+            _safe_csv_text(issue.prompt_id, sanitize=sanitize_formulas),
+            _safe_csv_text(issue.path, sanitize=sanitize_formulas),
+            issue.expected_format,
+            _safe_csv_text(issue.actual_preview, sanitize=sanitize_formulas),
+            _safe_csv_text(issue.message, sanitize=sanitize_formulas),
+        ])
     serialized = buffer.getvalue()
     if output_path is not None:
         target = Path(output_path)
