@@ -141,3 +141,80 @@ def test_assert_consumer_quality_and_rolling_helpers() -> None:
         assert_no_rolling_drift(analyze_rolling_distribution([w1], w2, max_tvd=0.1))
     with pytest.raises(TypeError, match="RollingWindowReport"):
         assert_no_rolling_drift({})  # type: ignore[arg-type]
+
+
+def test_assert_formats_logprobs_and_cost_helpers() -> None:
+    import math
+
+    from llm_drift_bench.cost import ModelPricing, estimate_cost_drift
+    from llm_drift_bench.formats import check_field_formats
+    from llm_drift_bench.logprobs import analyze_logprobs_drift
+    from llm_drift_bench.testing import (
+        assert_cost_within_budget,
+        assert_formats_valid,
+        assert_logprobs_within_budget,
+    )
+
+    # Format assertions (pass, >5 issues truncation, wrong type)
+    ok_fmt = check_field_formats(
+        [ModelSample(prompt_id="p1", output='{"email": "a@example.com"}')],
+        {"$.email": "email"},
+    )
+    assert_formats_valid(ok_fmt)
+    bad_fmt = check_field_formats(
+        [ModelSample(prompt_id=f"p{i}", output='{"email": "bad"}') for i in range(6)],
+        {"$.email": "email"},
+    )
+    with pytest.raises(AssertionError, match="1 additional format issue"):
+        assert_formats_valid(bad_fmt)
+    with pytest.raises(TypeError, match="FormatReport"):
+        assert_formats_valid({})  # type: ignore[arg-type]
+
+    # Logprobs assertions (no limits, pass, entropy fail, jsd fail, incomplete fail, bad args)
+    b_lp = [
+        ModelSample(
+            prompt_id="p1",
+            output="yes",
+            metadata={"logprobs": [{"token": "yes", "logprob": math.log(0.95)}]},
+        )
+    ]
+    c_lp = [
+        ModelSample(
+            prompt_id="p1",
+            output="yes",
+            metadata={"logprobs": [{"token": "yes", "logprob": math.log(0.55)}]},
+        )
+    ]
+    lp_same = analyze_logprobs_drift(b_lp, b_lp)
+    lp_diff = analyze_logprobs_drift(b_lp, c_lp)
+    lp_inc = analyze_logprobs_drift([ModelSample("p1", "yes")], [ModelSample("p1", "yes")])
+
+    assert_logprobs_within_budget(lp_inc)
+    assert_logprobs_within_budget(lp_same, max_entropy_delta=0.05, max_top_k_jsd=0.05)
+    with pytest.raises(AssertionError, match="abs\\(mean_entropy_delta_bits\\)"):
+        assert_logprobs_within_budget(lp_diff, max_entropy_delta=0.01)
+    with pytest.raises(AssertionError, match="max_top_k_jsd"):
+        assert_logprobs_within_budget(lp_diff, max_top_k_jsd=0.01)
+    with pytest.raises(AssertionError, match="Incomplete logprobs coverage"):
+        assert_logprobs_within_budget(lp_inc, max_top_k_jsd=0.5)
+    with pytest.raises(TypeError, match="LogprobDriftSummary"):
+        assert_logprobs_within_budget({})  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="max_entropy_delta"):
+        assert_logprobs_within_budget(lp_same, max_entropy_delta=-0.1)
+    with pytest.raises(ValueError, match="max_top_k_jsd"):
+        assert_logprobs_within_budget(lp_same, max_top_k_jsd=1.5)
+
+    # Cost assertions (pass, fail, wrong type)
+    c_base = [ModelSample(prompt_id="p1", output="a", tokens_generated=100)]
+    c_cand = [ModelSample(prompt_id="p1", output="a", tokens_generated=200)]
+    comp = estimate_cost_drift(
+        c_base,
+        c_cand,
+        baseline_pricing=ModelPricing(output_per_million_usd=10.0),
+        candidate_pricing=ModelPricing(output_per_million_usd=10.0),
+    )
+    assert_cost_within_budget(comp, max_token_increase_pct=150.0, max_cost_increase_pct=150.0)
+    with pytest.raises(AssertionError, match="LLM cost/token budget failed"):
+        assert_cost_within_budget(comp, max_token_increase_pct=20.0)
+    with pytest.raises(TypeError, match="CostComparison"):
+        assert_cost_within_budget({})  # type: ignore[arg-type]

@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 
 from llm_drift_bench.audit import AuditReport
 from llm_drift_bench.comparison import prompt_changes
 from llm_drift_bench.consumer import ConsumerComparison
 from llm_drift_bench.conversation import ConversationDriftReport
+from llm_drift_bench.cost import CostComparison, check_cost_budget
 from llm_drift_bench.embeddings import EmbeddingDriftReport
+from llm_drift_bench.formats import FormatReport
 from llm_drift_bench.gates import ReleaseVerdict
+from llm_drift_bench.logprobs import LogprobDriftSummary
 from llm_drift_bench.models import DriftBenchmarkReport
 from llm_drift_bench.quality_checks import QualityReport
 from llm_drift_bench.rolling import RollingWindowReport
@@ -225,3 +229,102 @@ def assert_no_rolling_drift(report: RollingWindowReport) -> None:
         *[f"- {reason}" for reason in report.failure_reasons],
     ]
     raise AssertionError("\n".join(lines))
+
+
+def assert_formats_valid(report: FormatReport) -> None:
+    """Raise AssertionError if a FormatReport contains semantic field format violations."""
+    if not isinstance(report, FormatReport):
+        raise TypeError(
+            f"assert_formats_valid requires a FormatReport, got {type(report).__name__}."
+        )
+    if report.passed:
+        return
+    lines = [
+        f"LLM semantic format check failed: "
+        f"{report.failed_values}/{report.checked_values} value(s) failed "
+        f"({len(report.issues)} issue(s)).",
+    ]
+    for issue in report.issues[:5]:
+        lines.append(
+            f"- Prompt {issue.prompt_id!r} field {issue.path} "
+            f"({issue.expected_format}): {issue.message}"
+        )
+    if len(report.issues) > 5:
+        lines.append(f"- {len(report.issues) - 5} additional format issue(s).")
+    raise AssertionError("\n".join(lines))
+
+
+def assert_logprobs_within_budget(
+    summary: LogprobDriftSummary,
+    *,
+    max_entropy_delta: float | None = None,
+    max_top_k_jsd: float | None = None,
+) -> None:
+    """Raise AssertionError if token entropy or top-k JSD exceeds configured limits."""
+    if not isinstance(summary, LogprobDriftSummary):
+        raise TypeError(
+            "assert_logprobs_within_budget requires a LogprobDriftSummary, "
+            f"got {type(summary).__name__}."
+        )
+    if max_entropy_delta is not None and (
+        isinstance(max_entropy_delta, bool)
+        or not isinstance(max_entropy_delta, (int, float))
+        or not math.isfinite(max_entropy_delta)
+        or max_entropy_delta < 0.0
+    ):
+        raise ValueError("max_entropy_delta must be a finite non-negative number.")
+    if max_top_k_jsd is not None and (
+        isinstance(max_top_k_jsd, bool)
+        or not isinstance(max_top_k_jsd, (int, float))
+        or not math.isfinite(max_top_k_jsd)
+        or not (0.0 <= max_top_k_jsd <= 1.0)
+    ):
+        raise ValueError("max_top_k_jsd must be a finite number in [0.0, 1.0].")
+    if max_entropy_delta is None and max_top_k_jsd is None:
+        return
+
+    failures: list[str] = []
+    if not summary.complete:
+        failures.append(
+            f"Incomplete logprobs coverage ({summary.comparable_samples}/{summary.total_samples})."
+        )
+    if (
+        max_entropy_delta is not None
+        and summary.mean_entropy_delta_bits is not None
+        and abs(summary.mean_entropy_delta_bits) > max_entropy_delta
+    ):
+        failures.append(
+            f"abs(mean_entropy_delta_bits) {abs(summary.mean_entropy_delta_bits):.4f} "
+            f"exceeded limit {max_entropy_delta:.4f}."
+        )
+    if (
+        max_top_k_jsd is not None
+        and summary.max_top_k_jsd is not None
+        and summary.max_top_k_jsd > max_top_k_jsd
+    ):
+        failures.append(
+            f"max_top_k_jsd {summary.max_top_k_jsd:.4f} exceeded limit {max_top_k_jsd:.4f}."
+        )
+    if failures:
+        lines = [
+            f"LLM logprobs drift budget failed "
+            f"({summary.comparable_samples}/{summary.total_samples} comparable):",
+            *(f"- {msg}" for msg in failures),
+        ]
+        raise AssertionError("\n".join(lines))
+
+
+def assert_cost_within_budget(
+    comparison: CostComparison,
+    *,
+    max_token_increase_pct: float | None = None,
+    max_cost_increase_pct: float | None = None,
+) -> None:
+    """Raise AssertionError if explicit output token or USD cost growth exceeds budget."""
+    ok, detail = check_cost_budget(
+        comparison,
+        max_token_increase_pct=max_token_increase_pct,
+        max_cost_increase_pct=max_cost_increase_pct,
+    )
+    if not ok:
+        raise AssertionError(f"LLM cost/token budget failed: {detail}")
