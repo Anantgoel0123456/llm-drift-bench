@@ -12,6 +12,7 @@ from llm_drift_bench.distribution import DistributionReport, SegmentedDistributi
 from llm_drift_bench.embeddings import EmbeddingDriftReport
 from llm_drift_bench.formats import FormatReport
 from llm_drift_bench.models import DriftBenchmarkReport
+from llm_drift_bench.quality_checks import QualityReport
 
 CSV_COLUMNS = (
     "baseline_model",
@@ -332,6 +333,41 @@ def export_format_csv_report(
             issue.expected_format,
             _safe_csv_text(issue.actual_preview, sanitize=sanitize_formulas),
             _safe_csv_text(issue.message, sanitize=sanitize_formulas),
+        ])
+    serialized = buffer.getvalue()
+    if output_path is not None:
+        target = Path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(serialized, encoding="utf-8")
+    return serialized
+
+
+QUALITY_CSV_COLUMNS = (
+    "prompt_id",
+    "check",
+    "severity",
+    "detail",
+)
+
+
+def export_quality_csv_report(
+    report: QualityReport,
+    output_path: str | Path | None = None,
+    *,
+    sanitize_formulas: bool = True,
+) -> str:
+    """Export quality regression findings as RFC-4180 CSV."""
+    if not isinstance(report, QualityReport):
+        raise ValueError("Quality CSV export requires a QualityReport.")
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(QUALITY_CSV_COLUMNS)
+    for finding in report.findings:
+        writer.writerow([
+            _safe_csv_text(finding.prompt_id, sanitize=sanitize_formulas),
+            finding.check,
+            finding.severity,
+            _safe_csv_text(finding.detail, sanitize=sanitize_formulas),
         ])
     serialized = buffer.getvalue()
     if output_path is not None:

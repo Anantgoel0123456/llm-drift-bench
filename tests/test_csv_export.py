@@ -299,3 +299,33 @@ def test_export_distribution_csv_report_and_cli(
     seg_cli_rows = list(csv.DictReader(io.StringIO(capsys.readouterr().out)))
     assert any(r["segment"] == "extraction" for r in seg_cli_rows)
 
+
+def test_export_quality_csv_report_and_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from llm_drift_bench.csv_export import QUALITY_CSV_COLUMNS, export_quality_csv_report
+    from llm_drift_bench.quality_checks import run_quality_checks
+
+    base = [ModelSample(prompt_id="=p1", output="Detailed helpful answer about billing.")]
+    cand = [ModelSample(prompt_id="=p1", output="I'm sorry, I cannot assist with that.")]
+    rep = run_quality_checks(base, cand)
+    out_file = tmp_path / "quality.csv"
+    raw = export_quality_csv_report(rep, output_path=out_file)
+    assert out_file.read_text(encoding="utf-8") == raw
+    rows = list(csv.DictReader(io.StringIO(raw)))
+    assert len(rows) == 1 and tuple(rows[0].keys()) == QUALITY_CSV_COLUMNS
+    assert rows[0]["prompt_id"] == "'=p1" and rows[0]["check"] == "refusal_flip"
+
+    with pytest.raises(ValueError, match="QualityReport"):
+        export_quality_csv_report({})  # type: ignore[arg-type]
+
+    b_file = tmp_path / "qb.jsonl"
+    c_file = tmp_path / "qc.jsonl"
+    b_file.write_text('{"prompt_id": "p1", "output": "Helpful detailed answer."}\n', "utf-8")
+    c_file.write_text(
+        '{"prompt_id": "p1", "output": "I\'m sorry, I cannot assist with that."}\n', "utf-8"
+    )
+    assert main(["check-quality", "-b", str(b_file), "-c", str(c_file), "--format", "csv"]) == 1
+    cli_rows = list(csv.DictReader(io.StringIO(capsys.readouterr().out)))
+    assert len(cli_rows) == 1 and cli_rows[0]["check"] == "refusal_flip"
+

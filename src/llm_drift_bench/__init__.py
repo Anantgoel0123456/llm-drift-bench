@@ -103,6 +103,7 @@ if TYPE_CHECKING:
         export_distribution_csv_report,
         export_embedding_csv_report,
         export_format_csv_report,
+        export_quality_csv_report,
     )
     from llm_drift_bench.diagnostics import (
         Finding,
@@ -568,6 +569,7 @@ _EXPORTS: dict[str, str] = {
     "export_junit_report": "junit",
     "export_markdown_report": "reporter",
     "export_pr_comment": "reporter",
+    "export_quality_csv_report": "csv_export",
     "export_quality_html": "quality_checks",
     "export_quality_junit_report": "junit",
     "export_quality_sarif_report": "sarif",
@@ -872,6 +874,7 @@ __all__ = [
     "export_junit_report",
     "export_markdown_report",
     "export_pr_comment",
+    "export_quality_csv_report",
     "export_quality_html",
     "export_quality_junit_report",
     "export_quality_sarif_report",

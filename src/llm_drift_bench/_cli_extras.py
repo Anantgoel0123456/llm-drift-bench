@@ -669,9 +669,9 @@ def register_extra_subcommands(
     )
     qual_p.add_argument(
         "--format",
-        choices=("text", "json", "markdown", "html", "sarif", "junit"),
+        choices=("text", "json", "markdown", "html", "sarif", "junit", "csv"),
         default="text",
-        help="Output format: text (default), json, markdown, html, sarif, or junit.",
+        help="Output format: text (default), json, markdown, html, sarif, junit, or csv.",
     )
     qual_p.add_argument(
         "-o", "--output", default=None, help="Optional output file path to write the report."
@@ -2018,6 +2018,10 @@ def _handle_check_quality(
         from llm_drift_bench.junit import export_quality_junit_report
 
         rendered = export_quality_junit_report(report)
+    elif args.format == "csv":
+        from llm_drift_bench.csv_export import export_quality_csv_report
+
+        rendered = export_quality_csv_report(report)
     else:
         rendered = format_quality_report_text(report)
     if args.output:
