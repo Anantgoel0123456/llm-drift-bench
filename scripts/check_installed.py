@@ -777,6 +777,90 @@ else:
             cwd=root, env=env, check=True, capture_output=True, text=True,
         )
         assert json.loads(hist_chk.stdout)["regressed"] is False
+        audit_diag = subprocess.run(
+            [
+                str(cli), "audit",
+                "-s", str(examples / "extraction-suite.json"),
+                "-b", str(examples / "baseline.jsonl"),
+                "-c", str(examples / "candidate-drift.jsonl"),
+                "--diagnose", "--format", "json",
+            ],
+            cwd=root, env=env, check=False, capture_output=True, text=True,
+        )
+        if audit_diag.returncode != 1:
+            raise SystemExit(f"audit --diagnose: exit {audit_diag.returncode}")
+        assert len(json.loads(audit_diag.stdout)["diagnostics"]) >= 1
+        qual_html = root / "quality.html"
+        subprocess.run(
+            [
+                str(cli), "check-quality",
+                "-b", str(examples / "baseline.jsonl"),
+                "-c", str(examples / "candidate-pass.jsonl"),
+                "--format", "html", "-o", str(qual_html),
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "<!doctype html>" in qual_html.read_text(encoding="utf-8")
+        fmt_csv = subprocess.run(
+            [
+                str(cli), "check-formats",
+                "-i", str(pack_dir / "baseline.jsonl"),
+                "--rule", "$.currency=iso-currency",
+                "--format", "csv",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "prompt_id,path,expected_format,actual_preview,message" in fmt_csv.stdout
+        cons_json = root / "cons.json"
+        subprocess.run(
+            [
+                str(cli), "check-consumer",
+                "--baseline-decisions", str(cons_b),
+                "--candidate-decisions", str(cons_c),
+                "--format", "json", "-o", str(cons_json),
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        cons_badge = subprocess.run(
+            [str(cli), "badge", "-i", str(cons_json)],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "consumer: PASS" in cons_badge.stdout
+        cons_pr = subprocess.run(
+            [
+                str(cli), "check-consumer",
+                "--baseline-decisions", str(cons_b),
+                "--candidate-decisions", str(cons_c),
+                "--format", "pr-comment",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "<!-- llm-drift-bench:consumer -->" in cons_pr.stdout
+        roll_json = root / "roll.json"
+        subprocess.run(
+            [
+                str(cli), "rolling-distribution",
+                "-w", str(examples / "baseline.jsonl"),
+                "-c", str(examples / "candidate-pass.jsonl"),
+                "--format", "json", "-o", str(roll_json),
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        roll_badge = subprocess.run(
+            [str(cli), "badge", "-i", str(roll_json)],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "rolling-dist: PASS" in roll_badge.stdout
+        roll_pr = subprocess.run(
+            [
+                str(cli), "rolling-distribution",
+                "-w", str(examples / "baseline.jsonl"),
+                "-c", str(examples / "candidate-pass.jsonl"),
+                "--format", "pr-comment",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "<!-- llm-drift-bench:rolling-distribution -->" in roll_pr.stdout
         case_dir = examples / "case-study"
         case_doc = subprocess.run(
             [
