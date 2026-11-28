@@ -271,3 +271,142 @@ def test_diagnose_tool_trace_diff_and_cli(capsys: pytest.CaptureFixture[str]) ->
     assert any(item["code"] == "unexpected_edit_scope" for item in cli_doc["diagnostics"])
 
 
+def test_diagnose_audit_report_and_cli(capsys: pytest.CaptureFixture[str]) -> None:
+    import json
+
+    from llm_drift_bench.audit import run_full_audit
+    from llm_drift_bench.cli import main
+    from llm_drift_bench.consumer import ConsumerDecision, compare_consumer_decisions
+    from llm_drift_bench.conversation import (
+        ConversationRecord,
+        ConversationTurn,
+        analyze_conversation_drift,
+    )
+    from llm_drift_bench.diagnostics import diagnose_audit_report
+    from llm_drift_bench.embeddings import compare_embedding_vectors
+    from llm_drift_bench.models import ModelSample
+    from llm_drift_bench.tool_events import ToolEvent, compare_tool_traces
+
+    base = [
+        ModelSample("p1", '{"label": "high"}', metadata={"route": "r1"}),
+        ModelSample("p2", '{"label": "high"}', metadata={"route": "r2"}),
+    ]
+    cand_bad = [
+        ModelSample("p1", "I'm sorry, I cannot assist with that.", metadata={"route": "r1"}),
+        ModelSample("p2", '{"label": "low"}', metadata={"route": "r2"}),
+    ]
+    cons = compare_consumer_decisions(
+        [ConsumerDecision("p1", True), ConsumerDecision("p2", True)],
+        [ConsumerDecision("p1", False, "bad"), ConsumerDecision("p2", True)],
+        max_rejection_increase=0.1,
+    )
+    emb = compare_embedding_vectors(
+        {"p1": [1.0, 0.0], "p2": [1.0, 0.0]},
+        {"p1": [0.0, 1.0], "p2": [1.0, 0.0]},
+        min_mean_similarity=0.9,
+    )
+    conv = analyze_conversation_drift(
+        [ConversationRecord("c1", (ConversationTurn("assistant", '{"ok": true}'),))],
+        [
+            ConversationRecord(
+                "c1", (ConversationTurn("assistant", "I'm sorry, I cannot assist with that."),)
+            )
+        ],
+    )
+    tt = compare_tool_traces(
+        [ToolEvent(0, "read", "a@1", start=0, end=5)],
+        [ToolEvent(0, "read", "a@1", start=0, end=5), ToolEvent(1, "edit", "b@1")],
+        fail_on_new_edit_resources=True,
+    )
+    # Clean passing audit yields zero findings
+    assert diagnose_audit_report(run_full_audit(base, base)) == []
+
+    # Distribution-only gate failure hits audit_gate fallback cleanly
+    dist_only_cand = [
+        ModelSample("p1", '{"label": "low"}', metadata={"route": "r1"}),
+        ModelSample("p2", '{"label": "high"}', metadata={"route": "r2"}),
+    ]
+    dist_fail = run_full_audit(base, dist_only_cand, max_tvd=0.05)
+    # Make benchmark pass by high threshold so only max_tvd fails
+    from llm_drift_bench.models import DriftThresholds
+
+    dist_only_rep = run_full_audit(
+        base,
+        dist_only_cand,
+        thresholds=DriftThresholds(max_composite_drift=1.0),
+        max_tvd=0.05,
+    )
+    assert dist_fail.passed is False
+    assert [f.code for f in diagnose_audit_report(dist_only_rep)] == ["audit_gate"]
+
+    # Full multi-dimensional audit failure covers every branch
+    big_rep = run_full_audit(
+        base,
+        cand_bad,
+        group_by="metadata:route",
+        fail_on_widespread_shift=True,
+        consumer_comparison=cons,
+        embedding_report=emb,
+        conversation_report=conv,
+        tool_trace_diff=tt,
+    )
+    codes = {f.code for f in diagnose_audit_report(big_rep)}
+    assert {
+        "quality_refusal_flip",
+        "consumer_rejection",
+        "embedding_drift",
+        "refusal_flip",
+        "unexpected_edit_scope",
+    } <= codes
+
+    # Widespread distribution shift check specifically
+    wide_cand = [
+        ModelSample("p1", '{"label": "low"}', metadata={"route": "r1"}),
+        ModelSample("p2", '{"label": "low"}', metadata={"route": "r2"}),
+    ]
+    wide_rep = run_full_audit(
+        base, wide_cand, group_by="metadata:route", fail_on_widespread_shift=True
+    )
+    assert "distribution_widespread" in {f.code for f in diagnose_audit_report(wide_rep)}
+
+    with pytest.raises(ValueError, match="AuditReport"):
+        diagnose_audit_report({})  # type: ignore[arg-type]
+
+    assert (
+        main(
+            [
+                "audit",
+                "-s",
+                str(EXAMPLES / "extraction-suite.json"),
+                "-b",
+                str(EXAMPLES / "baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "candidate-drift.jsonl"),
+                "--diagnose",
+            ]
+        )
+        == 1
+    )
+    assert "Diagnostics (" in capsys.readouterr().out
+
+    assert (
+        main(
+            [
+                "audit",
+                "-s",
+                str(EXAMPLES / "extraction-suite.json"),
+                "-b",
+                str(EXAMPLES / "baseline.jsonl"),
+                "-c",
+                str(EXAMPLES / "candidate-drift.jsonl"),
+                "--diagnose",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
+    cli_doc2 = json.loads(capsys.readouterr().out)
+    assert len(cli_doc2["diagnostics"]) >= 1
+
+

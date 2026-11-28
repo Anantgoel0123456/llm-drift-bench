@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from llm_drift_bench.audit import AuditReport
 from llm_drift_bench.conversation import ConversationDriftReport
 from llm_drift_bench.models import DriftBenchmarkReport
 from llm_drift_bench.tool_events import ToolTraceDiff
@@ -278,6 +279,77 @@ def diagnose_tool_trace_diff(diff: ToolTraceDiff) -> list[Finding]:
                     None,
                     reason,
                     "Review agent tool-trace thresholds and inspect the candidate transcript.",
+                )
+            )
+    return findings
+
+
+def diagnose_audit_report(report: AuditReport) -> list[Finding]:
+    """Synthesize actionable root-cause findings across every dimension of an AuditReport."""
+    if not isinstance(report, AuditReport):
+        raise ValueError("diagnose_audit_report requires an AuditReport.")
+    findings: list[Finding] = []
+    if not report.benchmark.passed:
+        findings.extend(diagnose_report(report.benchmark))
+    for qf in report.quality.findings:
+        findings.append(
+            Finding(
+                f"quality_{qf.check}",
+                qf.prompt_id,
+                qf.detail,
+                "Inspect this prompt for quantization loops, refusal flips, or length anomalies.",
+            )
+        )
+    if (
+        report.segmented_distribution is not None
+        and report.segmented_distribution.shift_scope == "widespread"
+    ):
+        seg = report.segmented_distribution
+        findings.append(
+            Finding(
+                "distribution_widespread",
+                None,
+                f"Widespread shift across {len(seg.shifted_segments)}/{len(seg.segments)} "
+                f"segment(s) (group_by={seg.group_by}).",
+                "Investigate global model, temperature, or system-prompt changes rather than "
+                "a single route.",
+            )
+        )
+    if report.consumer is not None and not report.consumer.passed:
+        cons = report.consumer
+        first_id = cons.newly_rejected_ids[0] if cons.newly_rejected_ids else None
+        findings.append(
+            Finding(
+                "consumer_rejection",
+                first_id,
+                f"Downstream rejection rate shifted {cons.baseline_rejection_rate:.1%} -> "
+                f"{cons.candidate_rejection_rate:.1%} ({cons.rejection_rate_delta:+.1%}).",
+                "Inspect newly rejected outputs against downstream parser or business rules.",
+            )
+        )
+    if report.embeddings is not None and not report.embeddings.passed:
+        emb = report.embeddings
+        findings.append(
+            Finding(
+                "embedding_drift",
+                None,
+                "; ".join(emb.failure_reasons) or "Embedding similarity threshold failed.",
+                "Inspect lowest-similarity prompts with "
+                "'check-embeddings --format html' or 'diff'.",
+            )
+        )
+    if report.conversations is not None and not report.conversations.passed:
+        findings.extend(diagnose_conversation_report(report.conversations))
+    if report.tool_trace is not None and not report.tool_trace.passed:
+        findings.extend(diagnose_tool_trace_diff(report.tool_trace))
+    if not report.passed and not findings:
+        for reason in report.failure_reasons or ("Unified audit failed.",):
+            findings.append(
+                Finding(
+                    "audit_gate",
+                    None,
+                    reason,
+                    "Review configured distribution or logprobs thresholds on this audit.",
                 )
             )
     return findings

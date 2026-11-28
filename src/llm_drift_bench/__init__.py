@@ -102,6 +102,7 @@ if TYPE_CHECKING:
     )
     from llm_drift_bench.diagnostics import (
         Finding,
+        diagnose_audit_report,
         diagnose_conversation_report,
         diagnose_report,
         diagnose_tool_trace_diff,
@@ -511,6 +512,7 @@ _EXPORTS: dict[str, str] = {
     "detect_numeric_tolerances": "calibrate",
     "detect_repetition_loop": "quality_checks",
     "detect_volatile_fields": "calibrate",
+    "diagnose_audit_report": "diagnostics",
     "diagnose_conversation_report": "diagnostics",
     "diagnose_report": "diagnostics",
     "diagnose_tool_trace_diff": "diagnostics",
@@ -802,6 +804,7 @@ __all__ = [
     "detect_numeric_tolerances",
     "detect_repetition_loop",
     "detect_volatile_fields",
+    "diagnose_audit_report",
     "diagnose_conversation_report",
     "diagnose_report",
     "diagnose_tool_trace_diff",

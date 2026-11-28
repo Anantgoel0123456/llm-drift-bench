@@ -855,6 +855,11 @@ def register_extra_subcommands(
         help="Fail tool-trace audit when candidate edits resources not edited in baseline.",
     )
     audit_p.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="Include unified actionable root-cause diagnostics (text/json formats).",
+    )
+    audit_p.add_argument(
         "--format",
         choices=("text", "json", "markdown", "html", "pr-comment"),
         default="text",
@@ -2153,8 +2158,24 @@ def _handle_audit(
         conversation_report=conversation_rep,
         tool_trace_diff=tool_trace_diff,
     )
+    findings = None
+    if getattr(args, "diagnose", False):
+        from llm_drift_bench.diagnostics import diagnose_audit_report
+
+        findings = diagnose_audit_report(report)
     if args.format == "json":
-        rendered = json.dumps(report.to_dict(), indent=2) + "\n"
+        payload = report.to_dict()
+        if findings is not None:
+            payload["diagnostics"] = [
+                {
+                    "code": f.code,
+                    "scope": f.prompt_id,
+                    "evidence": f.evidence,
+                    "suggestion": f.suggestion,
+                }
+                for f in findings
+            ]
+        rendered = json.dumps(payload, indent=2) + "\n"
     elif args.format == "markdown":
         rendered = format_audit_markdown(report)
     elif args.format == "html":
@@ -2163,6 +2184,10 @@ def _handle_audit(
         rendered = export_audit_pr_comment(report)
     else:
         rendered = format_audit_text(report)
+        if findings is not None:
+            from llm_drift_bench.diagnostics import format_findings_text
+
+            rendered += "\n" + format_findings_text(findings)
 
     if args.output:
         atomic_write_text(Path(args.output), rendered)
