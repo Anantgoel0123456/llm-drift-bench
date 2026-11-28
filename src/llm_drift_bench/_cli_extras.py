@@ -669,9 +669,12 @@ def register_extra_subcommands(
     )
     qual_p.add_argument(
         "--format",
-        choices=("text", "json"),
+        choices=("text", "json", "markdown", "html"),
         default="text",
-        help="Output format: text (default) or json.",
+        help="Output format: text (default), json, markdown, or html.",
+    )
+    qual_p.add_argument(
+        "-o", "--output", default=None, help="Optional output file path to write the report."
     )
 
     fmt_p = subparsers.add_parser(
@@ -1973,9 +1976,19 @@ def _handle_logprobs(args: argparse.Namespace) -> int:
     return 0 if passed else 1
 
 
-def _handle_check_quality(args: argparse.Namespace) -> int:
+def _handle_check_quality(
+    args: argparse.Namespace,
+    protect_inputs: ProtectFn,
+    atomic_write_text: AtomicWriteFn,
+) -> int:
+    protect_inputs(args.output, args.baseline, args.candidate)
     from llm_drift_bench.engine import load_model_samples
-    from llm_drift_bench.quality_checks import format_quality_report_text, run_quality_checks
+    from llm_drift_bench.quality_checks import (
+        export_quality_html,
+        format_quality_report_markdown,
+        format_quality_report_text,
+        run_quality_checks,
+    )
 
     base = load_model_samples(args.baseline)
     cand = load_model_samples(args.candidate)
@@ -1987,9 +2000,21 @@ def _handle_check_quality(args: argparse.Namespace) -> int:
         min_baseline_chars=args.min_baseline_chars,
     )
     if args.format == "json":
-        print(json.dumps(report.to_dict(), indent=2))
+        rendered = json.dumps(report.to_dict(), indent=2) + "\n"
+    elif args.format == "markdown":
+        rendered = format_quality_report_markdown(report)
+    elif args.format == "html":
+        rendered = export_quality_html(report)
     else:
-        print(format_quality_report_text(report), end="")
+        rendered = format_quality_report_text(report)
+    if args.output:
+        atomic_write_text(Path(args.output), rendered)
+        if args.format == "html":
+            print(f"Wrote quality regression report -> {args.output}")
+        else:
+            print(rendered, end="")
+    else:
+        print(rendered, end="")
     if not report.passed and args.fail_on_issues:
         return 1
     return 0
@@ -2232,7 +2257,7 @@ def dispatch_extra_command(
     if args.command == "logprobs":
         return _handle_logprobs(args)
     if args.command == "check-quality":
-        return _handle_check_quality(args)
+        return _handle_check_quality(args, protect_inputs, atomic_write_text)
     if args.command == "check-formats":
         return _handle_check_formats(args)
     if args.command == "audit":

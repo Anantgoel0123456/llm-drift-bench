@@ -13,9 +13,12 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
+from html import escape
+from pathlib import Path
 from typing import Any, Literal
 
 from llm_drift_bench._matching import index_records, require_same_ids
+from llm_drift_bench._report_views import markdown_cell
 from llm_drift_bench.models import ModelSample
 
 CheckKind = Literal["repetition_loop", "refusal_flip", "length_truncation", "length_blowup"]
@@ -309,3 +312,77 @@ def format_quality_report_text(report: QualityReport) -> str:
                 f"{finding.detail}"
             )
     return "\n".join(lines) + "\n"
+
+
+def format_quality_report_markdown(report: QualityReport) -> str:
+    """Format a QualityReport as GitHub-Flavored Markdown."""
+    verdict = "PASS" if report.passed else "FAIL"
+    lines = [
+        f"## Quality Regression Checks ({verdict})",
+        "",
+        f"Flagged prompts: **{report.flagged_prompts} / {report.total_samples}**",
+    ]
+    if report.counts_by_check:
+        summary = ", ".join(f"`{k}`={v}" for k, v in report.counts_by_check.items())
+        lines.append(f"Counts: {summary}")
+    if report.findings:
+        lines += [
+            "",
+            "| Prompt ID | Check | Severity | Detail |",
+            "| :--- | :--- | :---: | :--- |",
+        ]
+        for finding in report.findings:
+            lines.append(
+                f"| `{markdown_cell(finding.prompt_id)}` | `{finding.check}` | "
+                f"{finding.severity.upper()} | {markdown_cell(finding.detail)} |"
+            )
+    return "\n".join(lines) + "\n"
+
+
+def export_quality_html(
+    report: QualityReport,
+    output_path: str | Path | None = None,
+) -> str:
+    """Export a standalone script-free offline HTML report for a QualityReport."""
+    status = "PASSED" if report.passed else "ISSUES DETECTED"
+    badge_bg = "#2ea44f" if report.passed else "#d73a49"
+    if report.findings:
+        rows = "".join(
+            f"<tr><td><code>{escape(f.prompt_id)}</code></td>"
+            f"<td>{escape(f.check)}</td>"
+            f"<td class='{escape(f.severity)}'>{escape(f.severity.upper())}</td>"
+            f"<td>{escape(f.detail)}</td></tr>"
+            for f in report.findings
+        )
+        body = (
+            "<table><thead><tr><th>Prompt ID</th><th>Check</th>"
+            "<th>Severity</th><th>Detail</th></tr></thead>"
+            f"<tbody>{rows}</tbody></table>"
+        )
+    else:
+        body = "<p class='muted'>No repetition loops, refusal flips, or length anomalies found.</p>"
+    html = (
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        "<meta http-equiv='Content-Security-Policy' "
+        "content=\"default-src 'none'; style-src 'unsafe-inline'\">"
+        "<title>LLM Drift Bench — Quality Regression Checks</title>"
+        "<style>"
+        "body{font-family:system-ui,-apple-system,sans-serif;max-width:920px;"
+        "margin:2rem auto;padding:0 1rem;color:#1f2937}"
+        f".badge{{display:inline-block;padding:0.2rem 0.65rem;border-radius:999px;"
+        f"color:#fff;font-weight:600;background:{badge_bg}}}"
+        "table{width:100%;border-collapse:collapse;margin-top:1rem}"
+        "th,td{border:1px solid #e5e7eb;padding:0.5rem 0.75rem;text-align:left}"
+        "th{background:#f9fafb}.error{color:#b91c1c;font-weight:600}"
+        ".warning{color:#b45309;font-weight:600}.muted{color:#6b7280}"
+        "</style></head><body>"
+        f"<h1>Quality Regression Checks <span class='badge'>{status}</span></h1>"
+        f"<p>Flagged prompts: <strong>{report.flagged_prompts} / "
+        f"{report.total_samples}</strong></p>"
+        f"{body}</body></html>\n"
+    )
+    if output_path is not None:
+        target = Path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(html, encoding="utf-8")
+    return html

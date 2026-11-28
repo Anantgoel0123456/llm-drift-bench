@@ -146,3 +146,77 @@ def test_quality_checks_clean_pair_and_validation() -> None:
     # Overlapping 5-word n-gram occurrences collapse below min_repeats (no false loop)
     assert detect_repetition_loop("word " * 8, ngram_words=5, min_repeats=4) == (False, None)
 
+
+def test_quality_markdown_html_and_cli(
+    tmp_path: pytest.TempPathFactory, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from pathlib import Path
+
+    from llm_drift_bench.cli import main
+    from llm_drift_bench.quality_checks import (
+        export_quality_html,
+        format_quality_report_markdown,
+    )
+
+    assert isinstance(tmp_path, Path)
+    base = [ModelSample("p1", "Detailed helpful response about order status.", model_name="b")]
+    cand = [ModelSample("p1", "I'm sorry, I cannot assist with that.", model_name="c")]
+
+    clean = run_quality_checks(base, base)
+    assert "## Quality Regression Checks (PASS)" in format_quality_report_markdown(clean)
+    clean_html = export_quality_html(clean, output_path=tmp_path / "clean.html")
+    assert "No repetition loops" in clean_html and "<script" not in clean_html.lower()
+
+    fail = run_quality_checks(base, cand)
+    md = format_quality_report_markdown(fail)
+    assert "## Quality Regression Checks (FAIL)" in md and "`refusal_flip`" in md
+    html = export_quality_html(fail)
+    assert "ISSUES DETECTED" in html and "p1" in html
+
+    b_file = tmp_path / "b.jsonl"
+    c_file = tmp_path / "c.jsonl"
+    b_file.write_text('{"prompt_id": "p1", "output": "Helpful answer here."}\n', encoding="utf-8")
+    c_file.write_text(
+        '{"prompt_id": "p1", "output": "I\'m sorry, I cannot assist with that."}\n',
+        encoding="utf-8",
+    )
+    md_out = tmp_path / "qual.md"
+    html_out = tmp_path / "qual.html"
+    assert (
+        main(
+            [
+                "check-quality",
+                "-b",
+                str(b_file),
+                "-c",
+                str(c_file),
+                "--format",
+                "markdown",
+                "-o",
+                str(md_out),
+            ]
+        )
+        == 1
+    )
+    assert "## Quality Regression Checks (FAIL)" in md_out.read_text(encoding="utf-8")
+    capsys.readouterr()
+
+    assert (
+        main(
+            [
+                "check-quality",
+                "-b",
+                str(b_file),
+                "-c",
+                str(c_file),
+                "--format",
+                "html",
+                "-o",
+                str(html_out),
+            ]
+        )
+        == 1
+    )
+    assert "Wrote quality regression report" in capsys.readouterr().out
+    assert "<!doctype html>" in html_out.read_text(encoding="utf-8")
+
