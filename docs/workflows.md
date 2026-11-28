@@ -82,8 +82,10 @@ To gate releases in one command, pass `--baseline-conversations` and
 `--candidate-conversations` (and optional `--baseline-trace` / `--candidate-trace` for
 agent tool-trace drift, or standalone
 `llm-drift-bench diff-tools -b examples/trace-baseline.jsonl -c examples/trace-candidate-drift.jsonl --fail-on-new-edit-resources --diagnose --format html|sarif|junit|pr-comment`)
-directly to `llm-drift-bench audit` or `llm-drift-bench gate`. Use `redact --traces` to
-scrub credentials from agent traces before committing them, track multi-turn drift over
-time via `history record --conversation-drift`, and generate offline SVG status badges
-from saved engine, audit, conversation, or tool-trace JSON reports via
-`llm-drift-bench badge -i report.json -o badge.svg`.
+directly to `llm-drift-bench audit` (add `--diagnose` for cross-dimension root causes)
+or `llm-drift-bench gate`. Use `redact --traces` to scrub credentials from agent traces
+before committing them, track multi-turn drift over time via
+`history record --conversation-drift`, export PR comments from `audit`,
+`check-conversations`, `diff-tools`, `check-consumer`, or `rolling-distribution` with
+`--format pr-comment`, and generate offline SVG status badges from any saved JSON report
+via `llm-drift-bench badge -i report.json -o badge.svg`.
