@@ -181,3 +181,33 @@ def test_export_tool_trace_junit_report_and_cli(
     assert cli_root.attrib["failures"] == "2"
 
 
+def test_export_quality_junit_report_and_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from llm_drift_bench.junit import export_quality_junit_report
+    from llm_drift_bench.quality_checks import run_quality_checks
+
+    base = [ModelSample(prompt_id="p1", output="Helpful detailed answer.")]
+    cand = [ModelSample(prompt_id="p1", output="I'm sorry, I cannot assist with that.")]
+
+    pass_root = ET.fromstring(export_quality_junit_report(run_quality_checks(base, base)))
+    assert pass_root.attrib["tests"] == "5" and pass_root.attrib["failures"] == "0"
+
+    fail_root = ET.fromstring(export_quality_junit_report(run_quality_checks(base, cand)))
+    assert fail_root.attrib["failures"] == "2"
+
+    with pytest.raises(ValueError, match="QualityReport"):
+        export_quality_junit_report({})  # type: ignore[arg-type]
+
+    b_file = tmp_path / "qb.jsonl"
+    c_file = tmp_path / "qc.jsonl"
+    b_file.write_text('{"prompt_id": "p1", "output": "Helpful detailed answer."}\n', "utf-8")
+    c_file.write_text(
+        '{"prompt_id": "p1", "output": "I\'m sorry, I cannot assist with that."}\n', "utf-8"
+    )
+    assert main(["check-quality", "-b", str(b_file), "-c", str(c_file), "--format", "junit"]) == 1
+    cli_root = ET.fromstring(capsys.readouterr().out)
+    assert cli_root.attrib["name"] == "llm-drift-bench-quality"
+    assert cli_root.attrib["failures"] == "2"
+
+

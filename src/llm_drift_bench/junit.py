@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 
 from llm_drift_bench.conversation import ConversationDriftReport
 from llm_drift_bench.models import DriftBenchmarkReport
+from llm_drift_bench.quality_checks import QualityReport
 from llm_drift_bench.tool_events import ToolTraceDiff
 
 
@@ -174,6 +175,70 @@ def export_tool_trace_junit_report(diff: ToolTraceDiff) -> str:
         ("call_delta", str(diff.call_delta)),
         ("failed_delta", str(diff.failed_delta)),
         ("action_jaccard", f"{diff.action_jaccard:.4f}"),
+    ):
+        ET.SubElement(props, "property", {"name": prop_name, "value": prop_value})
+    ET.indent(root, space="  ")
+    serialized: bytes = ET.tostring(root, encoding="us-ascii", xml_declaration=True)
+    return serialized.decode("ascii") + "\n"
+
+
+def export_quality_junit_report(report: QualityReport) -> str:
+    """Export a QualityReport as JUnit XML without leaking raw response bodies."""
+    if not isinstance(report, QualityReport):
+        raise ValueError("Quality JUnit export requires a QualityReport.")
+    by_check = ("repetition_loop", "refusal_flip", "length_truncation", "length_blowup")
+    grouped: dict[str, list[str]] = {check: [] for check in by_check}
+    for finding in report.findings:
+        grouped.setdefault(finding.check, []).append(
+            f"{finding.prompt_id} [{finding.severity}]: {finding.detail}"
+        )
+    failures = sum(1 for check in by_check if grouped[check]) + int(not report.passed)
+    root = ET.Element(
+        "testsuite",
+        {
+            "name": "llm-drift-bench-quality",
+            "tests": str(len(by_check) + 1),
+            "failures": str(failures),
+            "errors": "0",
+            "skipped": "0",
+        },
+    )
+    for check in by_check:
+        case = ET.SubElement(
+            root,
+            "testcase",
+            {"classname": "llm_drift_bench.quality", "name": check},
+        )
+        if grouped[check]:
+            ET.SubElement(
+                case,
+                "failure",
+                {
+                    "type": "QualityRegressionDetected",
+                    "message": f"{len(grouped[check])} {check} finding(s)",
+                },
+            ).text = _xml_text("\n".join(grouped[check]))
+    gate = ET.SubElement(
+        root,
+        "testcase",
+        {"classname": "llm_drift_bench.suite", "name": "quality_gate"},
+    )
+    if not report.passed:
+        ET.SubElement(
+            gate,
+            "failure",
+            {
+                "type": "QualityGateFailed",
+                "message": f"{report.flagged_prompts}/{report.total_samples} prompts flagged",
+            },
+        ).text = _xml_text(
+            ", ".join(f"{k}={v}" for k, v in report.counts_by_check.items())
+            or "Quality regression check failed."
+        )
+    props = ET.SubElement(root, "properties")
+    for prop_name, prop_value in (
+        ("total_samples", str(report.total_samples)),
+        ("flagged_prompts", str(report.flagged_prompts)),
     ):
         ET.SubElement(props, "property", {"name": prop_name, "value": prop_value})
     ET.indent(root, space="  ")

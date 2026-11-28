@@ -669,9 +669,9 @@ def register_extra_subcommands(
     )
     qual_p.add_argument(
         "--format",
-        choices=("text", "json", "markdown", "html", "sarif"),
+        choices=("text", "json", "markdown", "html", "sarif", "junit"),
         default="text",
-        help="Output format: text (default), json, markdown, html, or sarif.",
+        help="Output format: text (default), json, markdown, html, sarif, or junit.",
     )
     qual_p.add_argument(
         "-o", "--output", default=None, help="Optional output file path to write the report."
@@ -2014,6 +2014,10 @@ def _handle_check_quality(
         rendered = export_quality_sarif_report(
             report, artifact_uri=Path(args.candidate).name
         )
+    elif args.format == "junit":
+        from llm_drift_bench.junit import export_quality_junit_report
+
+        rendered = export_quality_junit_report(report)
     else:
         rendered = format_quality_report_text(report)
     if args.output:
