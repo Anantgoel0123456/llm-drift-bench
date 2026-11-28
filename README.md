@@ -286,11 +286,11 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | `diff` | Show policy-aware JSON field-level or unified text diffs between two captures (`--only-changed`, `--prompt-id`, `--format text\|json\|markdown`) |
 | `distribution` | Measure cross-prompt JSON field distribution drift (categorical TVD/JSD, numeric p10/p50/p90 & normalized 1D Wasserstein; `--group-by category\|metadata:<key>`, `--shift-threshold`, `--fail-on-widespread`, `--max-tvd`, `--max-jsd`, `--max-wasserstein`, `--format text\|json\|markdown\|html\|csv`) |
 | `rolling-distribution` | Compare an unpaired candidate capture window against a pooled rolling baseline of prior windows (`-w FILE` repeatable), measuring natural window-to-window baseline jitter (`--max-jitter-multiplier`), segmented blast radius (`--group-by`, `--fail-on-widespread`), and exporting `text\|json\|markdown\|html\|pr-comment` |
-| `logprobs` | Compare optional `top_logprobs` token entropy (bits) and position-aligned top-k JSD (`--max-entropy-delta`, `--max-jsd`) |
+| `logprobs` | Compare optional `top_logprobs` token entropy (bits) and position-aligned top-k JSD (`--max-entropy-delta`, `--max-jsd`, `--format text\|json\|markdown\|html`, `-o`) |
 | `check-embeddings` | Opt-in semantic embedding cosine similarity drift offline (`metadata.embedding`) or via any OpenAI-compatible `/v1/embeddings` endpoint (`--endpoint`, `--model`, `--min-mean-similarity`, `--min-prompt-similarity`, `--format text\|json\|markdown\|html\|csv`, `-o`) |
 | `check-conversations` | Compare multi-turn assistant trajectories turn-by-turn for earliest divergence, snowballing escalation slope, turn-count mismatches, JSON adherence drops, refusal flips, optional `--show-diffs`, and `--diagnose` (`--format text\|json\|markdown\|html\|sarif\|junit\|csv\|pr-comment`, `-o`) |
-| `check-quality` | Detect quantization/upgrade failure modes: repetition loops, refusal flips, length truncation, and verbosity blowups (`--format text\|json\|markdown\|html`, `-o`) |
-| `check-formats` | Validate semantic JSON field formats (`date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, `iso-currency`) on exact or `[*]` wildcard paths (`--rule JSONPATH=FORMAT`, `--format text\|json\|markdown\|csv`, `-o`) |
+| `check-quality` | Detect quantization/upgrade failure modes: repetition loops, refusal flips, length truncation, and verbosity blowups (`--format text\|json\|markdown\|html\|sarif\|junit\|csv`, `-o`) |
+| `check-formats` | Validate semantic JSON field formats (`date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, `iso-currency`) on exact or `[*]` wildcard paths (`--rule JSONPATH=FORMAT`, `--format text\|json\|markdown\|csv\|sarif\|junit`, `-o`) |
 | `check-consumer` | Compare downstream consumer validation rejection rates from decision logs (`--baseline-decisions`/`--candidate-decisions`) or a Python callable (`--validator-module pkg.mod:fn`; `--format text\|json\|markdown\|html\|pr-comment`, `-o`) |
 | `wizard` | Guided 5-question plain-English setup wizard or `--preset` generator (`extraction\|classification\|coding\|rag\|strict`) for `drift.toml` |
 | `score` | Run pluggable scorers (`char_ngram_cosine`, `json_key_jaccard`, `markdown_structure`, `numeric_prose`, `python_ast`, `tfidf_cosine`, or entry-point plugins; `--list-scorers`) |
@@ -301,7 +301,7 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 | `compare-reports` | Rank saved candidate reports and export SVG Pareto HTML or GFM `--markdown-output` leaderboards |
 | `matrix` | Render a Prompt x Candidate drift heatmap matrix across 2+ saved reports (`--sort-prompts`, `--format text\|json\|html`) |
 | `gate` | Evaluate a composite GO/NO-GO release gate combining drift report, history trends (`--persist-windows`), significance tests, tool checks, agent tool-trace drift (`--baseline-trace`/`--candidate-trace`), segmented distribution blast radius (`--baseline-capture`/`--candidate-capture`/`--group-by`/`--fail-on-widespread`), offline embedding similarity (`--min-embedding-similarity`), multi-turn conversations (`--baseline-conversations`/`--candidate-conversations`), and downstream consumer rejection logs (`--baseline-decisions`/`--candidate-decisions`) |
-| `cost` | Compare explicit generated token counts & optional USD output cost drift (`--max-token-increase-pct`, `--max-cost-increase-pct`) |
+| `cost` | Compare explicit generated token counts & optional USD output cost drift (`--max-token-increase-pct`, `--max-cost-increase-pct`, `--format text\|json\|markdown\|html`, `-o`) |
 | `badge` | Generate an offline shields-style static SVG status badge from a saved engine, audit, conversation, tool-trace, consumer, or rolling JSON report (`--label`) |
 | `import-captures` | Convert OpenAI Batch API JSONL, Anthropic Message Batches JSONL, or CSV exports into canonical `ModelSample` JSONL (`--from`) |
 | `import-conversations` | Convert OpenAI chat, Anthropic messages, or ShareGPT JSONL transcripts into canonical `ConversationRecord` JSONL (`--from`) |
@@ -329,7 +329,7 @@ Run `python -m llm_drift_bench <command> --help` for full options on any command
 
 ### Automated Regression Test Gate (`pytest` / `unittest`)
 
-`assert_no_drift(report)` enforces the canonical engine verdict and prints suite failure reasons plus up to 5 failing prompt IDs without leaking raw captured responses; `assert_no_regression(reports, against=...)` gates multi-candidate regressions, `evaluate_release_gates(...)` combines drift, history trend, statistical, and tool checks into an auditable GO/NO-GO verdict, and `estimate_cost_drift(...)` compares explicit token usage and optional USD pricing without fabricating token counts:
+`assert_no_drift(report)` enforces the canonical engine verdict and prints suite failure reasons plus up to 5 failing prompt IDs without leaking raw captured responses; companion helpers (`assert_no_regression`, `assert_audit_passed`, `assert_release_approved`, `assert_no_conversation_drift`, `assert_no_tool_trace_drift`, `assert_no_consumer_regression`, `assert_no_quality_regressions`, `assert_no_rolling_drift`, `assert_formats_valid`, `assert_logprobs_within_budget`, `assert_cost_within_budget`) gate every offline check with framework-independent `AssertionError`s, while `evaluate_release_gates(...)` combines checks into an auditable GO/NO-GO verdict and `estimate_cost_drift(...)` compares explicit token usage and optional USD pricing without fabricating token counts:
 
 ```python
 from pathlib import Path

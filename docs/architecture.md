@@ -153,11 +153,11 @@ Commands are:
 - `diff` (policy-aware JSON field-level and unified text diff inspector in `text`, `json`, or GFM `markdown`)
 - `distribution` (cross-prompt JSON field distribution drift using categorical TVD/JSD and numeric quantiles + exact 1D Wasserstein, with optional `--group-by category|metadata:<key>` segmentation, `localized` vs `widespread` blast-radius classification, `--fail-on-widespread`, and `text`, `json`, `markdown`, offline `html`, or `csv` output)
 - `rolling-distribution` (unpaired rolling-baseline cross-window JSON field distribution analyzer pooling prior traffic windows `-w`, measuring consecutive-window baseline jitter, classifying segmented blast radius, and exporting `text`, `json`, `markdown`, offline `html`, or `pr-comment`)
-- `logprobs` (optional `top_logprobs` token entropy and position-aligned top-k JSD analyzer)
+- `logprobs` (optional `top_logprobs` token entropy and position-aligned top-k JSD analyzer in `text`, `json`, `markdown`, or offline `html`)
 - `check-embeddings` (opt-in semantic embedding cosine similarity drift analyzer working offline on `metadata.embedding` or via any OpenAI-compatible `/v1/embeddings` endpoint, exporting `text`, `json`, `markdown`, offline `html`, or `csv`)
 - `check-conversations` (multi-turn assistant conversation trajectory drift analyzer detecting per-turn divergence, earliest divergence turn, escalation slope, turn-count mismatches, JSON adherence drops, refusal flips, optional `--show-diffs`, and `--diagnose` in `text`, `json`, `markdown`, offline `html` with inline SVG sparklines, `sarif` 2.1.0, `junit` XML, `csv`, or `pr-comment`)
-- `check-quality` (deterministic repetition-loop, refusal-flip, length-truncation, and length-blowup regression checks in `text`, `json`, `markdown`, or offline `html`)
-- `check-formats` (standalone semantic format validator for `date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, and `iso-currency` on exact or `[*]` wildcard JSONPaths in `text`, `json`, `markdown`, or `csv`)
+- `check-quality` (deterministic repetition-loop, refusal-flip, length-truncation, and length-blowup regression checks in `text`, `json`, `markdown`, offline `html`, `sarif` 2.1.0, `junit` XML, or `csv`)
+- `check-formats` (standalone semantic format validator for `date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, and `iso-currency` on exact or `[*]` wildcard JSONPaths in `text`, `json`, `markdown`, `csv`, `sarif` 2.1.0, or `junit` XML)
 - `check-consumer` (downstream consumer validation rejection-rate comparator from pre-recorded decision logs or `--validator-module pkg.mod:fn`, exporting `text`, `json`, `markdown`, offline `html`, or `pr-comment`)
 - `wizard` (guided plain-English interactive setup wizard and use-case preset generator for `drift.toml`)
 - `score` (pluggable scorer CLI supporting `--list-scorers` and repeatable `--scorer`)
@@ -168,7 +168,7 @@ Commands are:
 - `compare-reports` (supports `--sort-by`, `--format rich`, `--html-output`, `--markdown-output`, `--json-output`)
 - `matrix` (Prompt x Candidate drift heatmap matrix in `text`, `json`, or offline `html`)
 - `gate` (composite GO/NO-GO release gate combining drift, persistent history trends, statistical tests, tool checks, agent tool-trace drift, segmented distribution blast radius, offline embedding similarity, multi-turn conversation trajectories, and downstream consumer rejection logs)
-- `cost` (explicit generated token volume, optional USD output cost drift comparator, and `--max-token-increase-pct` / `--max-cost-increase-pct` budgets)
+- `cost` (explicit generated token volume, optional USD output cost drift comparator, and `--max-token-increase-pct` / `--max-cost-increase-pct` budgets in `text`, `json`, `markdown`, or offline `html`)
 - `badge` (offline shields-style static SVG status badge generator supporting saved canonical engine, unified audit, multi-turn conversation, agent tool-trace, downstream consumer, and rolling-distribution JSON reports)
 - `import-captures` (offline importers for OpenAI Batch API JSONL, Anthropic Message Batches JSONL, and CSV captures)
 - `import-conversations` (offline importers converting OpenAI chat, Anthropic messages, and ShareGPT JSONL transcripts into canonical `ConversationRecord` JSONL)
@@ -192,9 +192,9 @@ Additional library modules:
 
 - `policy.py`: `drift.toml` / `drift.json` evaluation policies with custom metric weights and exact or `[*]` wildcard JSONPath `ignore` / `unordered_array` / `tolerance_abs` / `tolerance_rel` rules.
 - `diffing.py`: policy-aware semantic JSON field diffing, summary counts, and unified text diff formatting.
-- `csv_export.py`: RFC-4180 per-prompt CSV exporter with spreadsheet formula-injection sanitization for canonical engine reports.
-- `sarif.py`: OASIS SARIF 2.1.0 exporter (`export_sarif_report`, `export_conversation_sarif_report`) with deterministic `partialFingerprints` and invocation metadata for GitHub Code Scanning and IDE diagnostics.
-- `junit.py`: JUnit XML exporter (`export_junit_report`, `export_conversation_junit_report`) for canonical engine and multi-turn conversation reports without raw response-body leakage.
+- `csv_export.py`: RFC-4180 CSV exporters (`export_csv_report`, `export_conversation_csv_report`, `export_embedding_csv_report`, `export_distribution_csv_report`, `export_format_csv_report`, `export_quality_csv_report`) with spreadsheet formula-injection sanitization.
+- `sarif.py`: OASIS SARIF 2.1.0 exporters (`export_sarif_report`, `export_conversation_sarif_report`, `export_tool_trace_sarif_report`, `export_quality_sarif_report`, `export_format_sarif_report`) with deterministic `partialFingerprints` and invocation metadata for GitHub Code Scanning and IDE diagnostics.
+- `junit.py`: JUnit XML exporters (`export_junit_report`, `export_conversation_junit_report`, `export_tool_trace_junit_report`, `export_quality_junit_report`, `export_format_junit_report`) without raw response-body leakage.
 - `diagnostics.py`: deterministic root-cause diagnostics for canonical engine (`diagnose_report`) and multi-turn conversation (`diagnose_conversation_report`) reports.
 - `doctor.py`: pre-flight environment, policy, suite hygiene linting, capture credential scanning, and ID-alignment validator.
 - `stats.py`: deterministic bootstrap CIs, Wilson score binomial intervals, Holm-Bonferroni multiple-testing correction, multi-run stability, paired permutation significance tests (with Cohen's `d`), and overflow-safe exact two-sided McNemar conformity tests.
@@ -206,7 +206,7 @@ Additional library modules:
 - `calibrate.py`: baseline noise threshold calibration, volatile field detection with `[*]` wildcard collapse, numeric tolerance suggestion, and `drift.toml` synthesis.
 - `redaction.py`: deterministic credential and optional PII redaction for text and `ModelSample` captures.
 - `sampling.py`: deterministic stratified prompt suite subsampler, suite filter (`filter_prompt_suite`), and lockstep capture slicer.
-- `cost.py`: explicit token volume and USD output-cost drift estimator (returns `complete=False` if any sample omits `tokens_generated`).
+- `cost.py`: explicit token volume and USD output-cost drift estimator (returns `complete=False` if any sample omits `tokens_generated`) with text, Markdown, and script-free offline HTML exporters.
 - `matrix.py`: multi-candidate Prompt x Candidate drift heatmap matrix (text, JSON, offline HTML).
 - `prompt_lint.py`: prompt suite and JSON Schema hygiene linter.
 - `gates.py`: composite GO/NO-GO release gate evaluator aggregating canonical drift, history trend, statistical, and tool-trace evidence.
@@ -215,7 +215,7 @@ Additional library modules:
 - `badge.py`: offline script-free shields-style static SVG drift status badge generator.
 - `distribution.py`: cross-prompt JSON field distribution drift analyzer (categorical TVD/JSD, numeric quantiles & exact normalized 1D Wasserstein, plus text/Markdown/offline HTML exporters).
 - `wizard.py`: guided 5-question plain-English `drift.toml` wizard and use-case preset builder (`extraction`, `classification`, `coding`, `rag`, `strict`).
-- `logprobs.py`: optional `top_logprobs` Shannon entropy and position-aligned top-k base-2 JSD drift analyzer with honest missing-data reporting (`complete=False`).
+- `logprobs.py`: optional `top_logprobs` Shannon entropy and position-aligned top-k base-2 JSD drift analyzer with honest missing-data reporting (`complete=False`) plus text, Markdown, and offline HTML exporters.
 - `quality_checks.py`: deterministic regression checks for consecutive line/n-gram repetition loops, refusal flips, length truncation, and verbosity blowups.
 - `formats.py`: standalone semantic JSON field format validator (`date`, `date-time`, `email`, `uri`, `uuid`, `ipv4`, `iso-currency`) on exact or `[*]` wildcard paths.
 - `packs.py`: curated starter benchmark packs (`extraction`, `classification`, `coding`, `rag`, `agent`) with lint-clean prompts, baseline/passing/drifted captures, and policies.

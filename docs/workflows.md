@@ -38,9 +38,13 @@ execution and permission checks in the application.
 ## Automated regression tests
 
 Evaluate with `DriftBenchmarkEngine`, then pass the resulting report to
-`assert_no_drift`. Passing reports return normally. Failing reports raise
-`AssertionError` with suite reasons and up to five failed prompt IDs. Reports
-with no evaluated samples raise `ValueError`.
+`assert_no_drift` (or use `assert_audit_passed`, `assert_formats_valid`,
+`assert_no_quality_regressions`, `assert_logprobs_within_budget`,
+`assert_cost_within_budget`, `assert_no_conversation_drift`,
+`assert_no_tool_trace_drift`, `assert_no_consumer_regression`, and
+`assert_no_rolling_drift` for specialized checks). Passing reports return
+normally. Failing reports raise `AssertionError` with suite reasons and up to
+five failed prompt IDs. Reports with no evaluated samples raise `ValueError`.
 
 For debugging, inspect `report.results` and `report.failure_reasons`. For stored
 results use `report.to_json()`. Preserve the original captures separately and
