@@ -211,3 +211,46 @@ def test_export_quality_junit_report_and_cli(
     assert cli_root.attrib["failures"] == "2"
 
 
+def test_export_format_junit_report_and_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from llm_drift_bench.formats import check_field_formats
+    from llm_drift_bench.junit import export_format_junit_report
+
+    ok_samples = [ModelSample(prompt_id="p1", output='{"email": "a@example.com"}')]
+    bad_samples = [ModelSample(prompt_id="p1", output='{"email": "bad"}')]
+
+    pass_root = ET.fromstring(
+        export_format_junit_report(check_field_formats(ok_samples, {"$.email": "email"}))
+    )
+    assert pass_root.attrib["tests"] == "1" and pass_root.attrib["failures"] == "0"
+
+    fail_root = ET.fromstring(
+        export_format_junit_report(check_field_formats(bad_samples, {"$.email": "email"}))
+    )
+    assert fail_root.attrib["tests"] == "2" and fail_root.attrib["failures"] == "2"
+
+    with pytest.raises(ValueError, match="FormatReport"):
+        export_format_junit_report({})  # type: ignore[arg-type]
+
+    cap_file = tmp_path / "cap.jsonl"
+    cap_file.write_text('{"prompt_id": "p1", "output": "{\\"email\\": \\"bad\\"}"}\n', "utf-8")
+    assert (
+        main(
+            [
+                "check-formats",
+                "-i",
+                str(cap_file),
+                "--rule",
+                "$.email=email",
+                "--format",
+                "junit",
+            ]
+        )
+        == 1
+    )
+    cli_root = ET.fromstring(capsys.readouterr().out)
+    assert cli_root.attrib["name"] == "llm-drift-bench-formats"
+    assert cli_root.attrib["failures"] == "2"
+
+

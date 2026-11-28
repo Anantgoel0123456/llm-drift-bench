@@ -199,6 +199,7 @@ if TYPE_CHECKING:
     )
     from llm_drift_bench.junit import (
         export_conversation_junit_report,
+        export_format_junit_report,
         export_junit_report,
         export_quality_junit_report,
         export_tool_trace_junit_report,
@@ -560,6 +561,7 @@ _EXPORTS: dict[str, str] = {
     "export_embedding_csv_report": "csv_export",
     "export_embedding_drift_html": "embeddings",
     "export_format_csv_report": "csv_export",
+    "export_format_junit_report": "junit",
     "export_format_sarif_report": "sarif",
     "export_history_html": "history",
     "export_html_report": "reporter",
@@ -863,6 +865,7 @@ __all__ = [
     "export_embedding_csv_report",
     "export_embedding_drift_html",
     "export_format_csv_report",
+    "export_format_junit_report",
     "export_format_sarif_report",
     "export_history_html",
     "export_html_report",

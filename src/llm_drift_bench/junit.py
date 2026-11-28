@@ -5,6 +5,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 
 from llm_drift_bench.conversation import ConversationDriftReport
+from llm_drift_bench.formats import FormatReport
 from llm_drift_bench.models import DriftBenchmarkReport
 from llm_drift_bench.quality_checks import QualityReport
 from llm_drift_bench.tool_events import ToolTraceDiff
@@ -239,6 +240,66 @@ def export_quality_junit_report(report: QualityReport) -> str:
     for prop_name, prop_value in (
         ("total_samples", str(report.total_samples)),
         ("flagged_prompts", str(report.flagged_prompts)),
+    ):
+        ET.SubElement(props, "property", {"name": prop_name, "value": prop_value})
+    ET.indent(root, space="  ")
+    serialized: bytes = ET.tostring(root, encoding="us-ascii", xml_declaration=True)
+    return serialized.decode("ascii") + "\n"
+
+
+def export_format_junit_report(report: FormatReport) -> str:
+    """Export a FormatReport as JUnit XML without leaking raw field values."""
+    if not isinstance(report, FormatReport):
+        raise ValueError("Format JUnit export requires a FormatReport.")
+    failures = len(report.issues) + int(not report.passed)
+    root = ET.Element(
+        "testsuite",
+        {
+            "name": "llm-drift-bench-formats",
+            "tests": str(len(report.issues) + 1),
+            "failures": str(failures),
+            "errors": "0",
+            "skipped": "0",
+        },
+    )
+    for issue in report.issues:
+        case = ET.SubElement(
+            root,
+            "testcase",
+            {
+                "classname": "llm_drift_bench.formats",
+                "name": _xml_text(f"{issue.prompt_id}:{issue.path}"),
+            },
+        )
+        ET.SubElement(
+            case,
+            "failure",
+            {
+                "type": "FormatViolation",
+                "message": _xml_text(f"Invalid {issue.expected_format} at {issue.path}"),
+            },
+        ).text = _xml_text(issue.message)
+    gate = ET.SubElement(
+        root,
+        "testcase",
+        {"classname": "llm_drift_bench.suite", "name": "format_gate"},
+    )
+    if not report.passed:
+        ET.SubElement(
+            gate,
+            "failure",
+            {
+                "type": "FormatGateFailed",
+                "message": (
+                    f"{report.failed_values}/{report.checked_values} values failed format checks"
+                ),
+            },
+        ).text = _xml_text(f"{len(report.issues)} semantic field format violation(s) detected.")
+    props = ET.SubElement(root, "properties")
+    for prop_name, prop_value in (
+        ("total_samples", str(report.total_samples)),
+        ("checked_values", str(report.checked_values)),
+        ("failed_values", str(report.failed_values)),
     ):
         ET.SubElement(props, "property", {"name": prop_name, "value": prop_value})
     ET.indent(root, space="  ")

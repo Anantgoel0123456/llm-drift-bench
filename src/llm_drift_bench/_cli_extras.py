@@ -696,9 +696,9 @@ def register_extra_subcommands(
     )
     fmt_p.add_argument(
         "--format",
-        choices=("text", "json", "markdown", "csv", "sarif"),
+        choices=("text", "json", "markdown", "csv", "sarif", "junit"),
         default="text",
-        help="Output format: text (default), json, markdown, csv, or sarif.",
+        help="Output format: text (default), json, markdown, csv, sarif, or junit.",
     )
     fmt_p.add_argument(
         "-o", "--output", default=None, help="Optional output file path to write the report."
@@ -2062,6 +2062,10 @@ def _handle_check_formats(
         from llm_drift_bench.sarif import export_format_sarif_report
 
         rendered = export_format_sarif_report(report, artifact_uri=Path(args.input).name)
+    elif args.format == "junit":
+        from llm_drift_bench.junit import export_format_junit_report
+
+        rendered = export_format_junit_report(report)
     else:
         rendered = format_check_report_text(report)
     if args.output:
