@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from llm_drift_bench.cost import (
@@ -144,5 +146,90 @@ def test_cost_validation_zero_baseline_and_unpriced_ranking() -> None:
     large = [ModelSample(prompt_id="p1", output="a", tokens_generated=50)]
     ranked_unpriced = rank_candidate_costs(sample, {"large": large, "small": small})
     assert [r["candidate"] for r in ranked_unpriced] == ["small", "large"]
+
+
+def test_cost_exporters_and_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from llm_drift_bench.cli import main
+    from llm_drift_bench.cost import export_cost_html, format_cost_markdown, format_cost_text
+
+    base = [ModelSample(prompt_id="p1", output="a", tokens_generated=1000)]
+    cand = [ModelSample(prompt_id="p1", output="a", tokens_generated=1500)]
+    missing = [ModelSample(prompt_id="p1", output="a", tokens_generated=None)]
+
+    comp = estimate_cost_drift(
+        base,
+        cand,
+        baseline_pricing=ModelPricing(output_per_million_usd=10.0),
+        candidate_pricing=ModelPricing(output_per_million_usd=10.0),
+    )
+    txt = format_cost_text(comp, budget_ok=False, budget_detail="over budget")
+    assert "Output tokens : baseline=1000, candidate=1500" in txt
+    assert "Output cost   :" in txt and "Budget check  : FAIL (over budget)" in txt
+
+    md = format_cost_markdown(comp, budget_ok=True, budget_detail="within budget")
+    assert "## Token & Cost Drift (Complete)" in md
+    assert "Budget check: **PASS**" in md
+
+    html_file = tmp_path / "cost.html"
+    html = export_cost_html(comp, output_path=html_file, budget_ok=False, budget_detail="exceeded")
+    assert html_file.read_text(encoding="utf-8") == html
+    assert "BUDGET FAIL" in html and "Content-Security-Policy" in html
+    assert "<script" not in html.lower()
+
+    inc = estimate_cost_drift(base, missing)
+    assert "n/a (incomplete" in format_cost_text(inc)
+    assert "## Token & Cost Drift (Incomplete)" in format_cost_markdown(inc)
+    assert "INCOMPLETE" in export_cost_html(inc)
+    assert "COMPLETE" in export_cost_html(comp)
+
+    b_file = tmp_path / "cb.jsonl"
+    c_file = tmp_path / "cc.jsonl"
+    b_file.write_text('{"prompt_id": "p1", "output": "a", "tokens_generated": 100}\n', "utf-8")
+    c_file.write_text('{"prompt_id": "p1", "output": "a", "tokens_generated": 110}\n', "utf-8")
+    cli_md = tmp_path / "cost.md"
+    assert (
+        main(
+            [
+                "cost",
+                "-b",
+                str(b_file),
+                "-c",
+                str(c_file),
+                "--baseline-price",
+                "10",
+                "--candidate-price",
+                "10",
+                "--format",
+                "markdown",
+                "-o",
+                str(cli_md),
+            ]
+        )
+        == 0
+    )
+    assert "## Token & Cost Drift (Complete)" in cli_md.read_text(encoding="utf-8")
+    capsys.readouterr()
+
+    cli_html = tmp_path / "cli_cost.html"
+    assert (
+        main(
+            [
+                "cost",
+                "-b",
+                str(b_file),
+                "-c",
+                str(c_file),
+                "--format",
+                "html",
+                "-o",
+                str(cli_html),
+            ]
+        )
+        == 0
+    )
+    assert "Wrote token & cost drift report" in capsys.readouterr().out
+    assert "COMPLETE" in cli_html.read_text(encoding="utf-8")
 
 

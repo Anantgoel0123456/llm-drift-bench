@@ -419,9 +419,12 @@ def register_extra_subcommands(
     )
     cost_p.add_argument(
         "--format",
-        choices=("text", "json"),
+        choices=("text", "json", "markdown", "html"),
         default="text",
-        help="Output format: text (default) or json.",
+        help="Output format: text (default), json, markdown, or html.",
+    )
+    cost_p.add_argument(
+        "-o", "--output", default=None, help="Optional output file path to write the report."
     )
 
     snap_p = subparsers.add_parser(
@@ -1590,8 +1593,20 @@ def _handle_gate(args: argparse.Namespace) -> int:
     return 0 if verdict.approved else 1
 
 
-def _handle_cost(args: argparse.Namespace) -> int:
-    from llm_drift_bench.cost import ModelPricing, check_cost_budget, estimate_cost_drift
+def _handle_cost(
+    args: argparse.Namespace,
+    protect_inputs: ProtectFn,
+    atomic_write_text: AtomicWriteFn,
+) -> int:
+    protect_inputs(args.output, args.baseline, args.candidate)
+    from llm_drift_bench.cost import (
+        ModelPricing,
+        check_cost_budget,
+        estimate_cost_drift,
+        export_cost_html,
+        format_cost_markdown,
+        format_cost_text,
+    )
     from llm_drift_bench.engine import load_model_samples
 
     base = load_model_samples(args.baseline)
@@ -1620,37 +1635,21 @@ def _handle_cost(args: argparse.Namespace) -> int:
         if budget_detail is not None:
             payload["budget_passed"] = budget_ok
             payload["budget_detail"] = budget_detail
-        print(json.dumps(payload, indent=2))
-        return 0 if budget_ok else 1
-    if not res.complete:
-        print(
-            f"Token & Cost Drift ({res.total_samples} sample(s)): "
-            "n/a (incomplete explicit tokens_generated measurements)."
-        )
-        if budget_detail is not None:
-            print(f"  Budget check  : {'PASS' if budget_ok else 'FAIL'} ({budget_detail})")
-        return 0 if budget_ok else 1
-    pct_s = "n/a" if res.token_delta_pct is None else f"{res.token_delta_pct:+.2f}%"
-    print(f"Token & Cost Drift ({res.total_samples} sample(s))")
-    print(
-        f"  Output tokens : baseline={res.baseline_tokens}, "
-        f"candidate={res.candidate_tokens} (delta={res.token_delta:+d}, {pct_s})"
-    )
-    if res.baseline_output_cost_usd is not None or res.candidate_output_cost_usd is not None:
-        b_s = (
-            "n/a"
-            if res.baseline_output_cost_usd is None
-            else f"${res.baseline_output_cost_usd:.6f}"
-        )
-        c_s = (
-            "n/a"
-            if res.candidate_output_cost_usd is None
-            else f"${res.candidate_output_cost_usd:.6f}"
-        )
-        d_s = "n/a" if res.cost_delta_usd is None else f"${res.cost_delta_usd:+.6f}"
-        print(f"  Output cost   : baseline={b_s}, candidate={c_s} (delta={d_s})")
-    if budget_detail is not None:
-        print(f"  Budget check  : {'PASS' if budget_ok else 'FAIL'} ({budget_detail})")
+        rendered = json.dumps(payload, indent=2) + "\n"
+    elif args.format == "markdown":
+        rendered = format_cost_markdown(res, budget_ok=budget_ok, budget_detail=budget_detail)
+    elif args.format == "html":
+        rendered = export_cost_html(res, budget_ok=budget_ok, budget_detail=budget_detail)
+    else:
+        rendered = format_cost_text(res, budget_ok=budget_ok, budget_detail=budget_detail)
+    if args.output:
+        atomic_write_text(Path(args.output), rendered)
+        if args.format == "html":
+            print(f"Wrote token & cost drift report -> {args.output}")
+        else:
+            print(rendered, end="")
+    else:
+        print(rendered, end="")
     return 0 if budget_ok else 1
 
 
@@ -2310,7 +2309,7 @@ def dispatch_extra_command(
     if args.command == "gate":
         return _handle_gate(args)
     if args.command == "cost":
-        return _handle_cost(args)
+        return _handle_cost(args, protect_inputs, atomic_write_text)
     if args.command == "snapshot":
         return _handle_snapshot(args, protect_inputs)
     if args.command == "import-captures":

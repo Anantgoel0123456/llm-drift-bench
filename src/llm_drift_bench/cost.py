@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
+from html import escape
+from pathlib import Path
 from typing import Any
 
 from llm_drift_bench._matching import require_same_ids
@@ -199,3 +201,135 @@ def rank_candidate_costs(
 
     rows.sort(key=_sort_key)
     return rows
+
+
+def _fmt_usd(value: float | None, *, signed: bool = False) -> str:
+    if value is None:
+        return "n/a"
+    return f"${value:+.6f}" if signed else f"${value:.6f}"
+
+
+def _fmt_pct(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:+.2f}%"
+
+
+def format_cost_text(
+    comparison: CostComparison,
+    *,
+    budget_ok: bool | None = None,
+    budget_detail: str | None = None,
+) -> str:
+    """Format a CostComparison as human-readable text without fabricating missing counts."""
+    if not comparison.complete:
+        lines = [
+            f"Token & Cost Drift ({comparison.total_samples} sample(s)): "
+            "n/a (incomplete explicit tokens_generated measurements)."
+        ]
+    else:
+        pct_s = _fmt_pct(comparison.token_delta_pct)
+        delta_s = "n/a" if comparison.token_delta is None else f"{comparison.token_delta:+d}"
+        lines = [
+            f"Token & Cost Drift ({comparison.total_samples} sample(s))",
+            f"  Output tokens : baseline={comparison.baseline_tokens}, "
+            f"candidate={comparison.candidate_tokens} (delta={delta_s}, {pct_s})",
+        ]
+        if (
+            comparison.baseline_output_cost_usd is not None
+            or comparison.candidate_output_cost_usd is not None
+        ):
+            b_s = _fmt_usd(comparison.baseline_output_cost_usd)
+            c_s = _fmt_usd(comparison.candidate_output_cost_usd)
+            d_s = _fmt_usd(comparison.cost_delta_usd, signed=True)
+            lines.append(f"  Output cost   : baseline={b_s}, candidate={c_s} (delta={d_s})")
+    if budget_detail is not None:
+        tag = "PASS" if budget_ok else "FAIL"
+        lines.append(f"  Budget check  : {tag} ({budget_detail})")
+    return "\n".join(lines) + "\n"
+
+
+def format_cost_markdown(
+    comparison: CostComparison,
+    *,
+    budget_ok: bool | None = None,
+    budget_detail: str | None = None,
+) -> str:
+    """Format a CostComparison as GitHub-Flavored Markdown."""
+    status = "Complete" if comparison.complete else "Incomplete"
+    b_tok = "n/a" if comparison.baseline_tokens is None else str(comparison.baseline_tokens)
+    c_tok = "n/a" if comparison.candidate_tokens is None else str(comparison.candidate_tokens)
+    d_tok = "n/a" if comparison.token_delta is None else f"{comparison.token_delta:+d}"
+    lines = [
+        f"## Token & Cost Drift ({status})",
+        "",
+        f"Samples evaluated: **{comparison.total_samples}**",
+        "",
+        "| Metric | Baseline | Candidate | Delta | Delta % |",
+        "| :--- | ---: | ---: | ---: | ---: |",
+        f"| Output tokens | {b_tok} | {c_tok} | {d_tok} | "
+        f"{_fmt_pct(comparison.token_delta_pct)} |",
+        f"| Output cost (USD) | {_fmt_usd(comparison.baseline_output_cost_usd)} | "
+        f"{_fmt_usd(comparison.candidate_output_cost_usd)} | "
+        f"{_fmt_usd(comparison.cost_delta_usd, signed=True)} | "
+        f"{_fmt_pct(comparison.cost_delta_pct)} |",
+    ]
+    if budget_detail is not None:
+        tag = "PASS" if budget_ok else "FAIL"
+        lines.extend(["", f"Budget check: **{tag}** — {budget_detail}"])
+    return "\n".join(lines) + "\n"
+
+
+def export_cost_html(
+    comparison: CostComparison,
+    output_path: str | Path | None = None,
+    *,
+    budget_ok: bool | None = None,
+    budget_detail: str | None = None,
+) -> str:
+    """Export a standalone script-free offline HTML report for a CostComparison."""
+    if budget_ok is False:
+        badge_text, badge_bg = "BUDGET FAIL", "#d73a49"
+    elif not comparison.complete:
+        badge_text, badge_bg = "INCOMPLETE", "#b45309"
+    else:
+        badge_text, badge_bg = "COMPLETE", "#2ea44f"
+
+    b_tok = "n/a" if comparison.baseline_tokens is None else str(comparison.baseline_tokens)
+    c_tok = "n/a" if comparison.candidate_tokens is None else str(comparison.candidate_tokens)
+    d_tok = "n/a" if comparison.token_delta is None else f"{comparison.token_delta:+d}"
+    budget_html = ""
+    if budget_detail is not None:
+        tag = "PASS" if budget_ok else "FAIL"
+        budget_html = f"<p><strong>Budget check ({tag}):</strong> {escape(budget_detail)}</p>"
+
+    html = (
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        "<meta http-equiv='Content-Security-Policy' "
+        "content=\"default-src 'none'; style-src 'unsafe-inline'\">"
+        "<title>LLM Drift Bench — Token &amp; Cost Drift</title>"
+        "<style>"
+        "body{font-family:system-ui,-apple-system,sans-serif;max-width:860px;"
+        "margin:2rem auto;padding:0 1rem;color:#1f2937}"
+        f".badge{{display:inline-block;padding:0.2rem 0.65rem;border-radius:999px;"
+        f"color:#fff;font-weight:600;background:{badge_bg}}}"
+        "table{width:100%;border-collapse:collapse;margin-top:1rem}"
+        "th,td{border:1px solid #e5e7eb;padding:0.5rem 0.75rem;text-align:left}"
+        "th{background:#f9fafb}"
+        "</style></head><body>"
+        f"<h1>Token &amp; Cost Drift <span class='badge'>{badge_text}</span></h1>"
+        f"<p>Samples evaluated: <strong>{comparison.total_samples}</strong></p>"
+        "<table><thead><tr><th>Metric</th><th>Baseline</th><th>Candidate</th>"
+        "<th>Delta</th><th>Delta %</th></tr></thead><tbody>"
+        f"<tr><td>Output tokens</td><td>{b_tok}</td><td>{c_tok}</td>"
+        f"<td>{d_tok}</td><td>{_fmt_pct(comparison.token_delta_pct)}</td></tr>"
+        f"<tr><td>Output cost (USD)</td>"
+        f"<td>{_fmt_usd(comparison.baseline_output_cost_usd)}</td>"
+        f"<td>{_fmt_usd(comparison.candidate_output_cost_usd)}</td>"
+        f"<td>{_fmt_usd(comparison.cost_delta_usd, signed=True)}</td>"
+        f"<td>{_fmt_pct(comparison.cost_delta_pct)}</td></tr>"
+        f"</tbody></table>{budget_html}</body></html>\n"
+    )
+    if output_path is not None:
+        target = Path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(html, encoding="utf-8")
+    return html
