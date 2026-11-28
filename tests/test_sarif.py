@@ -256,3 +256,56 @@ def test_export_quality_sarif_report_and_cli(
     cli_doc = json.loads(capsys.readouterr().out)
     assert cli_doc["version"] == "2.1.0" and cli_doc["runs"][0]["results"][0]["ruleId"] == "QUAL002"
 
+
+def test_export_format_sarif_report_and_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from llm_drift_bench.formats import check_field_formats
+    from llm_drift_bench.models import ModelSample
+    from llm_drift_bench.sarif import export_format_sarif_report
+
+    ok_samples = [ModelSample("p1", '{"email": "alice@example.com"}')]
+    bad_samples = [ModelSample("p1", '{"email": "not-an-email"}')]
+    assert (
+        json.loads(
+            export_format_sarif_report(check_field_formats(ok_samples, {"$.email": "email"}))
+        )["runs"][0]["results"]
+        == []
+    )
+    out_file = tmp_path / "fmt.sarif"
+    raw = export_format_sarif_report(
+        check_field_formats(bad_samples, {"$.email": "email"}),
+        output_path=out_file,
+        artifact_uri="cap.jsonl",
+    )
+    assert out_file.read_text(encoding="utf-8") == raw
+    doc = json.loads(raw)
+    assert doc["runs"][0]["results"][0]["ruleId"] == "FMT001"
+    assert doc["runs"][0]["properties"]["failed_values"] == 1
+
+    with pytest.raises(ValueError, match="FormatReport"):
+        export_format_sarif_report({})  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="artifact_uri"):
+        export_format_sarif_report(
+            check_field_formats(ok_samples, {"$.email": "email"}), artifact_uri=" "
+        )
+
+    cap_file = tmp_path / "cap.jsonl"
+    cap_file.write_text('{"prompt_id": "p1", "output": "{\\"email\\": \\"bad\\"}"}\n', "utf-8")
+    assert (
+        main(
+            [
+                "check-formats",
+                "-i",
+                str(cap_file),
+                "--rule",
+                "$.email=email",
+                "--format",
+                "sarif",
+            ]
+        )
+        == 1
+    )
+    cli_doc = json.loads(capsys.readouterr().out)
+    assert cli_doc["version"] == "2.1.0" and cli_doc["runs"][0]["results"][0]["ruleId"] == "FMT001"
+

@@ -696,9 +696,9 @@ def register_extra_subcommands(
     )
     fmt_p.add_argument(
         "--format",
-        choices=("text", "json", "markdown", "csv"),
+        choices=("text", "json", "markdown", "csv", "sarif"),
         default="text",
-        help="Output format: text (default), json, markdown, or csv.",
+        help="Output format: text (default), json, markdown, csv, or sarif.",
     )
     fmt_p.add_argument(
         "-o", "--output", default=None, help="Optional output file path to write the report."
@@ -2058,6 +2058,10 @@ def _handle_check_formats(
         from llm_drift_bench.csv_export import export_format_csv_report
 
         rendered = export_format_csv_report(report)
+    elif args.format == "sarif":
+        from llm_drift_bench.sarif import export_format_sarif_report
+
+        rendered = export_format_sarif_report(report, artifact_uri=Path(args.input).name)
     else:
         rendered = format_check_report_text(report)
     if args.output:

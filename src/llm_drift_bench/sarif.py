@@ -9,6 +9,7 @@ from typing import Any
 
 from llm_drift_bench import __version__
 from llm_drift_bench.conversation import ConversationDriftReport
+from llm_drift_bench.formats import FormatReport
 from llm_drift_bench.models import DriftBenchmarkReport
 from llm_drift_bench.quality_checks import QualityReport
 from llm_drift_bench.tool_events import ToolTraceDiff
@@ -549,6 +550,98 @@ def export_quality_sarif_report(
                     "passed": report.passed,
                     "total_samples": report.total_samples,
                     "flagged_prompts": report.flagged_prompts,
+                },
+                "results": results,
+            }
+        ],
+    }
+    serialized = json.dumps(sarif_doc, indent=2) + "\n"
+    if output_path is not None:
+        target = Path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(serialized, encoding="utf-8")
+    return serialized
+
+
+_FORMAT_SARIF_RULES: list[dict[str, Any]] = [
+    {
+        "id": "FMT001",
+        "name": "SemanticFieldFormatViolation",
+        "shortDescription": {
+            "text": "JSON field value failed a configured semantic format check."
+        },
+        "defaultConfiguration": {"level": "error"},
+    },
+]
+
+
+def export_format_sarif_report(
+    report: FormatReport,
+    output_path: str | Path | None = None,
+    *,
+    artifact_uri: str = "capture.jsonl",
+) -> str:
+    """Export FormatReport issues as OASIS SARIF 2.1.0 JSON without raw response bodies."""
+    if not isinstance(report, FormatReport):
+        raise ValueError("Format SARIF export requires a FormatReport.")
+    if not isinstance(artifact_uri, str) or not artifact_uri.strip():
+        raise ValueError("artifact_uri must be a non-empty string.")
+
+    results: list[dict[str, Any]] = []
+    for issue in report.issues:
+        msg = (
+            f"Prompt {issue.prompt_id!r} field {issue.path} failed format "
+            f"{issue.expected_format!r}: {issue.message}"
+        )
+        results.append(
+            {
+                "ruleId": "FMT001",
+                "level": "error",
+                "message": {"text": msg},
+                "locations": [
+                    {
+                        "physicalLocation": {"artifactLocation": {"uri": artifact_uri}},
+                        "logicalLocations": [
+                            {
+                                "name": issue.prompt_id,
+                                "fullyQualifiedName": f"{issue.prompt_id}:{issue.path}",
+                                "kind": "field",
+                            }
+                        ],
+                    }
+                ],
+                "partialFingerprints": {
+                    "primaryLocationLineHash": _partial_fingerprint(
+                        "FMT001", issue.prompt_id, issue.path, issue.expected_format
+                    )
+                },
+                "properties": {
+                    "prompt_id": issue.prompt_id,
+                    "path": issue.path,
+                    "expected_format": issue.expected_format,
+                },
+            }
+        )
+
+    sarif_doc: dict[str, Any] = {
+        "$schema": _SARIF_SCHEMA,
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "llm-drift-bench",
+                        "version": __version__,
+                        "informationUri": "https://github.com/Anantgoel0123456/llm-drift-bench",
+                        "rules": _FORMAT_SARIF_RULES,
+                    }
+                },
+                "invocations": [{"executionSuccessful": True}],
+                "properties": {
+                    "passed": report.passed,
+                    "total_samples": report.total_samples,
+                    "checked_values": report.checked_values,
+                    "failed_values": report.failed_values,
                 },
                 "results": results,
             }
