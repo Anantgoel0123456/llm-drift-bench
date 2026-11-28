@@ -874,6 +874,78 @@ else:
             cwd=root, env=env, check=True, capture_output=True, text=True,
         )
         assert json.loads(case_doc.stdout)["ok"] is True
+        qual_sarif = subprocess.run(
+            [
+                str(cli), "check-quality",
+                "-b", str(examples / "baseline.jsonl"),
+                "-c", str(examples / "candidate-pass.jsonl"),
+                "--format", "sarif",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(qual_sarif.stdout)["version"] == "2.1.0"
+        qual_junit = subprocess.run(
+            [
+                str(cli), "check-quality",
+                "-b", str(examples / "baseline.jsonl"),
+                "-c", str(examples / "candidate-pass.jsonl"),
+                "--format", "junit",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "llm-drift-bench-quality" in qual_junit.stdout
+        qual_csv = subprocess.run(
+            [
+                str(cli), "check-quality",
+                "-b", str(examples / "baseline.jsonl"),
+                "-c", str(examples / "candidate-pass.jsonl"),
+                "--format", "csv",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "prompt_id,check,severity,detail" in qual_csv.stdout
+        fmt_sarif = subprocess.run(
+            [
+                str(cli), "check-formats",
+                "-i", str(pack_dir / "baseline.jsonl"),
+                "--rule", "$.currency=iso-currency",
+                "--format", "sarif",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert json.loads(fmt_sarif.stdout)["version"] == "2.1.0"
+        fmt_junit = subprocess.run(
+            [
+                str(cli), "check-formats",
+                "-i", str(pack_dir / "baseline.jsonl"),
+                "--rule", "$.currency=iso-currency",
+                "--format", "junit",
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "llm-drift-bench-formats" in fmt_junit.stdout
+        lp_html = root / "logprobs.html"
+        subprocess.run(
+            [
+                str(cli), "logprobs",
+                "-b", str(examples / "baseline.jsonl"),
+                "-c", str(examples / "candidate-pass.jsonl"),
+                "--format", "html", "-o", str(lp_html),
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "<!doctype html>" in lp_html.read_text(encoding="utf-8")
+        cost_html = root / "cost.html"
+        subprocess.run(
+            [
+                str(cli), "cost",
+                "-b", str(examples / "baseline.jsonl"),
+                "-c", str(examples / "candidate-pass.jsonl"),
+                "--format", "html", "-o", str(cost_html),
+            ],
+            cwd=root, env=env, check=True, capture_output=True, text=True,
+        )
+        assert "<!doctype html>" in cost_html.read_text(encoding="utf-8")
     print(f"Installed artifact checks passed: {artifact.name}")
 
 
