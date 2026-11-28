@@ -98,3 +98,46 @@ def test_assert_no_tool_trace_drift_and_assert_audit_passed() -> None:
         assert_audit_passed(run_full_audit(same, diff))
     with pytest.raises(TypeError, match="AuditReport"):
         assert_audit_passed({})  # type: ignore[arg-type]
+
+
+def test_assert_consumer_quality_and_rolling_helpers() -> None:
+    from llm_drift_bench.consumer import ConsumerDecision, compare_consumer_decisions
+    from llm_drift_bench.quality_checks import run_quality_checks
+    from llm_drift_bench.rolling import analyze_rolling_distribution
+    from llm_drift_bench.testing import (
+        assert_no_consumer_regression,
+        assert_no_quality_regressions,
+        assert_no_rolling_drift,
+    )
+
+    # Consumer regression assertions
+    base_d = [ConsumerDecision("p1", True), ConsumerDecision("p2", True)]
+    cand_bad = [ConsumerDecision("p1", False, "bad"), ConsumerDecision("p2", True)]
+    assert_no_consumer_regression(compare_consumer_decisions(base_d, base_d))
+    with pytest.raises(AssertionError, match="downstream consumer check failed"):
+        assert_no_consumer_regression(
+            compare_consumer_decisions(base_d, cand_bad, max_rejection_increase=0.1)
+        )
+    with pytest.raises(TypeError, match="ConsumerComparison"):
+        assert_no_consumer_regression({})  # type: ignore[arg-type]
+
+    # Quality regression assertions (pass, >5 findings truncation, wrong type)
+    base_q = [ModelSample(prompt_id=f"p{i}", output="Detailed valid answer " * 4) for i in range(6)]
+    cand_q = [
+        ModelSample(prompt_id=f"p{i}", output="I'm sorry, I cannot assist with that.")
+        for i in range(6)
+    ]
+    assert_no_quality_regressions(run_quality_checks(base_q, base_q))
+    with pytest.raises(AssertionError, match="additional quality finding"):
+        assert_no_quality_regressions(run_quality_checks(base_q, cand_q))
+    with pytest.raises(TypeError, match="QualityReport"):
+        assert_no_quality_regressions({})  # type: ignore[arg-type]
+
+    # Rolling distribution assertions
+    w1 = [ModelSample(prompt_id="p1", output='{"label": "a"}')]
+    w2 = [ModelSample(prompt_id="p1", output='{"label": "b"}')]
+    assert_no_rolling_drift(analyze_rolling_distribution([w1], w1, max_tvd=0.1))
+    with pytest.raises(AssertionError, match="rolling-baseline distribution check failed"):
+        assert_no_rolling_drift(analyze_rolling_distribution([w1], w2, max_tvd=0.1))
+    with pytest.raises(TypeError, match="RollingWindowReport"):
+        assert_no_rolling_drift({})  # type: ignore[arg-type]

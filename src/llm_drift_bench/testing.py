@@ -6,10 +6,13 @@ from collections.abc import Sequence
 
 from llm_drift_bench.audit import AuditReport
 from llm_drift_bench.comparison import prompt_changes
+from llm_drift_bench.consumer import ConsumerComparison
 from llm_drift_bench.conversation import ConversationDriftReport
 from llm_drift_bench.embeddings import EmbeddingDriftReport
 from llm_drift_bench.gates import ReleaseVerdict
 from llm_drift_bench.models import DriftBenchmarkReport
+from llm_drift_bench.quality_checks import QualityReport
+from llm_drift_bench.rolling import RollingWindowReport
 from llm_drift_bench.tool_events import ToolTraceDiff
 
 
@@ -160,6 +163,65 @@ def assert_audit_passed(report: AuditReport) -> None:
     lines = [
         f"LLM unified audit failed ({len(report.failure_reasons)} failure reason(s); "
         f"mean_drift={report.benchmark.mean_composite_drift:.4f}).",
+        *[f"- {reason}" for reason in report.failure_reasons],
+    ]
+    raise AssertionError("\n".join(lines))
+
+
+def assert_no_consumer_regression(comparison: ConsumerComparison) -> None:
+    """Raise AssertionError if a downstream ConsumerComparison failed its rejection gates."""
+    if not isinstance(comparison, ConsumerComparison):
+        raise TypeError(
+            "assert_no_consumer_regression requires a ConsumerComparison, "
+            f"got {type(comparison).__name__}."
+        )
+    if comparison.passed:
+        return
+    lines = [
+        f"LLM downstream consumer check failed "
+        f"(rejected {comparison.baseline_rejection_rate:.1%} -> "
+        f"{comparison.candidate_rejection_rate:.1%}, "
+        f"delta {comparison.rejection_rate_delta:+.1%}).",
+        *[f"- {reason}" for reason in comparison.failure_reasons],
+    ]
+    raise AssertionError("\n".join(lines))
+
+
+def assert_no_quality_regressions(report: QualityReport) -> None:
+    """Raise AssertionError if a QualityReport flagged any loop, refusal, or length anomaly."""
+    if not isinstance(report, QualityReport):
+        raise TypeError(
+            "assert_no_quality_regressions requires a QualityReport, "
+            f"got {type(report).__name__}."
+        )
+    if report.passed:
+        return
+    summary = ", ".join(f"{k}={v}" for k, v in report.counts_by_check.items())
+    lines = [
+        f"LLM quality regression check failed: "
+        f"{report.flagged_prompts}/{report.total_samples} prompt(s) flagged ({summary}).",
+    ]
+    for finding in report.findings[:5]:
+        lines.append(f"- Prompt {finding.prompt_id!r} ({finding.check}): {finding.detail}")
+    if len(report.findings) > 5:
+        lines.append(f"- {len(report.findings) - 5} additional quality finding(s).")
+    raise AssertionError("\n".join(lines))
+
+
+def assert_no_rolling_drift(report: RollingWindowReport) -> None:
+    """Raise AssertionError if a RollingWindowReport exceeded drift or jitter thresholds."""
+    if not isinstance(report, RollingWindowReport):
+        raise TypeError(
+            "assert_no_rolling_drift requires a RollingWindowReport, "
+            f"got {type(report).__name__}."
+        )
+    if report.passed:
+        return
+    lines = [
+        f"LLM rolling-baseline distribution check failed "
+        f"({report.window_count} prior window(s), "
+        f"max_tvd={report.overall.max_tvd:.4f}, "
+        f"max_w1={report.overall.max_normalized_wasserstein:.4f}).",
         *[f"- {reason}" for reason in report.failure_reasons],
     ]
     raise AssertionError("\n".join(lines))
