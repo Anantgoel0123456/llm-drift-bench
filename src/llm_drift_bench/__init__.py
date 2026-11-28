@@ -27,8 +27,10 @@ if TYPE_CHECKING:
     from llm_drift_bench.badge import (
         export_audit_badge_svg,
         export_badge_from_json,
+        export_consumer_badge_svg,
         export_conversation_badge_svg,
         export_drift_badge_svg,
+        export_rolling_badge_svg,
         export_tool_trace_badge_svg,
     )
     from llm_drift_bench.batch import evaluate_many
@@ -538,6 +540,7 @@ _EXPORTS: dict[str, str] = {
     "export_badge_from_json": "badge",
     "export_comparison_html": "reporter",
     "export_comparison_markdown": "_comparison_md",
+    "export_consumer_badge_svg": "badge",
     "export_consumer_html": "consumer",
     "export_consumer_pr_comment": "consumer",
     "export_conversation_badge_svg": "badge",
@@ -560,6 +563,7 @@ _EXPORTS: dict[str, str] = {
     "export_markdown_report": "reporter",
     "export_pr_comment": "reporter",
     "export_quality_html": "quality_checks",
+    "export_rolling_badge_svg": "badge",
     "export_rolling_html": "rolling",
     "export_rolling_pr_comment": "rolling",
     "export_sarif_report": "sarif",
@@ -836,6 +840,7 @@ __all__ = [
     "export_badge_from_json",
     "export_comparison_html",
     "export_comparison_markdown",
+    "export_consumer_badge_svg",
     "export_consumer_html",
     "export_consumer_pr_comment",
     "export_conversation_badge_svg",
@@ -858,6 +863,7 @@ __all__ = [
     "export_markdown_report",
     "export_pr_comment",
     "export_quality_html",
+    "export_rolling_badge_svg",
     "export_rolling_html",
     "export_rolling_pr_comment",
     "export_sarif_report",

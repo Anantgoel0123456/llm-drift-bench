@@ -189,3 +189,73 @@ def test_export_tool_trace_badge_svg_and_cli_auto_detect(
     with pytest.raises(ValueError, match="ToolTraceDiff"):
         export_badge_from_json(bad_tt)
 
+
+def test_export_consumer_and_rolling_badge_svg_and_cli_auto_detect(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+
+    from llm_drift_bench.badge import (
+        export_badge_from_json,
+        export_consumer_badge_svg,
+        export_rolling_badge_svg,
+    )
+    from llm_drift_bench.cli import main
+    from llm_drift_bench.consumer import ConsumerDecision, compare_consumer_decisions
+    from llm_drift_bench.models import ModelSample
+    from llm_drift_bench.rolling import analyze_rolling_distribution
+
+    cons_ok = compare_consumer_decisions(
+        [ConsumerDecision("p1", True)], [ConsumerDecision("p1", True)]
+    )
+    cons_fail = compare_consumer_decisions(
+        [ConsumerDecision("p1", True)],
+        [ConsumerDecision("p1", False, "err")],
+        max_rejection_increase=0.1,
+    )
+    assert "consumer: PASS 0.0%" in export_consumer_badge_svg(cons_ok)
+    assert "#d73a49" in export_consumer_badge_svg(cons_fail, output_path=tmp_path / "c.svg")
+    with pytest.raises(TypeError, match="ConsumerComparison"):
+        export_consumer_badge_svg({})  # type: ignore[arg-type]
+
+    cons_json = tmp_path / "cons.json"
+    cons_json.write_text(json.dumps(cons_fail.to_dict()), encoding="utf-8")
+    assert main(["badge", "-i", str(cons_json)]) == 0
+    assert "consumer: FAIL 100.0%" in capsys.readouterr().out
+
+    bad_cons = tmp_path / "bad_cons.json"
+    bad_cons.write_text(
+        json.dumps(
+            {
+                "baseline_rejection_rate": 0.0,
+                "candidate_rejection_rate": 0.1,
+                "passed": "nope",
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="ConsumerComparison"):
+        export_badge_from_json(bad_cons)
+
+    s1 = [ModelSample("p1", '{"k": "a"}')]
+    s2 = [ModelSample("p1", '{"k": "b"}')]
+    roll_ok = analyze_rolling_distribution([s1], s1, max_tvd=0.1)
+    roll_fail = analyze_rolling_distribution([s1], s2, max_tvd=0.1)
+    assert "rolling-dist: PASS TVD 0.00" in export_rolling_badge_svg(roll_ok)
+    assert "#d73a49" in export_rolling_badge_svg(roll_fail, output_path=tmp_path / "r.svg")
+    with pytest.raises(TypeError, match="RollingWindowReport"):
+        export_rolling_badge_svg({})  # type: ignore[arg-type]
+
+    roll_json = tmp_path / "roll.json"
+    roll_json.write_text(json.dumps(roll_ok.to_dict()), encoding="utf-8")
+    assert main(["badge", "-i", str(roll_json)]) == 0
+    assert "rolling-dist: PASS TVD 0.00" in capsys.readouterr().out
+
+    bad_roll = tmp_path / "bad_roll.json"
+    bad_roll.write_text(
+        json.dumps({"window_count": 1, "overall": "bad", "passed": True}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="RollingWindowReport"):
+        export_badge_from_json(bad_roll)
+

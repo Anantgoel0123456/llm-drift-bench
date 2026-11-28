@@ -505,7 +505,7 @@ def register_extra_subcommands(
         "-i",
         "--input",
         required=True,
-        help="Saved engine, audit, conversation, or tool-trace report JSON file.",
+        help="Saved engine, audit, conversation, tool-trace, consumer, or rolling report JSON.",
     )
     badge_p.add_argument(
         "-o", "--output", default=None, help="Optional output .svg path (stdout if omitted)."

@@ -8,9 +8,11 @@ from pathlib import Path
 
 from llm_drift_bench._file_io import parse_source_json, read_utf8
 from llm_drift_bench.audit import AuditReport
+from llm_drift_bench.consumer import ConsumerComparison
 from llm_drift_bench.conversation import ConversationDriftReport
 from llm_drift_bench.models import DriftBenchmarkReport
 from llm_drift_bench.report_io import load_engine_report
+from llm_drift_bench.rolling import RollingWindowReport
 from llm_drift_bench.tool_events import ToolTraceDiff
 
 
@@ -148,6 +150,42 @@ def export_tool_trace_badge_svg(
     )
 
 
+def export_consumer_badge_svg(
+    comparison: ConsumerComparison,
+    output_path: str | Path | None = None,
+    *,
+    label: str = "consumer",
+) -> str:
+    """Render an offline static SVG status badge summarizing a ConsumerComparison."""
+    if not isinstance(comparison, ConsumerComparison):
+        raise TypeError("export_consumer_badge_svg requires a ConsumerComparison instance.")
+    state = "PASS" if comparison.passed else "FAIL"
+    return _render_badge_svg(
+        label=label,
+        value=f"{state} {comparison.candidate_rejection_rate:.1%}",
+        passed=comparison.passed,
+        output_path=output_path,
+    )
+
+
+def export_rolling_badge_svg(
+    report: RollingWindowReport,
+    output_path: str | Path | None = None,
+    *,
+    label: str = "rolling-dist",
+) -> str:
+    """Render an offline static SVG status badge summarizing a RollingWindowReport."""
+    if not isinstance(report, RollingWindowReport):
+        raise TypeError("export_rolling_badge_svg requires a RollingWindowReport instance.")
+    state = "PASS" if report.passed else "FAIL"
+    return _render_badge_svg(
+        label=label,
+        value=f"{state} TVD {report.overall.max_tvd:.2f}",
+        passed=report.passed,
+        output_path=output_path,
+    )
+
+
 def _require_finite_metric(value: object, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         raise ValueError(f"Saved report field {field!r} must be a finite number.")
@@ -215,6 +253,39 @@ def export_badge_from_json(
         return _render_badge_svg(
             label="tool-trace" if label is None else label,
             value=f"{state} {jaccard:.2f}",
+            passed=passed,
+            output_path=output_path,
+        )
+
+    if (
+        "baseline_rejection_rate" in payload
+        and "candidate_rejection_rate" in payload
+        and "passed" in payload
+    ):
+        passed = payload["passed"]
+        if not isinstance(passed, bool):
+            raise ValueError(f"{source}: malformed saved ConsumerComparison JSON.")
+        cand_rate = _require_finite_metric(
+            payload.get("candidate_rejection_rate"), "candidate_rejection_rate"
+        )
+        state = "PASS" if passed else "FAIL"
+        return _render_badge_svg(
+            label="consumer" if label is None else label,
+            value=f"{state} {cand_rate:.1%}",
+            passed=passed,
+            output_path=output_path,
+        )
+
+    if "window_count" in payload and "overall" in payload and "passed" in payload:
+        passed = payload["passed"]
+        overall = payload["overall"]
+        if not isinstance(passed, bool) or not isinstance(overall, dict):
+            raise ValueError(f"{source}: malformed saved RollingWindowReport JSON.")
+        max_tvd = _require_finite_metric(overall.get("max_tvd"), "overall.max_tvd")
+        state = "PASS" if passed else "FAIL"
+        return _render_badge_svg(
+            label="rolling-dist" if label is None else label,
+            value=f"{state} TVD {max_tvd:.2f}",
             passed=passed,
             output_path=output_path,
         )
